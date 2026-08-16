@@ -2,7 +2,7 @@
   "id": "dsh-foxbell-pet",
   "version": "1.0.0",
   "main": "lib/index.js",
-  "description": "Foxbell 桌宠：DSH 网页右下角可拖拽的狐狸桌宠，多项目状态监控（绿运行/黄待批准/红报错/蓝完成）+ 完成语音提醒 + 🐰显隐开关。",
+  "description": "Foxbell 桌宠：DSH 网页右下角可拖拽的狐狸桌宠，多项目状态监控（绿运行/黄待批准/红报错/蓝完成）+ 完成语音提醒 + 🦊显隐开关。",
   "engines": {
     "dsh": ">=0.0.1"
   },

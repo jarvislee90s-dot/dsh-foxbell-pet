@@ -1,6 +1,6 @@
 {
   "name": "dsh-foxbell-pet",
-  "description": "DSH Web 右下角可拖拽的 Foxbell 桌宠：多项目状态监控（绿/黄/红/蓝状态灯）+ 完成语音提醒 + 🐰显隐开关。安装即用，素材随包自带，无需手动放置。",
+  "description": "DSH Web 右下角可拖拽的 Foxbell 桌宠：多项目状态监控（绿/黄/红/蓝状态灯）+ 完成语音提醒 + 🦊显隐开关。安装即用，素材随包自带，无需手动放置。",
   "version": "1.0.0",
   "license": "MIT",
   "type": "module",
@@ -35,7 +35,7 @@
     "cordis.patch.yml",
     "dsh.plugin.json",
     "README.md",
-    "README.zh.md",
+    "README.en.md",
     "LICENSE",
     "docs"
   ]

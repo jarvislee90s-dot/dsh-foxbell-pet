@@ -21,7 +21,7 @@ for (const j of ['package.json', 'dsh.plugin.json']) {
   catch { console.error('invalid JSON:', j); ok = false }
 }
 
-const textFiles = [...codeFiles, 'README.md', 'README.zh.md', 'CHANGELOG.md', 'package.json', 'dsh.plugin.json', 'assets/pet.json']
+const textFiles = [...codeFiles, 'README.md', 'README.en.md', 'CHANGELOG.md', 'package.json', 'dsh.plugin.json', 'assets/pet.json']
 for (const f of textFiles) {
   const p = path.join(root, f)
   if (!existsSync(p)) continue

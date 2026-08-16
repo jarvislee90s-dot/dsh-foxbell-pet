@@ -1,75 +1,75 @@
 # dsh-foxbell-pet
 
-A draggable **Foxbell** desktop pet for the DeepSeek Harness (DSH) Web UI — bottom-right of the page, with multi-project status monitoring, completion voice alerts, and a 🐰 show/hide switch. Assets ship inside the package: **install & go, no manual setup**.
+[中文](README.md) · [English](README.en.md)
+
+DeepSeek Harness（DSH）Web 网页右下角可拖拽的 **Foxbell 小狐狸桌宠**：多项目状态监控 + 完成语音提醒 + 🦊显隐开关。素材随包自带：**一键安装即用，无需手动放素材**。
 
 ![Foxbell](reference/桃子衣服粉狐狸形象.png)
 
-## Features
+## 功能
 
-- **Multi-project status monitor** — the pet's head shows one card per active project, each with a status light:
-  - 🟢 `running` — in progress
-  - 🟡 `approval` — waiting for your approval
-  - 🔴 `error` — turn failed / disconnected
-  - 🔵 `done` — finished, unread
-- **Click a card to switch sessions** — opens that conversation in the left sidebar & main area (`sessions.open`), and marks it read. A red/blue card disappears once you've clicked into it; a fresh error lights it up again.
-- **Completion voice alert** — when any project finishes, Foxbell waves and plays a random `voice/*.m4a`, subtitle aligned to the audio length.
-- **Voice interactions** — single-click the pet: just waves (no sound); double-click: speaks + waves; clicking a project card: only switches (no sound).
-- **🐰 show/hide switch** — a toggle button next to the sidebar Settings icon (like Codex's pet), persisted in `localStorage`.
-- **Equal-width card layout** — project bubbles are multi-line cards (bold title + status dot, then up to 2 lines of latest progress), all the same width.
+- **多项目状态监控** —— 桌宠头顶为每个"活跃项目"显示一张状态卡片，带状态灯：
+  - 🟢 `running` 正在运行
+  - 🟡 `approval` 有待批准
+  - 🔴 `error` 本轮报错 / 断联
+  - 🔵 `done` 已完成未读
+- **点卡片切换会话** —— 点击项目卡片直接切到该项目会话（左侧栏 + 中间区，`sessions.open`）并标记已读；红灯/已完成卡片**点进去即消失**，再次报错会重新亮红。
+- **完成语音提醒** —— 任意项目完成时随机播 `voice/*.m4a` + 挥手 + 字幕（字幕与语音时长对齐）。
+- **语音交互** —— 单击形象：只挥手（不出声）；双击形象：说话 + 挥手；点项目卡片：只切换（不出声）。
+- **🦊 显隐开关** —— 侧栏底部设置图标旁的开关（类似 Codex 的宠物开关），状态存 `localStorage`。
+- **卡片等宽** —— 项目气泡为多行卡片（加粗标题 + 状态点，第二、三行显示最新运行状态），横向等宽对齐。
 
-## Requirements
+## 环境要求
 
-- DeepSeek Harness (DSH) with a Web profile (`dsh web`).
-- Assets are bundled in the package — nothing else to download.
+- DeepSeek Harness（DSH）Web profile（`dsh web`）。
+- 素材已随包自带，无需额外下载。
 
-## Install (one click)
-
-From anywhere:
+## 安装（一键）
 
 ```sh
 dsh plugin --profile web add github:jarvislee90s-dot/dsh-foxbell-pet
 ```
 
-Then **restart `dsh web`** and hard-refresh the browser (**Cmd/Ctrl+Shift+R**). The pet appears bottom-right, with the 🐰 toggle beside Settings.
+然后**重启 `dsh web`** 并**硬刷新浏览器**（Cmd/Ctrl+Shift+R）。右下角即出现桌宠，设置旁有 🦊 开关。
 
-> The pet reads its spritesheet/voices from the package's own `assets/` directory at runtime — no manual placement needed.
+> 桌宠运行时从插件包自带目录 `assets/` 读取精灵图/语音，无需手动放置。
 
-## Usage
+## 使用
 
-| Interaction | Effect |
+| 交互 | 效果 |
 |---|---|
-| Drag | Move the pet anywhere |
-| Single-click pet | Waving only (no sound) |
-| Double-click pet | Speaks a random line + waves (subtitle = the voice name, timed to the audio) |
-| Click a project card | Switches to that conversation + marks read (no sound) |
-| 🐰 button (sidebar footer) | Show / hide the pet |
+| 拖动 | 任意移动桌宠 |
+| 单击形象 | 只挥手（不出声） |
+| 双击形象 | 随机说一句 + 挥手（字幕=语音文件名，与播放对齐） |
+| 点项目卡片 | 切换会话 + 标记已读（不出声） |
+| 🦊 按钮（侧栏底部） | 显示 / 隐藏桌宠 |
 
-Status lights: **green** running · **yellow** awaiting approval · **red** failed/disconnected · **blue** done-unread. Done and error cards hide once you open that conversation; re-occurring status lights it up again.
+状态灯：**绿** 运行 · **黄** 待批准 · **红** 报错/断联 · **蓝** 完成未读。done 与 error 卡片在打开对应会话后消失；状态再次出现会重新亮起。
 
-> ⚠️ The yellow light only appears when the approval policy is `ask` and an approval is actually pending; under `never` approvals auto-reject, so nothing pends.
+> ⚠️ 黄灯仅在审批策略为 `ask` 且确有等待批准的请求时出现；`never` 策略下审批自动拒绝，不会挂黄灯（符合语义）。
 
-## Customization
+## 自定义
 
-- **Voice**: drop `.m4a`/`.mp4` files into `assets/voice/` of the installed package — the filename becomes the subtitle text. Reinstall/restart to reload.
-- **Sprite**: replace `assets/spritesheet.webp` (Codex V2 sheet: 8 columns × 11 rows, 192×208 per frame; rows 0–8 are animations). See [docs/SPRITESHEET-CONTRACT.md](docs/SPRITESHEET-CONTRACT.md).
-- **Styles / truncation**: edit `lib/client.js` CSS and the `truncate(…, 24)` calls in `lib/index.js`, then rebuild (`npm run build`) and restart.
+- **换语音**：把 `.m4a`/`.mp4` 放进已装包的 `assets/voice/`，文件名就是字幕文字；重装/重启后生效。
+- **换形象**：替换 `assets/spritesheet.webp`（Codex V2 图集规格：8 列 × 11 行，每帧 192×208，行 0–8 为动画）。见 [docs/SPRITESHEET-CONTRACT.md](docs/SPRITESHEET-CONTRACT.md)。
+- **改样式/截断**：改 `lib/client.js` 的 CSS、`lib/index.js` 里的 `truncate(…, 24)`，然后 `npm run build` 并重启。
 
-## Development
+## 开发
 
 ```sh
-npm run build     # sync src/ → lib/ (plain JS, no transpile)
-npm run validate  # sanity checks: syntax, JSON, forbidden words, assets
+npm run build     # src/ → lib/（纯 JS，无需转译）
+npm run validate  # 校验：语法 / JSON / 禁用词 / 素材
 ```
 
 ```
 dsh-foxbell-pet/
-├── assets/          spritesheet + voices (shipped, read at runtime)
-├── lib/             shipped host/client (main + ./client entry)
-├── src/             source (same plain JS; build copies to lib/)
-├── reference/       design reference image
-├── docs/            sprite-sheet contract
-├── scripts/         build + validate
-├── demo/            standalone sprite preview page
+├── assets/         精灵图 + 语音（随包发布，运行时读取）
+├── lib/            发布版 host/client（main 与 ./client 入口）
+├── src/            源码（同款纯 JS；build 拷贝到 lib/）
+├── reference/      形象参考图
+├── docs/           图集规格说明
+├── scripts/        构建 + 校验脚本
+├── demo/           独立预览页
 ├── package.json  dsh.plugin.json  cordis.patch.yml
 └── README.md  README.zh.md  LICENSE  CHANGELOG.md
 ```

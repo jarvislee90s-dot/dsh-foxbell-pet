@@ -17,7 +17,7 @@ All notable changes to this project are documented in this file.
   audio length.
 - Voice interactions: single-click = wave only; double-click = speak + wave;
   clicking a card = switch only (no sound).
-- 🐰 show/hide switch next to the sidebar Settings icon, persisted in
+- 🦊 show/hide switch next to the sidebar Settings icon, persisted in
   `localStorage`.
 - Equal-width multi-line project cards (bold title + status dot + latest
   progress).
