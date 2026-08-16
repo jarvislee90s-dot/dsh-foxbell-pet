@@ -14,8 +14,12 @@ A draggable **Foxbell** desktop pet for the DeepSeek Harness (DSH) Web UI — bo
   - 🔴 `error` — turn failed / disconnected
   - 🔵 `done` — finished, unread
 - **Click a card to switch sessions** — opens that conversation in the left sidebar & main area (`sessions.open`), and marks it read. A red/blue card disappears once you've clicked into it; a fresh error lights it up again.
-- **Completion voice alert** — when any project finishes, Foxbell waves and plays a random `voice/*.m4a`, subtitle aligned to the audio length.
+- **Completion voice alert** — when any project finishes, Foxbell jumps happily and plays a random `voice/*.m4a`, subtitle aligned to the audio length.
 - **Voice interactions** — single-click the pet: just waves (no sound); double-click: speaks + waves; clicking a project card: only switches (no sound).
+- **State-driven animations** (all 11 Codex V2 atlas rows used) — the animation follows interaction and task state:
+  - Drag direction: drag left → **run left**, drag right → **run right**, drag up → **jump**;
+  - Task state: any project **error** → sad pose, **completion** → happy jump, **awaiting approval** → waiting pose, **done-unread** → review pose, own session running → working pose;
+  - While idle it **looks around** (look rows 9→10, a continuous 16-frame left-to-right sweep).
 - **🦊 show/hide switch** — a toggle button next to the sidebar Settings icon (like Codex's pet), persisted in `localStorage`.
 - **Equal-width card layout** — project bubbles are multi-line cards (bold title + status dot, then up to 2 lines of latest progress), all the same width.
 

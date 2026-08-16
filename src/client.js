@@ -10,8 +10,21 @@ window.__ModuleLoader__.load({
 
     const ANIM = {
       idle: { row: 0, frames: 6, dur: 960, css: 'dyn-pet-anim-idle' },
+      'run-right': { row: 1, frames: 8, dur: 960, css: 'dyn-pet-anim-run-right' },
+      'run-left': { row: 2, frames: 8, dur: 960, css: 'dyn-pet-anim-run-left' },
       waving: { row: 3, frames: 4, dur: 560, css: 'dyn-pet-anim-waving' },
       jumping: { row: 4, frames: 5, dur: 700, css: 'dyn-pet-anim-jumping' },
+      failed: { row: 5, frames: 8, dur: 1120, css: 'dyn-pet-anim-failed' },
+      waiting: { row: 6, frames: 6, dur: 900, css: 'dyn-pet-anim-waiting' },
+      running: { row: 7, frames: 6, dur: 720, css: 'dyn-pet-anim-running' },
+      review: { row: 8, frames: 6, dur: 900, css: 'dyn-pet-anim-review' },
+    }
+    // look 行 9+10：16 向顺时针（行9 列0..7 → 行10 列0..7），连续从左到右
+    const LOOK_FRAMES = []
+    for (let i = 0; i < 16; i++) {
+      const row = i < 8 ? 9 : 10
+      const col = i % 8
+      LOOK_FRAMES.push({ x: -col * 192, y: -(row * 208) })
     }
     const STORE_KEY = 'dyn-pet-foxbell-visible'
     const STATE_URL = '/dyn-pet-foxbell/state'
@@ -75,18 +88,90 @@ window.__ModuleLoader__.load({
       const projectsRef = React.useRef([])
       projectsRef.current = projects
 
-      React.useEffect(() => {
-        const timers = timersRef.current
-        const later = (fn, ms) => {
-          const dispose = petCtx.timeout(() => {
-            const i = timers.indexOf(dispose)
-            if (i >= 0) timers.splice(i, 1)
-            fn()
-          }, ms)
-          timers.push(dispose)
-          return dispose
-        }
+      const [lookFrame, setLookFrame] = React.useState(-1)
+      const stateRef = React.useRef({ drag: null, transient: null, task: null, look: false })
+      const transientGenRef = React.useRef(0)
+      const bubbleGenRef = React.useRef(0)
+      const prevStatusRef = React.useRef({})
+      const lookStopRef = React.useRef(null)
 
+      const later = (fn, ms) => {
+        const dispose = petCtx.timeout(() => {
+          const i = timersRef.current.indexOf(dispose)
+          if (i >= 0) timersRef.current.splice(i, 1)
+          fn()
+        }, ms)
+        timersRef.current.push(dispose)
+        return dispose
+      }
+      // 状态机：拖拽 > 瞬时事件 > 任务态 > look > idle
+      const refreshAnim = () => {
+        const s = stateRef.current
+        if (s.drag) return setAnim(s.drag)
+        if (s.transient) return setAnim(s.transient)
+        if (s.task) return setAnim(s.task)
+        if (s.look) return setAnim('look')
+        setAnim('idle')
+      }
+      const playTransient = (anim, ms) => {
+        const s = stateRef.current
+        const gen = ++transientGenRef.current
+        s.transient = anim
+        refreshAnim()
+        later(() => {
+          if (transientGenRef.current === gen && s.transient === anim) {
+            s.transient = null
+            refreshAnim()
+          }
+        }, ms)
+      }
+      const showBubble = (text, ms) => {
+        const gen = ++bubbleGenRef.current
+        setBubble(text)
+        later(() => { if (bubbleGenRef.current === gen) setBubble(null) }, ms)
+      }
+      const stopLook = () => {
+        if (lookStopRef.current) {
+          const d = lookStopRef.current
+          lookStopRef.current = null
+          try { d() } catch {}
+          const idx = timersRef.current.indexOf(d)
+          if (idx >= 0) timersRef.current.splice(idx, 1)
+        }
+        if (stateRef.current.look) {
+          stateRef.current.look = false
+          setLookFrame(-1)
+        }
+      }
+      const startLook = () => {
+        const s = stateRef.current
+        if (s.drag || s.transient || s.task || s.look) return
+        s.look = true
+        setLookFrame(0)
+        refreshAnim()
+        let i = 0
+        const stop = petCtx.interval(() => {
+          i += 1
+          if (i >= LOOK_FRAMES.length) {
+            stopLook()
+            refreshAnim()
+            scheduleNextLook()
+          } else {
+            setLookFrame(i)
+          }
+        }, 250)
+        lookStopRef.current = stop
+        timersRef.current.push(stop)
+      }
+      const scheduleNextLook = () => {
+        later(() => {
+          const s = stateRef.current
+          if (!s.drag && !s.transient && !s.task) startLook()
+          else scheduleNextLook()
+        }, 6000)
+      }
+
+      React.useEffect(() => {
         const audio = document.createElement('audio')
         audio.id = 'dyn-pet-foxbell-audio'
         audio.preload = 'auto'
@@ -96,12 +181,11 @@ window.__ModuleLoader__.load({
         const MIN_SPEECH = 2500
         // 播一段语音并显示字幕：字幕显示的就是播放的那条语音（voice.name）；
         // 字幕时长 = max(最短 2.5s, 语音时长 + 0.25s)，以时间长的为准。
-        const playVoice = (voice, text) => {
+        const playVoice = (voice, text, anim) => {
           if (!voice) return
           const gen = ++speechGenRef.current
           setBubble(text || voice.name)
-          setAnim('waving')
-          later(() => { if (speechGenRef.current === gen) setAnim('idle') }, 1700)
+          playTransient(anim || 'waving', 1700)
           audio.muted = false
           audio.src = '/dyn-pet-foxbell/voice/' + voice.index
           const pr = audio.play()
@@ -134,7 +218,7 @@ window.__ModuleLoader__.load({
           let pick = Math.floor(Math.random() * list.length)
           if (list.length > 1) { while (pick === lastVoiceRef.current) pick = Math.floor(Math.random() * list.length) }
           lastVoiceRef.current = pick
-          playVoice(list[pick])
+          playVoice(list[pick], undefined, 'waving')
         }
 
         const ack = (agentId) => {
@@ -151,6 +235,33 @@ window.__ModuleLoader__.load({
               ack(p.id)
             }
           }
+          // ---- 状态驱动动画：任务状态差分 ----
+          const prev = prevStatusRef.current
+          const statuses = {}
+          let anyApproval = false
+          let anyDoneUnread = false
+          let ownRunning = false
+          let errTitle = null
+          for (const p of list) {
+            if (!p || !p.id) continue
+            statuses[p.id] = p.status
+            if (p.status === 'approval') anyApproval = true
+            if (p.status === 'done' && p.unread) anyDoneUnread = true
+            if (p.id === active && p.status === 'running') ownRunning = true
+            if (p.status === 'error' && prev[p.id] !== 'error' && !errTitle) errTitle = p.title || '任务'
+          }
+          prevStatusRef.current = statuses
+          // 出错 → 委屈动画 + 字幕（不播语音，语音均为正向句子）
+          if (errTitle) {
+            showBubble('呜… ' + errTitle + ' 报错了', 3000)
+            playTransient('failed', 2500)
+          }
+          // 持续任务态：待批准(waiting) > 完成未读(review) > 自身运行(running)
+          const task = anyApproval ? 'waiting' : (anyDoneUnread ? 'review' : (ownRunning ? 'running' : null))
+          if (stateRef.current.task !== task) {
+            stateRef.current.task = task
+            refreshAnim()
+          }
         }
         const handleCompletions = (list) => {
           if (!Array.isArray(list) || list.length === 0) return
@@ -163,7 +274,7 @@ window.__ModuleLoader__.load({
           let pick = Math.floor(Math.random() * vl.length)
           if (vl.length > 1) { while (pick === lastVoiceRef.current) pick = Math.floor(Math.random() * vl.length) }
           lastVoiceRef.current = pick
-          playVoice(vl[pick], text)
+          playVoice(vl[pick], text, 'jumping')
         }
 
         const refresh = () => fetch(STATE_URL)
@@ -181,11 +292,13 @@ window.__ModuleLoader__.load({
           .catch(() => {})
 
         refresh()
+        scheduleNextLook()
         const dispose = petCtx.interval(() => refresh(), 1500)
 
         return () => {
           dispose()
-          for (const t of timers.splice(0)) t()
+          stopLook()
+          for (const t of timersRef.current.splice(0)) t()
           audio.remove()
           audioRef.current = null
           playRef.current = null
@@ -217,25 +330,39 @@ window.__ModuleLoader__.load({
           }
         }
         const rect = e.currentTarget.getBoundingClientRect()
-        dragRef.current = { pointerId: e.pointerId, dx: e.clientX - rect.left, dy: e.clientY - rect.top, moved: false }
+        dragRef.current = { pointerId: e.pointerId, dx: e.clientX - rect.left, dy: e.clientY - rect.top, lastX: e.clientX, lastY: e.clientY, moved: false }
+        stopLook()
         try { e.currentTarget.setPointerCapture(e.pointerId) } catch {}
       }
       const onPointerMove = (e) => {
         const d = dragRef.current
         if (!d || d.pointerId !== e.pointerId) return
         d.moved = true
+        const dx = e.clientX - d.lastX
+        const dy = e.clientY - d.lastY
+        d.lastX = e.clientX
+        d.lastY = e.clientY
         setPos({ x: e.clientX - d.dx, y: e.clientY - d.dy })
+        // 方向动画：上拖→跳跃；左拖→向左跑；右拖→向右跑
+        let dir = null
+        if (dy < -8) dir = 'jumping'
+        else if (dx < -6) dir = 'run-left'
+        else if (dx > 6) dir = 'run-right'
+        if (dir && stateRef.current.drag !== dir) {
+          stateRef.current.drag = dir
+          refreshAnim()
+        }
       }
       const onPointerUp = (e) => {
         const d = dragRef.current
         if (!d || d.pointerId !== e.pointerId) return
         dragRef.current = null
+        stateRef.current.drag = null
         if (!d.moved) {
           // 单击形象：只挥手，不说话
-          setAnim('waving')
-          const dispose = petCtx.timeout(() => setAnim('idle'), 1700)
-          timersRef.current.push(dispose)
+          playTransient('waving', 1700)
         }
+        refreshAnim()
         const audio = audioRef.current
         if (blockedRef.current && audio && audio.src) {
           const p = audio.play()
@@ -249,6 +376,9 @@ window.__ModuleLoader__.load({
       }
 
       const spriteStyle = { width: 192, height: 208, backgroundImage: "url('/dyn-pet-foxbell/spritesheet.webp')", backgroundSize: '1536px 2288px', cursor: 'grab' }
+      if (anim === 'look' && lookFrame >= 0) {
+        spriteStyle.backgroundPosition = LOOK_FRAMES[lookFrame].x + 'px ' + LOOK_FRAMES[lookFrame].y + 'px'
+      }
       const rootStyle = { position: 'fixed', zIndex: 2147483000, pointerEvents: 'auto', touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none' }
       if (pos) { rootStyle.left = pos.x; rootStyle.top = pos.y }
       else { rootStyle.right = 24; rootStyle.bottom = 76 }
@@ -283,7 +413,7 @@ window.__ModuleLoader__.load({
         ),
         bubble ? React.createElement('div', { className: 'dyn-pet-bubble' }, bubble) : null,
         React.createElement('div', {
-          className: 'dyn-pet-sprite ' + (ANIM[anim] ? ANIM[anim].css : ANIM.idle.css),
+          className: 'dyn-pet-sprite ' + (anim === 'look' ? 'dyn-pet-anim-look' : (ANIM[anim] ? ANIM[anim].css : ANIM.idle.css)),
           style: spriteStyle,
         }),
       )
@@ -300,9 +430,22 @@ window.__ModuleLoader__.load({
         @keyframes dyn-pet-idle { from { background-position: 0px 0px; } to { background-position: -1152px 0px; } }
         @keyframes dyn-pet-waving { from { background-position: 0px -624px; } to { background-position: -768px -624px; } }
         @keyframes dyn-pet-jumping { from { background-position: 0px -832px; } to { background-position: -960px -832px; } }
+        @keyframes dyn-pet-run-right { from { background-position: 0px -208px; } to { background-position: -1536px -208px; } }
+        @keyframes dyn-pet-run-left { from { background-position: 0px -416px; } to { background-position: -1536px -416px; } }
+        @keyframes dyn-pet-failed { from { background-position: 0px -1040px; } to { background-position: -1536px -1040px; } }
+        @keyframes dyn-pet-waiting { from { background-position: 0px -1248px; } to { background-position: -1152px -1248px; } }
+        @keyframes dyn-pet-running { from { background-position: 0px -1456px; } to { background-position: -1152px -1456px; } }
+        @keyframes dyn-pet-review { from { background-position: 0px -1664px; } to { background-position: -1152px -1664px; } }
         .dyn-pet-anim-idle { animation: dyn-pet-idle 0.96s steps(6, end) infinite; }
         .dyn-pet-anim-waving { animation: dyn-pet-waving 0.56s steps(4, end) infinite; }
         .dyn-pet-anim-jumping { animation: dyn-pet-jumping 0.7s steps(5, end) infinite; }
+        .dyn-pet-anim-run-right { animation: dyn-pet-run-right 0.96s steps(8, end) infinite; }
+        .dyn-pet-anim-run-left { animation: dyn-pet-run-left 0.96s steps(8, end) infinite; }
+        .dyn-pet-anim-failed { animation: dyn-pet-failed 1.12s steps(8, end) infinite; }
+        .dyn-pet-anim-waiting { animation: dyn-pet-waiting 0.9s steps(6, end) infinite; }
+        .dyn-pet-anim-running { animation: dyn-pet-running 0.72s steps(6, end) infinite; }
+        .dyn-pet-anim-review { animation: dyn-pet-review 0.9s steps(6, end) infinite; }
+        .dyn-pet-anim-look { animation: none; }
         .dyn-pet-top {
           position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); margin-bottom: 10px;
           display: flex; flex-direction: column; align-items: center; gap: 5px; pointer-events: none; z-index: 3;
