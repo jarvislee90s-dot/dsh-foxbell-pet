@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.1.1] - 2026-08-16
+
+### Fixed
+- Voice loading delay on double-click / completion: each voice file is now
+  preloaded into its own `Audio` element when the voice list syncs, so playing
+  starts instantly instead of fetching the file on every play. Subtitle timing
+  is unchanged (still aligned to the preloaded element's real duration).
+
 ## [1.1.0] - 2026-08-16
 
 ### Added

@@ -77,6 +77,7 @@ window.__ModuleLoader__.load({
 
       const dragRef = React.useRef(null)
       const audioRef = React.useRef(null)
+      const voiceElsRef = React.useRef(null)
       const blockedRef = React.useRef(false)
       const unlockRef = React.useRef(false)
       const sinceRef = React.useRef(null)
@@ -186,9 +187,19 @@ window.__ModuleLoader__.load({
           const gen = ++speechGenRef.current
           setBubble(text || voice.name)
           playTransient(anim || 'waving', 1700)
-          audio.muted = false
-          audio.src = '/dyn-pet-foxbell/voice/' + voice.index
-          const pr = audio.play()
+          // 优先用预加载元素（即时出声）；没有则回退共享 audio
+          const el = voiceElsRef.current ? voiceElsRef.current[voice.index] : undefined
+          const target = el || audio
+          if (!el) {
+            audio.muted = false
+            audio.src = '/dyn-pet-foxbell/voice/' + voice.index
+          } else {
+            // 暂停其它在播的预载元素
+            for (const a of voiceElsRef.current) { if (a !== el && !a.paused) { try { a.pause() } catch {} } }
+            el.currentTime = 0
+            el.muted = false
+          }
+          const pr = target.play()
           if (pr && typeof pr.catch === 'function') pr.catch(() => { blockedRef.current = true })
           let scheduled = false
           const schedule = (ms) => {
@@ -197,17 +208,17 @@ window.__ModuleLoader__.load({
             later(() => { if (speechGenRef.current === gen) setBubble(null) }, ms)
           }
           const tryDuration = () => {
-            const d = Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration * 1000 : 0
+            const d = Number.isFinite(target.duration) && target.duration > 0 ? target.duration * 1000 : 0
             schedule(Math.max(MIN_SPEECH, d + 250))
           }
-          if (Number.isFinite(audio.duration) && audio.duration > 0) {
+          if (Number.isFinite(target.duration) && target.duration > 0) {
             tryDuration()
           } else {
             const onMeta = () => {
-              audio.removeEventListener('loadedmetadata', onMeta)
+              target.removeEventListener('loadedmetadata', onMeta)
               tryDuration()
             }
-            audio.addEventListener('loadedmetadata', onMeta)
+            target.addEventListener('loadedmetadata', onMeta)
             later(() => { if (!scheduled) schedule(MIN_SPEECH) }, MIN_SPEECH + 800)
           }
         }
@@ -283,7 +294,16 @@ window.__ModuleLoader__.load({
             if (!r || typeof r !== 'object' || typeof r.seq !== 'number') return
             const since = sinceRef.current
             sinceRef.current = r.seq
-            if (Array.isArray(r.voices) && voicesRef.current.length === 0) voicesRef.current = r.voices
+            if (Array.isArray(r.voices) && voicesRef.current.length === 0) {
+              voicesRef.current = r.voices
+              // 预加载语音：每个文件一个 Audio 元素，双击/完成时即时出声（避免每次现场拉取）
+              voiceElsRef.current = r.voices.map((v) => {
+                const a = new Audio('/dyn-pet-foxbell/voice/' + v.index)
+                a.preload = 'auto'
+                a.load()
+                return a
+              })
+            }
             applyProjects(r.projects)
             if (since !== null && Array.isArray(r.completions)) {
               handleCompletions(r.completions.filter((c) => c && typeof c.seq === 'number' && c.seq > since))
@@ -299,6 +319,10 @@ window.__ModuleLoader__.load({
           dispose()
           stopLook()
           for (const t of timersRef.current.splice(0)) t()
+          if (voiceElsRef.current) {
+            for (const a of voiceElsRef.current) { try { a.pause(); a.src = '' } catch {} }
+            voiceElsRef.current = null
+          }
           audio.remove()
           audioRef.current = null
           playRef.current = null
