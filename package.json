@@ -1,0 +1,42 @@
+{
+  "name": "dsh-foxbell-pet",
+  "description": "DSH Web 右下角可拖拽的 Foxbell 桌宠：多项目状态监控（绿/黄/红/蓝状态灯）+ 完成语音提醒 + 🐰显隐开关。安装即用，素材随包自带，无需手动放置。",
+  "version": "1.0.0",
+  "license": "MIT",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-api-gateway"
+      ]
+    }
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "validate": "node scripts/validate.mjs"
+  },
+  "files": [
+    "lib",
+    "assets",
+    "cordis.patch.yml",
+    "dsh.plugin.json",
+    "README.md",
+    "README.zh.md",
+    "LICENSE",
+    "docs"
+  ]
+}

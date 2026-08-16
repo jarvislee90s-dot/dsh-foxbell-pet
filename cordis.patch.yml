@@ -1,0 +1,4 @@
+# dsh-foxbell-pet bundle patch: mount the host plugin under its package name.
+- insert:
+    - id: dsh-foxbell-pet
+      name: dsh-foxbell-pet

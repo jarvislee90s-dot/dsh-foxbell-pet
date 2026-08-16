@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Foxbell 桌宠预览</title>
+<style>
+  body { margin:0; min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:24px;
+         background:#fdf6ec; font-family:system-ui,-apple-system,sans-serif; color:#7a4a2b; }
+  .pet { width:192px; height:208px; background-image:url('../assets/spritesheet.webp');
+         background-size:1536px 2288px; animation:idle 0.96s steps(6,end) infinite; }
+  .pet.waving { animation:waving 0.56s steps(4,end) infinite; }
+  @keyframes idle   { from { background-position:0 0 }     to { background-position:-1152px 0 } }
+  @keyframes waving { from { background-position:0 -624px } to { background-position:-768px -624px } }
+  .tip { font-size:14px; color:#a07050; }
+  button { font-size:13px; padding:6px 16px; border-radius:999px; border:1px solid rgba(122,74,43,.35);
+           background:#fff; color:#7a4a2b; cursor:pointer; }
+</style>
+</head>
+<body>
+  <div class="pet" id="pet"></div>
+  <div class="tip">Foxbell · DSH 网页右下角桌宠（多项目状态监控 + 语音 + 🐰开关）</div>
+  <button id="btn">挥手一下</button>
+  <script>
+    const pet = document.getElementById('pet')
+    let t
+    document.getElementById('btn').onclick = () => {
+      pet.classList.add('waving')
+      clearTimeout(t)
+      t = setTimeout(() => pet.classList.remove('waving'), 1700)
+    }
+  </script>
+</body>
+</html>
