@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.1.2] - 2026-08-16
+
+### Changed
+- All animations now run on a JS frame stepper replicating the Codex V2
+  contract's per-frame timing (with a longer hold on the final frame of each
+  loop), instead of uniform CSS `steps()`. This makes the motion calmer and
+  more natural. Frame timings per row: idle 280/110/110/140/140/320,
+  running 120×n+220, waving/jumping 140×n+280, failed 140×7+240,
+  waiting/review 150×5+260/280 ms. Look rows keep the 16-frame clockwise
+  sweep (250 ms/frame).
+
 ## [1.1.1] - 2026-08-16
 
 ### Fixed
