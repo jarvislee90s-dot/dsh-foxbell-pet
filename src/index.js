@@ -50,18 +50,32 @@ export async function apply(ctx) {
         const spriteTarget = await fs.resolve(ASSET_DIR + '/spritesheet.webp')
         const st = await fs.stat(spriteTarget)
         if (st && typeof st.size === 'number') spriteBytes = await fs.readBytes(spriteTarget, undefined, st.size + 1)
-        let entries = []
-        try { entries = await fs.listDir(await fs.resolve(ASSET_DIR + '/voice')) } catch (err) { diag.loadError = diag.loadError || ('voice dir failed: ' + String(err && err.message || err)) }
-        if (entries.length === 0) { try { entries = await fs.listDir(await fs.resolve(ASSET_DIR)) } catch { entries = [] } }
-        const files = entries.filter((e) => e && e.type === 'file' && /\.(m4a|mp4)$/i.test(e.name)).sort((a, b) => a.name.localeCompare(b.name, 'zh'))
         let index = 0
-        for (const e of files) {
-          try {
-            const info = await fs.stat(e.target)
-            const bytes = info && typeof info.size === 'number' ? await fs.readBytes(e.target, undefined, info.size + 1) : null
-            if (bytes && bytes.length > 0) { voices.push({ index, name: e.name.replace(/\.(m4a|mp4)$/i, ''), bytes }); index += 1 }
-          } catch (err) { console.error('voice load failed:', String(err && err.message || err)) }
+        // 语音按子文件夹分组：顶层文件 → general；子文件夹 → 文件夹名作组（approval/error/done/...）
+        const loadVoiceFiles = async (target, group) => {
+          let entries = []
+          try { entries = await fs.listDir(target) } catch (err) { if (group === 'general') diag.loadError = diag.loadError || ('voice dir failed: ' + String(err && err.message || err)); return }
+          const files = entries.filter((e) => e && e.type === 'file' && /\.(m4a|mp4)$/i.test(e.name)).sort((a, b) => a.name.localeCompare(b.name, 'zh'))
+          for (const e of files) {
+            try {
+              const info = await fs.stat(e.target)
+              const bytes = info && typeof info.size === 'number' ? await fs.readBytes(e.target, undefined, info.size + 1) : null
+              if (bytes && bytes.length > 0) { voices.push({ index, name: e.name.replace(/\.(m4a|mp4)$/i, ''), bytes, group }); index += 1 }
+            } catch (err) { console.error('voice load failed:', String(err && err.message || err)) }
+          }
         }
+        let voiceTarget = null
+        try { voiceTarget = await fs.resolve(ASSET_DIR + '/voice') } catch {}
+        if (voiceTarget) {
+          await loadVoiceFiles(voiceTarget, 'general')
+          let voiceTop = []
+          try { voiceTop = await fs.listDir(voiceTarget) } catch { voiceTop = [] }
+          for (const d of voiceTop) {
+            if (d && d.type === 'directory') await loadVoiceFiles(d.target, d.name)
+          }
+        }
+        // 无 voice 目录（素材平铺）时的兜底
+        if (index === 0) await loadVoiceFiles(await fs.resolve(ASSET_DIR), 'general')
       }
     }
   } catch (err) {
@@ -235,7 +249,7 @@ export async function apply(ctx) {
     completions: queue,
     runningSessions: projectsList().filter((p) => p.status === 'running').length,
     projects: projectsList(),
-    voices: voices.map((v) => ({ index: v.index, name: v.name })),
+    voices: voices.map((v) => ({ index: v.index, name: v.name, group: v.group || 'general' })),
   })
 
   const json = (res, body) => {

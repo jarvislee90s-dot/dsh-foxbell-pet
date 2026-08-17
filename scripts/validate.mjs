@@ -28,7 +28,7 @@ for (const f of textFiles) {
   if (readFileSync(p, 'utf8').includes('玲娜')) { console.error('forbidden wording 玲娜 in:', f); ok = false }
 }
 
-for (const a of ['assets/spritesheet.webp', 'assets/voice/你下班了吗.m4a']) {
+for (const a of ['assets/spritesheet.webp', 'assets/voice/general/你下班了吗.m4a']) {
   if (!existsSync(path.join(root, a))) { console.error('missing asset:', a); ok = false }
 }
 
