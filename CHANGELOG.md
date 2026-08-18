@@ -2,6 +2,21 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.2.0] - 2026-08-18
+
+### Added
+- Voice library now grouped by status into four folders under `assets/voice/`:
+  `general` (double-click chat), `approval` (awaiting-approval, 10s-throttled),
+  `error` (task failed), `done` (task completed). File name is the subtitle.
+  Running (green) stays silent; empty groups skip silently.
+- 31 new child-voice clips produced from a user-recorded video and shipped
+  with the package (7 error / 6 approval / 7 done / 11 general), replacing the
+  previous 4 general clips.
+
+### Changed
+- `scripts/validate.mjs` now checks every voice group dir is present and
+  non-empty instead of a single hard-coded file.
+
 ## [1.1.2] - 2026-08-16
 
 ### Changed

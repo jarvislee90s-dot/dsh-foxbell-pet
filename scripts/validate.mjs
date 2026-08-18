@@ -1,6 +1,6 @@
 // validate.mjs — sanity checks before publishing.
 // Verifies: file presence + syntax, JSON validity, no forbidden wording, assets present.
-import { readFileSync, existsSync } from 'node:fs'
+import { readFileSync, existsSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { execSync } from 'node:child_process'
 import path from 'node:path'
@@ -28,8 +28,16 @@ for (const f of textFiles) {
   if (readFileSync(p, 'utf8').includes('玲娜')) { console.error('forbidden wording 玲娜 in:', f); ok = false }
 }
 
-for (const a of ['assets/spritesheet.webp', 'assets/voice/general/你下班了吗.m4a']) {
+for (const a of ['assets/spritesheet.webp']) {
   if (!existsSync(path.join(root, a))) { console.error('missing asset:', a); ok = false }
+}
+
+// Voice groups must all exist and each contain at least one m4a.
+for (const g of ['general', 'approval', 'error', 'done']) {
+  const dir = path.join(root, 'assets/voice', g)
+  if (!existsSync(dir)) { console.error('missing voice group dir:', g); ok = false; continue }
+  const files = readdirSync(dir).filter(f => f.endsWith('.m4a'))
+  if (files.length === 0) { console.error('voice group empty:', g); ok = false }
 }
 
 console.log(ok ? 'VALIDATE OK' : 'VALIDATE FAILED')

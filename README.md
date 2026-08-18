@@ -50,11 +50,25 @@ dsh plugin --profile web add github:jarvislee90s-dot/dsh-foxbell-pet
 
 状态灯：**绿** 运行 · **黄** 待批准 · **红** 报错/断联 · **蓝** 完成未读。done 与 error 卡片在打开对应会话后消失；状态再次出现会重新亮起。
 
+## 语音分组
+
+`assets/voice/` 按状态分 4 个子文件夹，文件名即字幕文字：
+
+| 文件夹 | 触发时机 | 说明 |
+|---|---|---|
+| `general/` | 双击形象 | 闲聊（随机、组内不连续重复） |
+| `approval/` | 出现待批准（黄灯） | 撒娇催促，10s 限频防刷屏 |
+| `error/` | 任务报错（红灯） | 委屈/傲娇台词 |
+| `done/` | 任务完成（蓝灯） | 求夸/元气台词 |
+
+运行（绿）不播语音。空组静默跳过、不报错。
+
 > ⚠️ 黄灯仅在审批策略为 `ask` 且确有等待批准的请求时出现；`never` 策略下审批自动拒绝，不会挂黄灯（符合语义）。
 
 ## 自定义
 
-- **换语音**：把 `.m4a`/`.mp4` 放进已装包的 `assets/voice/`，文件名就是字幕文字；重装/重启后生效。
+- **换语音**：把 `.m4a` 放进已装包的 `assets/voice/<组>/`（组名见上表），文件名就是字幕文字；重装/重启后生效。
+- **本机开发安装**：用 `dsh plugin --profile web add` 装的是指向本仓库的 symlink（`~/.dsh/profiles/web/node_modules/dsh-foxbell-pet`），改完 `assets/` 或 `lib/` 后**重启 `dsh web`** 并硬刷新浏览器即生效，无需重装。
 - **换形象**：替换 `assets/spritesheet.webp`（Codex V2 图集规格：8 列 × 11 行，每帧 192×208，行 0–8 为动画）。见 [docs/SPRITESHEET-CONTRACT.md](docs/SPRITESHEET-CONTRACT.md)。
 - **改样式/截断**：改 `lib/client.js` 的 CSS、`lib/index.js` 里的 `truncate(…, 24)`，然后 `npm run build` 并重启。
 
