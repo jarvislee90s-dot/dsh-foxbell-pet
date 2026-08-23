@@ -22,6 +22,9 @@ DeepSeek Harness（DSH）Web 网页右下角可拖拽的 **Foxbell 小狐狸桌�
   - 空闲时**东张西望**（look 行 9→10 连续 16 帧从左到右播一圈）。
 - **🦊 显隐开关** —— 侧栏底部设置图标旁的开关（类似 Codex 的宠物开关），状态存 `localStorage`。
 - **卡片等宽** —— 项目气泡为多行卡片（加粗标题 + 状态点，第二、三行显示最新运行状态），横向等宽对齐。
+- **右键菜单**（v1.3.0）—— 右键桌宠弹出菜单：🔊声音 / 📣完成时喊 / 💬气泡 开关，🎯完成时动作与 👉戳我动作 绑定，以及「表演一下」「🦊隐藏桌宠」「ℹ️关于」。
+- **拖拽物理手感**（v1.3.0）—— 松手**重力坠落**、水平**抛掷惯性**、落地**压扁回弹**（动画跟随拖动方向）。
+- **设置卡片**（v1.3.0，dsh rc.7+）—— 设置页插件配置区，与右键菜单读写**同一份配置**（本地 `localStorage` + settings scope 双后端，Host 持久化到 `~/.dsh/settings.yaml`）。
 
 ## 环境要求
 
@@ -43,7 +46,9 @@ dsh plugin --profile web add github:jarvislee90s-dot/dsh-foxbell-pet
 | 交互 | 效果 |
 |---|---|
 | 拖动 | 任意移动桌宠 |
-| 单击形象 | 只挥手（不出声） |
+| 拖拽后松手 | 重力坠落 / 水平抛掷惯性 / 落地压扁回弹 |
+| 右键桌宠 | 打开菜单（声音/完成时喊/气泡开关、完成时动作与戳我动作绑定、表演一下、隐藏、关于） |
+| 单击形象 | 播「戳我动作」（默认挥手） |
 | 双击形象 | 随机说一句 + 挥手（字幕=语音文件名，与播放对齐） |
 | 点项目卡片 | 切换会话 + 标记已读（不出声） |
 | 🦊 按钮（侧栏底部） | 显示 / 隐藏桌宠 |
@@ -89,7 +94,7 @@ dsh-foxbell-pet/
 ├── scripts/        构建 + 校验脚本
 ├── demo/           独立预览页
 ├── package.json  dsh.plugin.json  cordis.patch.yml
-└── README.md  README.zh.md  LICENSE  CHANGELOG.md
+└── README.md  README.en.md  LICENSE  CHANGELOG.md
 ```
 
 ## License

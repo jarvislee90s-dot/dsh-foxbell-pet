@@ -22,6 +22,9 @@ A draggable **Foxbell** desktop pet for the DeepSeek Harness (DSH) Web UI — bo
   - While idle it **looks around** (look rows 9→10, a continuous 16-frame left-to-right sweep).
 - **🦊 show/hide switch** — a toggle button next to the sidebar Settings icon (like Codex's pet), persisted in `localStorage`.
 - **Equal-width card layout** — project bubbles are multi-line cards (bold title + status dot, then up to 2 lines of latest progress), all the same width.
+- **Right-click menu** (v1.3.0) — right-click the pet for a menu: 🔊 sound / 📣 shout-on-done / 💬 bubble toggles, 🎯 done action & 👉 poke action binding, plus "perform", "🦊 hide", and "ℹ️ about".
+- **Drag physics** (v1.3.0) — release for **gravity fall**, horizontal **throw inertia**, and a **squash & bounce** on landing (animation follows drag direction).
+- **Settings card** (v1.3.0, dsh rc.7+) — a settings-page plugin config section sharing the **same config** as the right-click menu (local `localStorage` + settings scope dual backend, persisted by the host to `~/.dsh/settings.yaml`).
 
 ## Requirements
 
@@ -45,7 +48,9 @@ Then **restart `dsh web`** and hard-refresh the browser (**Cmd/Ctrl+Shift+R**). 
 | Interaction | Effect |
 |---|---|
 | Drag | Move the pet anywhere |
-| Single-click pet | Waving only (no sound) |
+| Release after drag | Gravity fall / throw inertia / squash-and-bounce landing |
+| Right-click pet | Opens menu (sound/shout-on-done/bubble toggles, done & poke action binding, perform, hide, about) |
+| Single-click pet | Plays the "poke action" (waving by default) |
 | Double-click pet | Speaks a random line + waves (subtitle = the voice name, timed to the audio) |
 | Click a project card | Switches to that conversation + marks read (no sound) |
 | 🦊 button (sidebar footer) | Show / hide the pet |
@@ -77,7 +82,7 @@ dsh-foxbell-pet/
 ├── scripts/         build + validate
 ├── demo/            standalone sprite preview page
 ├── package.json  dsh.plugin.json  cordis.patch.yml
-└── README.md  README.zh.md  LICENSE  CHANGELOG.md
+└── README.md  README.en.md  LICENSE  CHANGELOG.md
 ```
 
 ## License
