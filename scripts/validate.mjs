@@ -53,6 +53,8 @@ requireBoth(srcClient, 'src/client.js', 'pokeAction', 'config field pokeAction')
 requireBoth(srcClient, 'src/client.js', 'dyn-pet-menu', 'menu styles')
 requireBoth(srcClient, 'src/client.js', "settings.plugin.item", 'settings card slot')
 requireBoth(srcClient, 'src/client.js', 'attachScope', 'config store scope attach')
+requireBoth(srcIndex, 'src/index.js', 'gravity', 'config field gravity (host)')
+requireBoth(srcClient, 'src/client.js', "'gravity'", 'config field gravity (client)')
 // CFG_ACTIONS 必须是 ANIM 表键的子集（动作绑定依赖该不变量）
 for (const a of ['jumping', 'waving', 'failed', 'waiting', 'review']) {
   requireBoth(srcClient, 'src/client.js', `'${a}'`, `action key ${a} present`)

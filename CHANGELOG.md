@@ -6,9 +6,12 @@ All notable changes to this project are documented in this file.
 
 ### Added
 - 右键菜单：声音/完成时喊/气泡开关、完成时动作与戳我动作绑定、表演一下、隐藏、关于
-- 拖拽物理手感：松手重力坠落、水平抛掷惯性、落地压扁回弹
+- 拖拽物理手感：松手重力坠落、水平抛掷惯性、落地压扁回弹（菜单/设置卡片可关「落地物理」）
 - 设置卡片（dsh rc.7+，settings.plugin.item）：与右键菜单读写同一份配置
 - 配置持久化：localStorage + settings scope 双后端（~/.dsh/settings.yaml）
+
+### Fixed
+- 拖拽坠落停止后不再瞬移回右下角：落点 x 记忆到 localStorage（`dyn-pet-foxbell-x`），刷新后停在上次落点
 
 ## [1.2.0] - 2026-08-18
 
