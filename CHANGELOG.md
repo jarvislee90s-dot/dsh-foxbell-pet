@@ -5,10 +5,18 @@ All notable changes to this project are documented in this file.
 ## [1.3.0] - 2026-08-18
 
 ### Added
-- 右键菜单：声音/完成时喊/气泡开关、完成时动作与戳我动作绑定、表演一下、隐藏、关于
+- 右键菜单：声音/气泡/落地物理开关、双击/黄灯/红灯/蓝灯四场景动作绑定、隐藏、关于
+- 四场景动作绑定：双击（dblAction）、待批准黄灯（approvalAction）、报错红灯（errorAction）、完成蓝灯（doneAction），6 种动作可选（跳/挥手/委屈/等待/审查/工作）
 - 拖拽物理手感：松手重力坠落、水平抛掷惯性、落地压扁回弹（菜单/设置卡片可关「落地物理」）
 - 设置卡片（dsh rc.7+，settings.plugin.item）：与右键菜单读写同一份配置
 - 配置持久化：localStorage + settings scope 双后端（~/.dsh/settings.yaml）
+
+### Changed
+- 移除「完成时喊」与「戳我动作」独立配置（声音开关已覆盖；单击固定挥手，双击走 dblAction）
+- 静音（muted）只拦截发声，不再拦截动作动画（静音 ≠ 静止）
+- 「🔊 声音」开关语义修正：开 = 有声（此前 muted 语义反了，显示"开"实际是静音）
+- 「💬 气泡」改名「💬 语音字幕」，明确为语音字幕显示开关
+- 动作子菜单实时预览：进入子页桌宠循环播当前选中动作，点选其它动作即时预览切换，「← 返回」回主菜单后停止
 
 ### Fixed
 - 拖拽坠落停止后不再瞬移回右下角：落点 x 记忆到 localStorage（`dyn-pet-foxbell-x`），刷新后停在上次落点

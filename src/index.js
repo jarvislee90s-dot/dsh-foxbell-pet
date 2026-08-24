@@ -13,14 +13,15 @@ export const name = 'dsh-foxbell-pet'
 // settings 命名空间：与 client 半卡片注册（settings.plugin.item 的 key）配对。
 // 两边写同一个字符串，改名必须两边一起改。
 export const FOXBELL_PET_NS = settingsNamespace('foxbell-pet')
-export const ACTION_IDS = ['jumping', 'waving', 'failed', 'waiting', 'review']
+export const ACTION_IDS = ['jumping', 'waving', 'failed', 'waiting', 'review', 'running']
 const Action = z.union(ACTION_IDS)
 export const Config = z.object({
   muted: z.boolean().default(false),
-  shoutOnDone: z.boolean().default(true),
   talkative: z.boolean().default(true),
   doneAction: Action.default('jumping'),
-  pokeAction: Action.default('waving'),
+  dblAction: Action.default('waving'),
+  approvalAction: Action.default('waiting'),
+  errorAction: Action.default('failed'),
   gravity: z.boolean().default(true),
 })
 

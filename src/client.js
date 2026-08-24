@@ -43,8 +43,9 @@ window.__ModuleLoader__.load({
     const saveX = (x) => {
       try { localStorage.setItem(X_KEY, String(Math.round(Math.max(0, Math.min(X_MAX(), x))))) } catch {}
     }
-    const CFG_DEFAULT = { muted: false, shoutOnDone: true, talkative: true, doneAction: 'jumping', pokeAction: 'waving', gravity: true }
-    const CFG_ACTIONS = ['jumping', 'waving', 'failed', 'waiting', 'review']
+    const CFG_DEFAULT = { muted: false, talkative: true, doneAction: 'jumping', dblAction: 'waving', approvalAction: 'waiting', errorAction: 'failed', gravity: true }
+    const CFG_ACTIONS = ['jumping', 'waving', 'failed', 'waiting', 'review', 'running']
+    const ACTION_KEYS = ['doneAction', 'dblAction', 'approvalAction', 'errorAction']
     const isAction = (v) => CFG_ACTIONS.includes(v)
 
     function createConfigStore() {
@@ -53,7 +54,7 @@ window.__ModuleLoader__.load({
       let prevUnsub = null
       const listeners = new Set()
       const sanitize = (k, v) => {
-        if (k === 'doneAction' || k === 'pokeAction') return isAction(v) ? v : CFG_DEFAULT[k]
+        if (ACTION_KEYS.includes(k)) return isAction(v) ? v : CFG_DEFAULT[k]
         return !!v // booleans
       }
       const loadLocal = () => {
@@ -334,6 +335,17 @@ window.__ModuleLoader__.load({
         }, 6000)
       }
 
+      // 动作子页实时预览：进入子页时桌宠本体循环播当前选中动作；切选项/返回/关闭即更新或停止
+      React.useEffect(() => {
+        const pageMap = { Dbl: 'dblAction', Approval: 'approvalAction', Error: 'errorAction', Done: 'doneAction' }
+        const field = menu !== null && menuPage ? pageMap[menuPage] : null
+        if (!field) return
+        const act = () => playTransient(cfg[field] || 'waving', 1600)
+        act()
+        const t = petCtx.interval(() => act(), 1700)
+        return () => { try { t() } catch {} }
+      }, [menu, menuPage, cfg])
+
       React.useEffect(() => {
         const audio = document.createElement('audio')
         audio.id = 'dyn-pet-foxbell-audio'
@@ -346,9 +358,11 @@ window.__ModuleLoader__.load({
         // 字幕时长 = max(最短 2.5s, 语音时长 + 0.25s)，以时间长的为准。
         const playVoice = (voice, text, anim) => {
           if (!voice) return
+          // 动作先播：muted 只静音，不静止（静音 ≠ 静止）
+          playTransient(anim || 'waving', 1700)
           if (cfgRef.current.muted) return
           const gen = ++speechGenRef.current
-          if (cfgRef.current.talkative) setBubble(text || voice.name) // muted 时已提前 return；talkative=false 时语音照播但无字幕
+          if (cfgRef.current.talkative) setBubble(text || voice.name) // talkative=false 时语音照播但无字幕
           playTransient(anim || 'waving', 1700)
           // 优先用预加载元素（即时出声）；没有则回退共享 audio
           const el = voiceElsRef.current ? voiceElsRef.current[voice.index] : undefined
@@ -397,11 +411,11 @@ window.__ModuleLoader__.load({
           lastVoiceRefs.current[key] = pick
           return list[pick]
         }
-        // 双击形象：general 组随机一句（字幕 = 该语音文件名，与播放内容一致）
+        // 双击形象：general 组随机一句 + 可配动作（dblAction，默认挥手）
         playRef.current = () => {
           const v = pickVoice('general') || pickVoice()
           if (!v) return
-          playVoice(v, undefined, 'waving')
+          playVoice(v, undefined, cfgRef.current.dblAction)
         }
 
         const ack = (agentId) => {
@@ -434,20 +448,20 @@ window.__ModuleLoader__.load({
             if (p.status === 'error' && prev[p.id] !== 'error' && !errTitle) errTitle = p.title || '任务'
           }
           prevStatusRef.current = statuses
-          // 出错 → 委屈动画 + error 组语音（若有）；字幕 = 语音文件名（状态已由红灯表达）
+          // 出错 → 委屈动画 + error 组语音（若有）；动作读 errorAction 配置
           if (errTitle) {
             const v = pickVoice('error')
-            if (v) playVoice(v, undefined, 'failed')
-            else playTransient('failed', 2500)
+            if (v) playVoice(v, undefined, cfgRef.current.errorAction)
+            else playTransient(cfgRef.current.errorAction, 2500)
           }
-          // 待批准出现 → approval 组语音（限频 10s）
+          // 待批准出现 → approval 组语音（限频 10s）；动作读 approvalAction 配置
           const prevHadApproval = Object.values(prev).includes('approval')
           if (anyApproval && !prevHadApproval) {
             const now = Date.now()
             if (now - approvalVoiceAtRef.current > 10000) {
               approvalVoiceAtRef.current = now
               const v = pickVoice('approval')
-              if (v) playVoice(v, undefined, 'waiting')
+              if (v) playVoice(v, undefined, cfgRef.current.approvalAction)
             }
           }
           // 持续任务态：待批准(waiting) > 完成未读(review) > 自身运行(running)
@@ -462,9 +476,8 @@ window.__ModuleLoader__.load({
           const first = list[0]
           if (!first || first.agentId === undefined) return
           const v = pickVoice('done') || pickVoice()
-          if (!cfgRef.current.shoutOnDone) return
           if (!v) return
-          playVoice(v, undefined, cfgRef.current.doneAction) // 原写死 'jumping'，改为读配置
+          playVoice(v, undefined, cfgRef.current.doneAction) // 蓝灯动作读 doneAction 配置
         }
 
         const refresh = () => fetch(STATE_URL)
@@ -571,8 +584,8 @@ window.__ModuleLoader__.load({
         dragRef.current = null
         stateRef.current.drag = null
         if (!d.moved) {
-          // 单击形象：只播可配动作，不说话
-          playTransient(cfgRef.current.pokeAction, 1700)
+          // 单击形象：固定挥手（不出声）；双击走 dblAction 配置
+          playTransient('waving', 1700)
         }
         refreshAnim()
         const ph = physRef.current
@@ -640,6 +653,8 @@ window.__ModuleLoader__.load({
             if (!el3) return
             el3.style.transition = ''
             el3.style.transform = ''
+            // 压扁回弹落定后补一段跳跃（行 4 jumping，零新素材）
+            playTransient('jumping', 1500)
           }, 260)
         }, 60)
       }
@@ -705,27 +720,21 @@ window.__ModuleLoader__.load({
           className: 'dyn-pet-menu',
           style: { left: Math.min(menu.x, window.innerWidth - 200), top: Math.min(menu.y, window.innerHeight - 320) },
         },
-          menuPage === 'Action' ? React.createElement(React.Fragment, null,
-            CFG_ACTIONS.map((a) => React.createElement('div', {
-              key: a, className: 'dyn-pet-menu-item' + (cfg.doneAction === a ? ' sel' : ''),
-              onClick: () => { cfgStore.set({ doneAction: a }); setMenu(null) },
-            }, ACTION_LABEL[a] || a)),
-          ) : menuPage === 'Poke' ? React.createElement(React.Fragment, null,
-            CFG_ACTIONS.map((a) => React.createElement('div', {
-              key: a, className: 'dyn-pet-menu-item' + (cfg.pokeAction === a ? ' sel' : ''),
-              onClick: () => { cfgStore.set({ pokeAction: a }); setMenu(null) },
-            }, ACTION_LABEL[a] || a)),
-          ) : menuPage === 'About' ? React.createElement(React.Fragment, null,
+          menuPage === 'Dbl' ? React.createElement(ActionPage, { field: 'dblAction', current: cfg.dblAction, onPick: () => setMenuPage(null) })
+          : menuPage === 'Approval' ? React.createElement(ActionPage, { field: 'approvalAction', current: cfg.approvalAction, onPick: () => setMenuPage(null) })
+          : menuPage === 'Error' ? React.createElement(ActionPage, { field: 'errorAction', current: cfg.errorAction, onPick: () => setMenuPage(null) })
+          : menuPage === 'Done' ? React.createElement(ActionPage, { field: 'doneAction', current: cfg.doneAction, onPick: () => setMenuPage(null) })
+          : menuPage === 'About' ? React.createElement(React.Fragment, null,
             React.createElement('div', { className: 'dyn-pet-menu-item', onClick: () => setMenu(null) }, 'dsh-foxbell-pet v1.3.0'),
           ) : React.createElement(React.Fragment, null,
-            React.createElement(MenuToggle, { label: '🔊 声音', on: cfg.muted, onChange: (v) => cfgStore.set({ muted: v }) }),
-            React.createElement(MenuToggle, { label: '📣 完成时喊', on: cfg.shoutOnDone, onChange: (v) => cfgStore.set({ shoutOnDone: v }) }),
-            React.createElement(MenuToggle, { label: '💬 气泡', on: cfg.talkative, onChange: (v) => cfgStore.set({ talkative: v }) }),
+            React.createElement(MenuToggle, { label: '🔊 声音', on: !cfg.muted, onChange: (v) => cfgStore.set({ muted: !v }) }),
+            React.createElement(MenuToggle, { label: '💬 语音字幕', on: cfg.talkative, onChange: (v) => cfgStore.set({ talkative: v }) }),
             React.createElement(MenuToggle, { label: '🧲 落地物理', on: cfg.gravity, onChange: (v) => cfgStore.set({ gravity: v }) }),
             React.createElement('div', { className: 'dyn-pet-menu-divider' }),
-            React.createElement(MenuSub, { label: '🎯 完成时动作', value: cfg.doneAction, onOpen: () => setMenuPage('Action') }),
-            React.createElement(MenuSub, { label: '👉 戳我动作', value: cfg.pokeAction, onOpen: () => setMenuPage('Poke') }),
-            React.createElement('div', { className: 'dyn-pet-menu-item', onClick: () => { if (playRef.current) playRef.current(); setMenu(null) } }, '🎬 表演一下'),
+            React.createElement(MenuSub, { label: '🖱️ 双击动作', value: cfg.dblAction, onOpen: () => setMenuPage('Dbl') }),
+            React.createElement(MenuSub, { label: '🟡 黄灯动作', value: cfg.approvalAction, onOpen: () => setMenuPage('Approval') }),
+            React.createElement(MenuSub, { label: '🔴 红灯动作', value: cfg.errorAction, onOpen: () => setMenuPage('Error') }),
+            React.createElement(MenuSub, { label: '🔵 蓝灯动作', value: cfg.doneAction, onOpen: () => setMenuPage('Done') }),
             React.createElement('div', { className: 'dyn-pet-menu-divider' }),
             React.createElement('div', { className: 'dyn-pet-menu-item', onClick: () => { petStore.set(false); setMenu(null) } }, '🦊 隐藏桌宠'),
             React.createElement('div', { className: 'dyn-pet-menu-item', onClick: () => setMenuPage('About') }, 'ℹ️ 关于'),
@@ -734,7 +743,17 @@ window.__ModuleLoader__.load({
       )
     }
 
-    const ACTION_LABEL = { jumping: '跳一跳', waving: '挥挥手', failed: '委屈', waiting: '等待', review: '审查' }
+    const ACTION_LABEL = { jumping: '跳一跳', waving: '挥挥手', failed: '委屈', waiting: '等待', review: '审查', running: '工作' }
+    // 动作子页：四个场景（双击/黄/红/蓝）共用一套选择 UI，写各自配置字段
+    function ActionPage({ field, current, onPick }) {
+      return React.createElement(React.Fragment, null,
+        React.createElement('div', { className: 'dyn-pet-menu-item dyn-pet-menu-back', onClick: onPick }, '← 返回'),
+        CFG_ACTIONS.map((a) => React.createElement('div', {
+          key: a, className: 'dyn-pet-menu-item' + (current === a ? ' sel' : ''),
+          onClick: () => { cfgStore.set({ [field]: a }) }, // 选择即生效；预览随 cfg 变化自动切换，返回后停止
+        }, ACTION_LABEL[a] || a)),
+      )
+    }
     function MenuToggle({ on, label, onChange }) {
       return React.createElement('div', { className: 'dyn-pet-menu-row' },
         React.createElement('span', { className: 'dyn-pet-menu-label' }, label),
@@ -819,27 +838,28 @@ window.__ModuleLoader__.load({
       const toggle = (k, v) => cfgStore.set({ [k]: v })
       const rows = [
         { k: 'muted', label: '声音' },
-        { k: 'shoutOnDone', label: '完成时喊' },
-        { k: 'talkative', label: '气泡' },
+        { k: 'talkative', label: '语音字幕' },
         { k: 'gravity', label: '落地物理' },
+      ]
+      const actionRows = [
+        { k: 'dblAction', label: '双击动作' },
+        { k: 'approvalAction', label: '黄灯动作' },
+        { k: 'errorAction', label: '红灯动作' },
+        { k: 'doneAction', label: '蓝灯动作' },
       ]
       return React.createElement('div', { className: 'dyn-pet-settings' },
         rows.map((r) => React.createElement('label', { key: r.k, className: 'dyn-pet-settings-row' },
           React.createElement('span', null, r.label),
-          React.createElement('input', { type: 'checkbox', checked: !!cfg[r.k], onChange: (e) => toggle(r.k, e.target.checked) }),
+          r.k === 'muted'
+            ? React.createElement('input', { type: 'checkbox', checked: !cfg.muted, onChange: (e) => toggle('muted', !e.target.checked) }) // 勾选=有声（muted=false）
+            : React.createElement('input', { type: 'checkbox', checked: !!cfg[r.k], onChange: (e) => toggle(r.k, e.target.checked) }),
         )),
-        React.createElement('div', { className: 'dyn-pet-settings-row' },
-          React.createElement('span', null, '完成时动作'),
-          React.createElement('select', { value: cfg.doneAction, onChange: (e) => toggle('doneAction', e.target.value) },
+        actionRows.map((r) => React.createElement('div', { key: r.k, className: 'dyn-pet-settings-row' },
+          React.createElement('span', null, r.label),
+          React.createElement('select', { value: cfg[r.k], onChange: (e) => toggle(r.k, e.target.value) },
             CFG_ACTIONS.map((a) => React.createElement('option', { key: a, value: a }, ACTION_LABEL[a] || a)),
           ),
-        ),
-        React.createElement('div', { className: 'dyn-pet-settings-row' },
-          React.createElement('span', null, '戳我动作'),
-          React.createElement('select', { value: cfg.pokeAction, onChange: (e) => toggle('pokeAction', e.target.value) },
-            CFG_ACTIONS.map((a) => React.createElement('option', { key: a, value: a }, ACTION_LABEL[a] || a)),
-          ),
-        ),
+        )),
       )
     }
 

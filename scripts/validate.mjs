@@ -49,14 +49,16 @@ const requireBoth = (file, name, needle, label) => {
 requireBoth(srcIndex, 'src/index.js', "settingsNamespace('foxbell-pet')", 'settings namespace key')
 requireBoth(srcIndex, 'src/index.js', 'installSettingsSection', 'host settings registration')
 requireBoth(srcClient, 'src/client.js', 'doneAction', 'config field doneAction')
-requireBoth(srcClient, 'src/client.js', 'pokeAction', 'config field pokeAction')
+requireBoth(srcClient, 'src/client.js', 'dblAction', 'config field dblAction')
+requireBoth(srcClient, 'src/client.js', 'approvalAction', 'config field approvalAction')
+requireBoth(srcClient, 'src/client.js', 'errorAction', 'config field errorAction')
 requireBoth(srcClient, 'src/client.js', 'dyn-pet-menu', 'menu styles')
 requireBoth(srcClient, 'src/client.js', "settings.plugin.item", 'settings card slot')
 requireBoth(srcClient, 'src/client.js', 'attachScope', 'config store scope attach')
 requireBoth(srcIndex, 'src/index.js', 'gravity', 'config field gravity (host)')
 requireBoth(srcClient, 'src/client.js', "'gravity'", 'config field gravity (client)')
 // CFG_ACTIONS 必须是 ANIM 表键的子集（动作绑定依赖该不变量）
-for (const a of ['jumping', 'waving', 'failed', 'waiting', 'review']) {
+for (const a of ['jumping', 'waving', 'failed', 'waiting', 'review', 'running']) {
   requireBoth(srcClient, 'src/client.js', `'${a}'`, `action key ${a} present`)
 }
 
