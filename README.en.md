@@ -14,14 +14,19 @@ A draggable **Foxbell** desktop pet for the DeepSeek Harness (DSH) Web UI — bo
   - 🔴 `error` — turn failed / disconnected
   - 🔵 `done` — finished, unread
 - **Click a card to switch sessions** — opens that conversation in the left sidebar & main area (`sessions.open`), and marks it read. A red/blue card disappears once you've clicked into it; a fresh error lights it up again.
-- **Completion voice alert** — when any project finishes, Foxbell jumps happily and plays a random `voice/*.m4a`, subtitle aligned to the audio length.
-- **Voice interactions** — single-click the pet: just waves (no sound); double-click: speaks + waves; clicking a project card: only switches (no sound).
+- **Completion voice alert** — when any project finishes, Foxbell plays a random `voice/done/*.m4a` + the **done action** (happy jump by default), subtitle aligned to the audio length.
+- **Voice interactions** — single-click the pet: just waves (no sound); double-click: speaks + plays the **double-click action** (waving by default); clicking a project card: only switches (no sound).
 - **State-driven animations** (all 11 Codex V2 atlas rows used) — the animation follows interaction and task state:
   - Drag direction: drag left → **run left**, drag right → **run right**, drag up → **jump**;
-  - Task state: any project **error** → sad pose, **completion** → happy jump, **awaiting approval** → waiting pose, **done-unread** → review pose, own session running → working pose;
+  - Task state: any project **error** → error action, **completion** → done action, **awaiting approval** → approval action, **done-unread** → review pose, own session running → working pose;
   - While idle it **looks around** (look rows 9→10, a continuous 16-frame left-to-right sweep).
 - **🦊 show/hide switch** — a toggle button next to the sidebar Settings icon (like Codex's pet), persisted in `localStorage`.
 - **Equal-width card layout** — project bubbles are multi-line cards (bold title + status dot, then up to 2 lines of latest progress), all the same width.
+- **Right-click menu** (v1.3.0) — right-click the pet for a menu: 🔊 sound (on = audible) / 💬 subtitle / 🧲 gravity toggles, four-scene action binding (**double-click / yellow / red / blue**), 6 actions to pick (jump/wave/sad/wait/review/work), plus "🦊 hide" and "ℹ️ about".
+- **Live action preview** (v1.3.0) — inside any action submenu the pet loops the currently selected action; picking another action switches the preview immediately; "← back" returns to the main menu and stops it.
+- **Drag physics** (v1.3.0) — release for **gravity fall**, horizontal **throw inertia**, and a **squash & bounce** on landing (can be disabled; a little hop follows the squash).
+- **Position memory** (v1.3.0) — the pet stays where you dropped it after a reload (localStorage, clamped to a 24px right-edge margin).
+- **Settings card** (v1.3.0, dsh rc.7+) — a settings-page plugin config section sharing the **same config** as the right-click menu (local `localStorage` + settings scope dual backend, persisted by the host to `~/.dsh/settings.yaml`).
 
 ## Requirements
 
@@ -45,8 +50,10 @@ Then **restart `dsh web`** and hard-refresh the browser (**Cmd/Ctrl+Shift+R**). 
 | Interaction | Effect |
 |---|---|
 | Drag | Move the pet anywhere |
-| Single-click pet | Waving only (no sound) |
-| Double-click pet | Speaks a random line + waves (subtitle = the voice name, timed to the audio) |
+| Release after drag | Gravity fall / throw inertia / squash-and-bounce landing + a hop (can disable "gravity") |
+| Right-click pet | Opens menu (sound/transcript/gravity toggles, double-click/yellow/red/blue action binding, hide, about) |
+| Single-click pet | Waves (no sound) |
+| Double-click pet | Speaks a random line + the "double-click action" (waving by default; subtitle = the voice name, timed to the audio) |
 | Click a project card | Switches to that conversation + marks read (no sound) |
 | 🦊 button (sidebar footer) | Show / hide the pet |
 
@@ -77,7 +84,7 @@ dsh-foxbell-pet/
 ├── scripts/         build + validate
 ├── demo/            standalone sprite preview page
 ├── package.json  dsh.plugin.json  cordis.patch.yml
-└── README.md  README.zh.md  LICENSE  CHANGELOG.md
+└── README.md  README.en.md  LICENSE  CHANGELOG.md
 ```
 
 ## License

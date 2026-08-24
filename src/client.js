@@ -28,6 +28,113 @@ window.__ModuleLoader__.load({
       LOOK_FRAMES.push({ x: -col * 192, y: -(row * 208) })
     }
     const STORE_KEY = 'dyn-pet-foxbell-visible'
+    const CFG_KEY = 'dyn-foxbell-pet:state-v1'
+    // 位置记忆（设备态，永远 localStorage，不进设置；只记 x，y 恒为地面落点）
+    const X_KEY = 'dyn-pet-foxbell-x'
+    const groundY = () => window.innerHeight - 76 - 208 // sprite 顶 = 默认 bottom:76 的落点
+    const X_MAX = () => window.innerWidth - 192 - 24 // 右缘 24px 边距，与默认锚点对齐
+    const loadX = () => {
+      try {
+        const v = parseInt(localStorage.getItem(X_KEY), 10)
+        if (Number.isFinite(v) && v >= 0 && v <= X_MAX()) return v
+      } catch {}
+      return null
+    }
+    const saveX = (x) => {
+      try { localStorage.setItem(X_KEY, String(Math.round(Math.max(0, Math.min(X_MAX(), x))))) } catch {}
+    }
+    const CFG_DEFAULT = { muted: false, talkative: true, doneAction: 'jumping', dblAction: 'waving', approvalAction: 'waiting', errorAction: 'failed', gravity: true }
+    const CFG_ACTIONS = ['jumping', 'waving', 'failed', 'waiting', 'review', 'running']
+    const ACTION_KEYS = ['doneAction', 'dblAction', 'approvalAction', 'errorAction']
+    const isAction = (v) => CFG_ACTIONS.includes(v)
+
+    function createConfigStore() {
+      let scope = null
+      let pending = {}
+      let prevUnsub = null
+      const listeners = new Set()
+      const sanitize = (k, v) => {
+        if (ACTION_KEYS.includes(k)) return isAction(v) ? v : CFG_DEFAULT[k]
+        return !!v // booleans
+      }
+      const loadLocal = () => {
+        try {
+          const raw = localStorage.getItem(CFG_KEY)
+          if (!raw) return {}
+          const p = JSON.parse(raw)
+          const out = {}
+          for (const k of Object.keys(CFG_DEFAULT)) if (k in p) out[k] = sanitize(k, p[k])
+          return out
+        } catch { return {} }
+      }
+      const saveLocal = (v) => {
+        try { localStorage.setItem(CFG_KEY, JSON.stringify(v)) } catch {}
+      }
+      let local = Object.assign({}, CFG_DEFAULT, loadLocal())
+      const resolve = () => {
+        if (scope === null) return local
+        const sv = scope.getSnapshot()
+        if (!sv || sv.status !== 'ready' || !sv.value || typeof sv.value !== 'object') return local
+        // 只取 CFG_DEFAULT 的键（scope 里可能残留已移除字段，不并入）
+        const merged = Object.assign({}, CFG_DEFAULT, local)
+        for (const k of Object.keys(CFG_DEFAULT)) {
+          if (pending[k] !== undefined) merged[k] = pending[k]
+          else if (sv.value[k] !== undefined) merged[k] = sanitize(k, sv.value[k])
+        }
+        return merged
+      }
+      const emit = () => { for (const fn of [...listeners]) fn() }
+      return {
+        getSnapshot: () => resolve(),
+        subscribe(fn) { listeners.add(fn); return () => { listeners.delete(fn) } },
+        set(patch) {
+          const next = Object.assign({}, local)
+          for (const k of Object.keys(CFG_DEFAULT)) if (patch[k] !== undefined) next[k] = sanitize(k, patch[k])
+          local = next
+          saveLocal(local)
+          if (scope !== null) {
+            for (const [k, v] of Object.entries(patch)) {
+              if (v === undefined) continue
+              pending[k] = v
+              scope.set(k, v).then(
+                () => { pending[k] = undefined; delete pending[k]; emit() },
+                () => { pending[k] = undefined; delete pending[k]; emit() },
+              )
+            }
+          }
+          emit()
+        },
+        attachScope(s) {
+          if (scope === s) return () => {}
+          if (prevUnsub) { prevUnsub(); prevUnsub = null }
+          let seeded = false
+          const sync = () => {
+            const sv = s.getSnapshot()
+            // 首次 ready 时做一次性 seed：localStorage 里 user 层没有的字段写进 scope
+            if (!seeded && sv && sv.status === 'ready') {
+              seeded = true
+              const user = sv.user && typeof sv.user === 'object' ? sv.user : {}
+              const legacy = loadLocal()
+              for (const k of Object.keys(CFG_DEFAULT)) {
+                if (legacy[k] !== undefined && !(k in user)) {
+                  pending[k] = legacy[k]
+                  s.set(k, legacy[k]).then(
+                    () => { pending[k] = undefined; delete pending[k]; emit() },
+                    () => { pending[k] = undefined; delete pending[k]; emit() },
+                  )
+                }
+              }
+            }
+            emit()
+          }
+          scope = s
+          prevUnsub = s.subscribe(sync)
+          sync()
+          return () => { prevUnsub(); prevUnsub = null; scope = null; pending = {}; emit() }
+        },
+      }
+    }
+
     const STATE_URL = '/dyn-pet-foxbell/state'
     const ACK_URL = '/dyn-pet-foxbell/ack'
     const DIAG_URL = '/dyn-pet-foxbell/client-diag'
@@ -47,6 +154,8 @@ window.__ModuleLoader__.load({
       },
       subscribe(l) { this.listeners.add(l); return () => { this.listeners.delete(l) } },
     }
+
+    const cfgStore = createConfigStore()
 
     function PetToggle(props) {
       const wide = props.wide
@@ -72,11 +181,23 @@ window.__ModuleLoader__.load({
       const [anim, setAnim] = React.useState('idle')
       const [bubble, setBubble] = React.useState(null)
       const [projects, setProjects] = React.useState([])
-      const [pos, setPos] = React.useState(null)
+      const [pos, setPos] = React.useState(() => { const x = loadX(); return x === null ? null : { x, y: groundY() } })
       const [visible, setVisible] = React.useState(petStore.visible)
       React.useEffect(() => petStore.subscribe(() => setVisible(petStore.visible)), [])
+      React.useEffect(() => {
+        if (!visible && physRef.current.fallRaf) {
+          cancelAnimationFrame(physRef.current.fallRaf)
+          physRef.current.fallRaf = 0
+        }
+      }, [visible])
+      const [cfg, setCfg] = React.useState(cfgStore.getSnapshot())
+      React.useEffect(() => cfgStore.subscribe(() => setCfg(cfgStore.getSnapshot())), [])
+      const cfgRef = React.useRef(cfg)
+      cfgRef.current = cfg
 
       const dragRef = React.useRef(null)
+      const physRef = React.useRef({ samples: [], fallRaf: 0 })
+      const spriteRef = React.useRef(null)
       const audioRef = React.useRef(null)
       const voiceElsRef = React.useRef(null)
       const blockedRef = React.useRef(false)
@@ -92,6 +213,18 @@ window.__ModuleLoader__.load({
       projectsRef.current = projects
 
       const [lookFrame, setLookFrame] = React.useState(-1)
+      const [menu, setMenu] = React.useState(null) // { x, y } 或 null
+      const [menuPage, setMenuPage] = React.useState(null) // null | 动作子页 | 'About'
+      const menuRef = React.useRef(null)
+      const backToMain = () => setMenuPage(null)
+      React.useEffect(() => {
+        if (menu === null || !visible) return
+        const onDown = (e) => { if (menuRef.current && menuRef.current.contains(e.target)) return; setMenu(null) }
+        const onKey = (e) => { if (e.key === 'Escape') setMenu(null) }
+        window.addEventListener('pointerdown', onDown, true)
+        window.addEventListener('keydown', onKey)
+        return () => { window.removeEventListener('pointerdown', onDown, true); window.removeEventListener('keydown', onKey) }
+      }, [menu, visible])
       const stateRef = React.useRef({ drag: null, transient: null, task: null, look: false })
       const transientGenRef = React.useRef(0)
       const bubbleGenRef = React.useRef(0)
@@ -114,7 +247,13 @@ window.__ModuleLoader__.load({
         return dispose
       }
       const cancelStep = () => {
-        if (stepTimerRef.current) { const d = stepTimerRef.current; stepTimerRef.current = null; try { d() } catch {} }
+        if (stepTimerRef.current) {
+          const d = stepTimerRef.current
+          stepTimerRef.current = null
+          const i = timersRef.current.indexOf(d)
+          if (i >= 0) timersRef.current.splice(i, 1)
+          try { d() } catch {}
+        }
       }
       const stepLoop = () => {
         const def = ANIM[animRef.current] || ANIM.idle
@@ -198,6 +337,16 @@ window.__ModuleLoader__.load({
         }, 6000)
       }
 
+      // 动作子页实时预览：进入子页时桌宠本体循环播当前选中动作；切选项/返回/关闭即更新或停止
+      React.useEffect(() => {
+        const field = menu !== null && menuPage ? ACTION_PAGE_FIELD[menuPage] : null
+        if (!field) return
+        const act = () => playTransient(cfg[field] || 'waving', 1600)
+        act()
+        const t = petCtx.interval(() => act(), 1700)
+        return () => { try { t() } catch {} }
+      }, [menu, menuPage, cfg])
+
       React.useEffect(() => {
         const audio = document.createElement('audio')
         audio.id = 'dyn-pet-foxbell-audio'
@@ -210,8 +359,11 @@ window.__ModuleLoader__.load({
         // 字幕时长 = max(最短 2.5s, 语音时长 + 0.25s)，以时间长的为准。
         const playVoice = (voice, text, anim) => {
           if (!voice) return
+          // 动作先播：muted 只静音，不静止（静音 ≠ 静止）
+          playTransient(anim || 'waving', 1700)
+          if (cfgRef.current.muted) return
           const gen = ++speechGenRef.current
-          setBubble(text || voice.name)
+          if (cfgRef.current.talkative) setBubble(text || voice.name) // talkative=false 时语音照播但无字幕
           playTransient(anim || 'waving', 1700)
           // 优先用预加载元素（即时出声）；没有则回退共享 audio
           const el = voiceElsRef.current ? voiceElsRef.current[voice.index] : undefined
@@ -260,11 +412,11 @@ window.__ModuleLoader__.load({
           lastVoiceRefs.current[key] = pick
           return list[pick]
         }
-        // 双击形象：general 组随机一句（字幕 = 该语音文件名，与播放内容一致）
+        // 双击形象：general 组随机一句 + 可配动作（dblAction，默认挥手）
         playRef.current = () => {
           const v = pickVoice('general') || pickVoice()
           if (!v) return
-          playVoice(v, undefined, 'waving')
+          playVoice(v, undefined, cfgRef.current.dblAction)
         }
 
         const ack = (agentId) => {
@@ -297,20 +449,20 @@ window.__ModuleLoader__.load({
             if (p.status === 'error' && prev[p.id] !== 'error' && !errTitle) errTitle = p.title || '任务'
           }
           prevStatusRef.current = statuses
-          // 出错 → 委屈动画 + error 组语音（若有）；字幕 = 语音文件名（状态已由红灯表达）
+          // 出错 → 委屈动画 + error 组语音（若有）；动作读 errorAction 配置
           if (errTitle) {
             const v = pickVoice('error')
-            if (v) playVoice(v, undefined, 'failed')
-            else playTransient('failed', 2500)
+            if (v) playVoice(v, undefined, cfgRef.current.errorAction)
+            else playTransient(cfgRef.current.errorAction, 2500)
           }
-          // 待批准出现 → approval 组语音（限频 10s）
+          // 待批准出现 → approval 组语音（限频 10s）；动作读 approvalAction 配置
           const prevHadApproval = Object.values(prev).includes('approval')
           if (anyApproval && !prevHadApproval) {
             const now = Date.now()
             if (now - approvalVoiceAtRef.current > 10000) {
               approvalVoiceAtRef.current = now
               const v = pickVoice('approval')
-              if (v) playVoice(v, undefined, 'waiting')
+              if (v) playVoice(v, undefined, cfgRef.current.approvalAction)
             }
           }
           // 持续任务态：待批准(waiting) > 完成未读(review) > 自身运行(running)
@@ -326,7 +478,7 @@ window.__ModuleLoader__.load({
           if (!first || first.agentId === undefined) return
           const v = pickVoice('done') || pickVoice()
           if (!v) return
-          playVoice(v, undefined, 'jumping')
+          playVoice(v, undefined, cfgRef.current.doneAction) // 蓝灯动作读 doneAction 配置
         }
 
         const refresh = () => fetch(STATE_URL)
@@ -361,6 +513,7 @@ window.__ModuleLoader__.load({
           dispose()
           stopLook()
           cancelStep()
+          if (physRef.current.fallRaf) cancelAnimationFrame(physRef.current.fallRaf)
           for (const t of timersRef.current.splice(0)) t()
           if (voiceElsRef.current) {
             for (const a of voiceElsRef.current) { try { a.pause(); a.src = '' } catch {} }
@@ -382,6 +535,8 @@ window.__ModuleLoader__.load({
       }
 
       const onPointerDown = (e) => {
+        if (e.button !== 0) return // 仅主键拖拽；右键留给 contextmenu 菜单
+        if (physRef.current.fallRaf) { cancelAnimationFrame(physRef.current.fallRaf); physRef.current.fallRaf = 0 }
         e.preventDefault()
         // 用户手势内解锁音频（muted 播放），保证定时器里的完成语音不被自动播放策略拦截
         if (!unlockRef.current) {
@@ -409,6 +564,10 @@ window.__ModuleLoader__.load({
         const dy = e.clientY - d.lastY
         d.lastX = e.clientX
         d.lastY = e.clientY
+        const ph = physRef.current
+        const now = performance.now()
+        ph.samples.push({ t: now, x: e.clientX, y: e.clientY })
+        while (ph.samples.length > 0 && now - ph.samples[0].t > 150) ph.samples.shift()
         setPos({ x: e.clientX - d.dx, y: e.clientY - d.dy })
         // 方向动画：上拖→跳跃；左拖→向左跑；右拖→向右跑
         let dir = null
@@ -426,15 +585,79 @@ window.__ModuleLoader__.load({
         dragRef.current = null
         stateRef.current.drag = null
         if (!d.moved) {
-          // 单击形象：只挥手，不说话
+          // 单击形象：固定挥手（不出声）；双击走 dblAction 配置
           playTransient('waving', 1700)
         }
         refreshAnim()
+        const ph = physRef.current
+        if (cfgRef.current.gravity && d.moved && ph.samples.length >= 2) {
+          const first = ph.samples[0]
+          const last = ph.samples[ph.samples.length - 1]
+          const dt = (last.t - first.t) / 1000
+          const vx = dt > 0 ? (last.x - first.x) / dt : 0
+          ph.samples = []
+          startFall(last.x, last.y, vx)
+        } else {
+          ph.samples = []
+          if (d.moved) saveX(e.clientX - d.dx) // 非物理松手：停在拖拽处并记忆位置
+        }
         const audio = audioRef.current
         if (blockedRef.current && audio && audio.src) {
           const p = audio.play()
           if (p && typeof p.catch === 'function') p.catch(() => {})
         }
+      }
+      const GRAVITY = 1400 // px/s^2
+      const DAMP = 0.86
+      const MIN_VX = 24
+      const startFall = (x0, y0, vx0) => {
+        const ph = physRef.current
+        if (ph.fallRaf) cancelAnimationFrame(ph.fallRaf)
+        let x = x0, y = y0, vx = vx0, vy = 0
+        let landed = false
+        let last = performance.now()
+        const ground = groundY()
+        const tick = (t) => {
+          const dt = Math.min(0.05, (t - last) / 1000)
+          last = t
+          vy += GRAVITY * dt
+          y += vy * dt
+          vx *= Math.pow(DAMP, dt * 60)
+          x += vx * dt
+          if (y >= ground) {
+            y = ground
+            if (!landed) { landed = true; squashAnim() }
+            if (Math.abs(vx) < MIN_VX) {
+              setPos({ x, y }) // 停在落点（不再瞬移回默认右下角），并记忆 x
+              saveX(x)
+              ph.fallRaf = 0
+              return
+            }
+          }
+          setPos({ x, y })
+          ph.fallRaf = requestAnimationFrame(tick)
+        }
+        ph.fallRaf = requestAnimationFrame(tick)
+      }
+      const squashAnim = () => {
+        const el = spriteRef.current
+        if (!el) return
+        el.style.transition = 'transform 60ms ease-out'
+        el.style.transform = 'scale(1, 0.55)'
+        later(() => {
+          const el2 = spriteRef.current
+          if (!el2) return
+          el2.style.transition = 'transform 240ms cubic-bezier(.34,1.56,.64,1)'
+          el2.style.transform = 'scale(1, 1)'
+          later(() => {
+            const el3 = spriteRef.current
+            if (!el3) return
+            el3.style.transition = ''
+            el3.style.transform = ''
+            // 压扁回弹落定后补一段跳跃（行 4 jumping，零新素材）
+            playTransient('jumping', 1500)
+          }, 260)
+        }, 60)
       }
       const onDoubleClick = (e) => {
         e.stopPropagation()
@@ -461,34 +684,93 @@ window.__ModuleLoader__.load({
       const shown = projects.slice(0, 6)
       const extra = projects.length - shown.length
 
-      return React.createElement('div', {
-        className: 'dyn-pet-root',
-        style: rootStyle,
-        onPointerDown: onPointerDown,
-        onPointerMove: onPointerMove,
-        onPointerUp: onPointerUp,
-        onDoubleClick: onDoubleClick,
-      },
-        React.createElement('div', { className: 'dyn-pet-top' },
-          shown.map((p) => React.createElement('div', {
-            key: p.id,
-            className: 'dyn-pet-proj',
-            onPointerDown: (e) => e.stopPropagation(),
-            onClick: (e) => { e.stopPropagation(); onProjectClick(p) },
-          },
-            React.createElement('span', { className: 'dyn-pet-dot dot-' + p.status }),
-            React.createElement('div', { className: 'dyn-pet-proj-body' },
-              React.createElement('div', { className: 'dyn-pet-proj-title' }, p.title),
-              Array.isArray(p.lines) ? p.lines.map((l, i) => React.createElement('div', { key: i, className: 'dyn-pet-proj-line' }, l)) : null,
-            ),
-          )),
-          extra > 0 ? React.createElement('div', { className: 'dyn-pet-proj-more' }, '+' + extra + ' 更多') : null,
-        ),
-        bubble ? React.createElement('div', { className: 'dyn-pet-bubble' }, bubble) : null,
+      return React.createElement(React.Fragment, null,
         React.createElement('div', {
-          className: 'dyn-pet-sprite',
-          style: spriteStyle,
-        }),
+          className: 'dyn-pet-root',
+          style: rootStyle,
+          onPointerDown: onPointerDown,
+          onPointerMove: onPointerMove,
+          onPointerUp: onPointerUp,
+          onDoubleClick: onDoubleClick,
+          onContextMenu: (e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY }); setMenuPage(null) },
+        },
+          React.createElement('div', { className: 'dyn-pet-top' },
+            shown.map((p) => React.createElement('div', {
+              key: p.id,
+              className: 'dyn-pet-proj',
+              onPointerDown: (e) => e.stopPropagation(),
+              onClick: (e) => { e.stopPropagation(); onProjectClick(p) },
+            },
+              React.createElement('span', { className: 'dyn-pet-dot dot-' + p.status }),
+              React.createElement('div', { className: 'dyn-pet-proj-body' },
+                React.createElement('div', { className: 'dyn-pet-proj-title' }, p.title),
+                Array.isArray(p.lines) ? p.lines.map((l, i) => React.createElement('div', { key: i, className: 'dyn-pet-proj-line' }, l)) : null,
+              ),
+            )),
+            extra > 0 ? React.createElement('div', { className: 'dyn-pet-proj-more' }, '+' + extra + ' 更多') : null,
+          ),
+          bubble ? React.createElement('div', { className: 'dyn-pet-bubble' }, bubble) : null,
+          React.createElement('div', {
+            className: 'dyn-pet-sprite',
+            style: spriteStyle,
+            ref: spriteRef,
+          }),
+        ),
+        menu !== null ? React.createElement('div', {
+          ref: menuRef,
+          className: 'dyn-pet-menu',
+          style: { left: Math.min(menu.x, window.innerWidth - 200), top: Math.min(menu.y, window.innerHeight - 320) },
+        },
+          (menuPage && ACTION_PAGE_FIELD[menuPage])
+            ? React.createElement(ActionPage, { field: ACTION_PAGE_FIELD[menuPage], current: cfg[ACTION_PAGE_FIELD[menuPage]], onPick: backToMain })
+            : menuPage === 'About' ? React.createElement(React.Fragment, null,
+              React.createElement('div', { className: 'dyn-pet-menu-item', onClick: () => setMenu(null) }, 'dsh-foxbell-pet v1.3.0'),
+            ) : React.createElement(React.Fragment, null,
+              React.createElement(MenuToggle, { label: '🔊 声音', on: !cfg.muted, onChange: (v) => cfgStore.set({ muted: !v }) }),
+              React.createElement(MenuToggle, { label: '💬 语音字幕', on: cfg.talkative, onChange: (v) => cfgStore.set({ talkative: v }) }),
+              React.createElement(MenuToggle, { label: '🧲 落地物理', on: cfg.gravity, onChange: (v) => cfgStore.set({ gravity: v }) }),
+              React.createElement('div', { className: 'dyn-pet-menu-divider' }),
+              ACTION_MENU.map((m) => React.createElement(MenuSub, { key: m.page, label: m.label, value: cfg[m.key], onOpen: () => setMenuPage(m.page) })),
+              React.createElement('div', { className: 'dyn-pet-menu-divider' }),
+              React.createElement('div', { className: 'dyn-pet-menu-item', onClick: () => { petStore.set(false); setMenu(null) } }, '🦊 隐藏桌宠'),
+              React.createElement('div', { className: 'dyn-pet-menu-item', onClick: () => setMenuPage('About') }, 'ℹ️ 关于'),
+            ),
+        ) : null,
+      )
+    }
+
+    const ACTION_LABEL = { jumping: '跳一跳', waving: '挥挥手', failed: '委屈', waiting: '等待', review: '审查', running: '工作' }
+    // 动作子页清单（菜单渲染与预览 effect 共用）：page = 子页 id，key = 配置字段
+    const ACTION_MENU = [
+      { page: 'Dbl', label: '🖱️ 双击动作', key: 'dblAction' },
+      { page: 'Approval', label: '🟡 黄灯动作', key: 'approvalAction' },
+      { page: 'Error', label: '🔴 红灯动作', key: 'errorAction' },
+      { page: 'Done', label: '🔵 蓝灯动作', key: 'doneAction' },
+    ]
+    const ACTION_PAGE_FIELD = Object.fromEntries(ACTION_MENU.map((m) => [m.page, m.key]))
+    // 动作子页：四个场景（双击/黄/红/蓝）共用一套选择 UI，写各自配置字段
+    function ActionPage({ field, current, onPick }) {
+      return React.createElement(React.Fragment, null,
+        React.createElement('div', { className: 'dyn-pet-menu-item dyn-pet-menu-back', onClick: onPick }, '← 返回'),
+        CFG_ACTIONS.map((a) => React.createElement('div', {
+          key: a, className: 'dyn-pet-menu-item' + (current === a ? ' sel' : ''),
+          onClick: () => { cfgStore.set({ [field]: a }) }, // 选择即生效；预览随 cfg 变化自动切换，返回后停止
+        }, ACTION_LABEL[a] || a)),
+      )
+    }
+    function MenuToggle({ on, label, onChange }) {
+      return React.createElement('div', { className: 'dyn-pet-menu-row' },
+        React.createElement('span', { className: 'dyn-pet-menu-label' }, label),
+        React.createElement('button', {
+          className: 'dyn-pet-menu-btn' + (on ? ' on' : ''),
+          onClick: (e) => { e.stopPropagation(); onChange(!on) },
+        }, on ? '开' : '关'),
+      )
+    }
+    function MenuSub({ label, value, onOpen }) {
+      return React.createElement('div', { className: 'dyn-pet-menu-row dyn-pet-menu-sub', onClick: onOpen },
+        React.createElement('span', { className: 'dyn-pet-menu-label' }, label),
+        React.createElement('span', { className: 'dyn-pet-menu-val' }, ACTION_LABEL[value] || value),
       )
     }
 
@@ -535,8 +817,71 @@ window.__ModuleLoader__.load({
         .dyn-pet-toggle-icon { font-size: 14px; line-height: 1; }
         .dyn-pet-toggle.off .dyn-pet-toggle-icon { filter: grayscale(1); opacity: 0.45; }
         .dyn-pet-toggle-text { font-size: 12px; line-height: 1; }
+        .dyn-pet-menu { position: fixed; z-index: 2147483001; background: rgba(30,30,34,.96); color:#eee; font-size:13px; line-height:1.9; border-radius:10px; padding:4px 0; min-width:170px; box-shadow:0 6px 20px rgba(0,0,0,.4); cursor:default; user-select:none; }
+        .dyn-pet-menu-item { padding: 3px 14px; cursor: pointer; }
+        .dyn-pet-menu-item:hover { background: rgba(255,255,255,.08); }
+        .dyn-pet-menu-item.sel { color: #fbbf24; }
+        .dyn-pet-menu-row { display:flex; align-items:center; justify-content:space-between; gap:10px; padding: 3px 14px; }
+        .dyn-pet-menu-btn { background:#3f3f46; color:#eee; border:none; border-radius:6px; font-size:12px; padding:1px 10px; cursor:pointer; }
+        .dyn-pet-menu-btn.on { background:#16a34a; }
+        .dyn-pet-menu-sub { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:3px 14px; cursor:pointer; }
+        .dyn-pet-menu-sub:hover { background:rgba(255,255,255,.08); }
+        .dyn-pet-menu-val { color:#a1a1aa; font-size:12px; }
+        .dyn-pet-menu-divider { height:1px; margin:4px 10px; background:rgba(255,255,255,.12); }
+        .dyn-pet-settings { padding: 8px 12px; font-size: 13px; color: #333; display: flex; flex-direction: column; gap: 6px; min-width: 220px; }
+        .dyn-pet-settings-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+        .dyn-pet-settings-row select { max-width: 140px; }
       `
       document.head.appendChild(style)
+    }
+
+    // 设置卡片组件（rc.7+ settings.plugin.item）——读写与右键菜单同一个 cfgStore，双向同步
+    function SettingsCard(props) {
+      const [cfg, setCfg] = React.useState(cfgStore.getSnapshot())
+      React.useEffect(() => cfgStore.subscribe(() => setCfg(cfgStore.getSnapshot())), [])
+      const toggle = (k, v) => cfgStore.set({ [k]: v })
+      const rows = [
+        { k: 'muted', label: '声音', invert: true }, // invert: 勾选=有声（muted=false）
+        { k: 'talkative', label: '语音字幕' },
+        { k: 'gravity', label: '落地物理' },
+      ]
+      const actionRows = [
+        { k: 'dblAction', label: '双击动作' },
+        { k: 'approvalAction', label: '黄灯动作' },
+        { k: 'errorAction', label: '红灯动作' },
+        { k: 'doneAction', label: '蓝灯动作' },
+      ]
+      return React.createElement('div', { className: 'dyn-pet-settings' },
+        rows.map((r) => React.createElement('label', { key: r.k, className: 'dyn-pet-settings-row' },
+          React.createElement('span', null, r.label),
+          React.createElement('input', {
+            type: 'checkbox',
+            checked: r.invert ? !cfg[r.k] : !!cfg[r.k],
+            onChange: (e) => toggle(r.k, r.invert ? !e.target.checked : e.target.checked),
+          }),
+        )),
+        actionRows.map((r) => React.createElement('div', { key: r.k, className: 'dyn-pet-settings-row' },
+          React.createElement('span', null, r.label),
+          React.createElement('select', { value: cfg[r.k], onChange: (e) => toggle(r.k, e.target.value) },
+            CFG_ACTIONS.map((a) => React.createElement('option', { key: a, value: a }, ACTION_LABEL[a] || a)),
+          ),
+        )),
+      )
+    }
+
+    // 注册设置卡片：settingsScope 不在场（rc.6 及更早）时静默返回，不影响其它能力
+    function registerSettingsCard(ctx) {
+      const settingsScope = ctx.get('settingsScope')
+      if (settingsScope === undefined) return
+      const scope = settingsScope.bind({ namespace: 'foxbell-pet' })
+      ctx.effect(() => cfgStore.attachScope(scope))
+      const slots = ctx.get('slots') ?? ctx.slots
+      if (slots === undefined) return
+      // settings.plugin.item 是按 key（settings 命名空间）派发的卡片槽，key 必须与宿主命名空间一致
+      slots.inject('settings.plugin.item', () => slots.register(
+        { name: 'settings.plugin.item', key: 'foxbell-pet' },
+        (props) => React.createElement(SettingsCard, props),
+      ))
     }
 
     function apply(ctx) {
@@ -552,6 +897,7 @@ window.__ModuleLoader__.load({
         { name: 'sidebar.footer.action', id: 'foxbell-pet-toggle', order: 100, label: () => 'Foxbell' },
         (props) => React.createElement(PetToggle, props),
       ))
+      registerSettingsCard(ctx)
     }
 
     module.exports = { name: 'dsh-foxbell-pet-client', inject: ['slots', 'timer'], apply }

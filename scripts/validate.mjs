@@ -40,5 +40,37 @@ for (const g of ['general', 'approval', 'error', 'done']) {
   if (files.length === 0) { console.error('voice group empty:', g); ok = false }
 }
 
+// v1.3.0: 交互配置一致性
+const srcIndex = readFileSync(path.join(root, 'src/index.js'), 'utf8')
+const srcClient = readFileSync(path.join(root, 'src/client.js'), 'utf8')
+const requireBoth = (file, name, needle, label) => {
+  if (!file.includes(needle)) { console.error(`missing ${label} in ${name}`); ok = false }
+}
+requireBoth(srcIndex, 'src/index.js', "settingsNamespace('foxbell-pet')", 'settings namespace key')
+requireBoth(srcIndex, 'src/index.js', 'installSettingsSection', 'host settings registration')
+requireBoth(srcClient, 'src/client.js', 'doneAction', 'config field doneAction')
+requireBoth(srcClient, 'src/client.js', 'dblAction', 'config field dblAction')
+requireBoth(srcClient, 'src/client.js', 'approvalAction', 'config field approvalAction')
+requireBoth(srcClient, 'src/client.js', 'errorAction', 'config field errorAction')
+requireBoth(srcClient, 'src/client.js', 'dyn-pet-menu', 'menu styles')
+requireBoth(srcClient, 'src/client.js', "settings.plugin.item", 'settings card slot')
+requireBoth(srcClient, 'src/client.js', 'attachScope', 'config store scope attach')
+requireBoth(srcIndex, 'src/index.js', 'gravity', 'config field gravity (host)')
+requireBoth(srcClient, 'src/client.js', "'gravity'", 'config field gravity (client)')
+// CFG_ACTIONS 必须是 ANIM 表键的子集（动作绑定依赖该不变量）
+for (const a of ['jumping', 'waving', 'failed', 'waiting', 'review', 'running']) {
+  requireBoth(srcClient, 'src/client.js', `'${a}'`, `action key ${a} present`)
+}
+
+// src == lib 逐字节一致（build 契约）
+for (const f of ['index.js', 'client.js']) {
+  const src = readFileSync(path.join(root, 'src/' + f), 'utf8')
+  const lib = readFileSync(path.join(root, 'lib/' + f), 'utf8')
+  if (src !== lib) { console.error('src/lib mismatch:', f); ok = false }
+}
+// About 面板版本串与 package.json 一致
+const pkg = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8'))
+if (!srcClient.includes(`v${pkg.version}`)) { console.error('About version string out of sync'); ok = false }
+
 console.log(ok ? 'VALIDATE OK' : 'VALIDATE FAILED')
 process.exit(ok ? 0 : 1)
