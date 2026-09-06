@@ -6,7 +6,22 @@
 - 验收基线：deepseek-harness `dsh-v0.1.2-rc.1`（web profile）；并对 master（`dsh-v0.1.3-alpha.1`）做前向冒烟
 - 素材来源：MultiAgents-Manager v0.3.0（以下简称 MAM）宠物模块（约 1.07 万行，含测试与 i18n）
 
-## 0. 背景与已对齐的决策
+## 1. 仓库角色与版本基线（执行 Agent 必读）
+
+| 仓库 | 本地路径 | 基线 commit | 角色 |
+|---|---|---|---|
+| **dsh-foxbell-pet** | `/Users/jarvis/Documents/DeepSeek/DeepSeek-plugins/dsh-foxbell-pet` | main @ `e2b8ebe`（含本 spec） | **唯一修改对象**：全部新代码、构建脚本、文档改动只落此仓库 |
+| MultiAgents-Manager | `/Users/jarvis/Documents/MultiAgents-Manager` | main @ `a77bb2172af7b75370c43644e84a9b8fe36e4a1d`（= origin/main，v0.3.0） | **只读移植源**：第 6 章映射表所有源文件以此基线为准，禁止修改该仓库 |
+| deepseek-harness | `/Users/jarvis/Documents/DeepSeek/deepseek-harness` | 验收基线：tag `dsh-v0.1.2-rc.1` = `a66e4702047846cdaa10c66c9d3df3951f5ea70d`；前向冒烟：master @ `d347e703908d0406b7a7ef80e3a0e594d86b2215`（dsh-v0.1.3-alpha.1） | **只读协议参考**：宿主 API 契约以 rc.1 tag 内源码为唯一依据（附录 A） |
+
+执行约定：
+
+- 本地路径为当前机器布局；执行环境不同则按 GitHub remote 定位：`jarvislee90s-dot/dsh-foxbell-pet`、`jarvislee90s-dot/MultiAgents-Manager`、`deepseek-ai/deepseek-harness`。
+- 协议存疑时在 harness 仓库按 tag 查证：`git -C <harness仓库> grep -n "<标识符>" dsh-v0.1.2-rc.1 -- 'packages/**'`。
+- 前向差异对照（FR-4 冒烟前先做静态 diff）：`git -C <harness仓库> diff a66e470..d347e70 -- <相关包路径>`。
+- MAM 源文件引用一律相对其仓库根（如 `src/components/pet/FoxbellPet.tsx`、`src-tauri/src/services/pet/import.rs`），且以基线 commit 内容为准，不追新。
+
+## 2. 背景与已对齐的决策
 
 dsh-foxbell-pet 是 DeepSeek harness（dsh）的桌宠插件，当前 v1.3.0 面向早期 dsh（rc.7/rc.8 时代）开发。harness 上游已演进到 `dsh-v0.1.2-rc.1`，存在兼容性破坏；同时 MAM（通用 harness 管理工具）中的宠物功能已更完善，需将其外部宠物体系移植回本插件。
 
@@ -24,16 +39,16 @@ dsh-foxbell-pet 是 DeepSeek harness（dsh）的桌宠插件，当前 v1.3.0 面
 | D8 | 管理入口 = 设置页插件卡片内分区 + 右键菜单快捷切换 |
 | D9 | 整体架构 = 胖宿主 + 薄客户端：磁盘/网络操作全在宿主半，客户端纯渲染，通信走插件私有 HTTP 路由 |
 
-## 1. 目标与非目标
+## 3. 目标与非目标
 
-### 1.1 目标
+### 3.1 目标
 
 1. 插件在 `dsh-v0.1.2-rc.1` 上完整可用（当前 3 处接口破坏导致状态数据、设置卡、客户端挂载三方面失效或部分失效）。
 2. 以 MAM 为基准移植全量外部宠物体系：多宠物磁盘商店、四来源导入（本地文件夹 / zip / Codex 宠物目录 / Petdex 在线）、导入配置向导、管理（改名/语音编辑/删除）、切换与热切换、完整性守卫。
 3. 宠物本体（动画、交互、语音、物理、菜单、状态卡片）与 MAM 行为对齐，并保留插件特有的多项目状态聚合能力（错误/断联检测）。
 4. 仓库升级为 TSX + esbuild 构建形态，产物仍为无外部依赖的单文件客户端 bundle。
 
-### 1.2 非目标
+### 3.2 非目标
 
 - 不修改 MAM 仓库任何代码。
 - 不移植 MAM 的 OS 级能力：系统通知接管/抑制、托盘、窗口置顶、跨应用跳转（AppleScript/HWND/deep-link）、Tauri 窗口几何。
@@ -42,9 +57,9 @@ dsh-foxbell-pet 是 DeepSeek harness（dsh）的桌宠插件，当前 v1.3.0 面
 - 不做 MAM 与插件之间的宠物目录互通配置（将来可作为独立需求）。
 - 语音克隆/新增语音内容生产不在本次范围（沿用现有 31 条 foxbell 语音与外部宠物自带语音）。
 
-## 2. 现状与差距
+## 4. 现状与差距
 
-### 2.1 兼容性差距（对 `dsh-v0.1.2-rc.1`，已逐项代码验证）
+### 4.1 兼容性差距（对 `dsh-v0.1.2-rc.1`，已逐项代码验证）
 
 | # | 插件 v1.3.0 用法 | rc.1 现状 | 用户可见后果 |
 |---|---|---|---|
@@ -54,7 +69,7 @@ dsh-foxbell-pet 是 DeepSeek harness（dsh）的桌宠插件，当前 v1.3.0 面
 
 已验证**存活**、无需改造的依赖面（证据见附录 A）：`webServer.register`（exact 路由 + disposer）、`fs.resolve/readBytes/listDir`、`agents.roots()`、`sessions.get()`、`sessionTitle.get()`、槽位 `shell.overlay` / `sidebar.footer.action` / `settings.plugin.item`、`window.__ModuleLoader__.load` 加载契约、客户端 `sessions.open()`、`settingsScope.bind()`、`require('react')`（react 已入平台种子表）、`@deepseek-ai/dsh-client-ui-slots`、`dsh-client-locale`、`dsh-api-gateway`、`dsh-client-store` 包均存在。
 
-### 2.2 功能差距（MAM 宠物 × 插件 v1.3.0）
+### 4.2 功能差距（MAM 宠物 × 插件 v1.3.0）
 
 | MAM 能力 | 插件现状 | 结论 |
 |---|---|---|
@@ -66,7 +81,7 @@ dsh-foxbell-pet 是 DeepSeek harness（dsh）的桌宠插件，当前 v1.3.0 面
 | Petdex 在线仓库导入 | 无 | 移植（FR-14） |
 | 置顶/托盘/窗口几何/通知接管 | 无且 WebUI 内不适用 | 不移植 |
 
-## 3. 功能需求清单
+## 5. 功能需求清单
 
 > 每条需求含「做什么 / 改造前 / 改造后」。FR 编号供计划文档与验收引用。
 
@@ -227,11 +242,11 @@ dsh-foxbell-pet 是 DeepSeek harness（dsh）的桌宠插件，当前 v1.3.0 面
 - 改造前：仅静态 validate，无单测。
 - 改造后：核心逻辑有回归防护；发布按 QA 清单验收。
 
-## 4. 代码移植映射（模块级）
+## 6. 代码移植映射（模块级）
 
-> 具体函数签名、拆分与实现顺序由计划文档（plan）决定，此处只锁定「搬什么、搬到哪、改什么」。
+> 具体函数签名、拆分与实现顺序由计划文档（plan）决定，此处只锁定「搬什么、搬到哪、改什么」。所有 MAM 源路径相对其仓库根目录（见第 1 章基线）。
 
-### 4.1 前端：MAM `src/components/pet/` + `src/pages/pet.tsx` → 插件 `src/client/`
+### 6.1 前端：MAM `src/components/pet/` + `src/pages/pet.tsx` → 插件 `src/client/`
 
 | MAM 源 | 目标 | 移植改动 |
 |---|---|---|
@@ -250,7 +265,7 @@ dsh-foxbell-pet 是 DeepSeek harness（dsh）的桌宠插件，当前 v1.3.0 面
 
 **不移植（前端）**：`useSessionJump`、`sessionReadSync`（已读状态由宿主 `/ack` 集中管理，天然跨标签一致）、`useNotification` 接管门（petSoundTakeover/petSuppressPopup，D4）、`getAgentLabel`（dsh 单一 agent 场景简化）、标题栏开关（插件已有侧栏槽位开关）、托盘相关。
 
-### 4.2 后端：MAM `src-tauri/src/services/pet/` + `commands/pet.rs` → 插件 `src/host/pets/`
+### 6.2 后端：MAM `src-tauri/src/services/pet/` + `commands/pet.rs` → 插件 `src/host/pets/`
 
 | MAM 源（Rust） | 目标（Node） | 移植改动 |
 |---|---|---|
@@ -264,13 +279,13 @@ dsh-foxbell-pet 是 DeepSeek harness（dsh）的桌宠插件，当前 v1.3.0 面
 
 **不移植（后端）**：`window/`（AppleScript/HWND/deep-link 跳转）、`system_tray.rs` 宠物项、`database/dao/unread.rs`（插件已有宿主侧聚合）、tauri capabilities/assetProtocol 配置（WebUI 内由路由伺服资产）。
 
-### 4.3 保留的插件自有代码
+### 6.3 保留的插件自有代码
 
 - 宿主半现有状态聚合骨架（FR-1 迁移数据源后保留判定逻辑，含错误/断联检测）。
 - 现有三槽位注册、`/state`/`/ack`/`/client-diag` 路由、内置素材伺服（并入 FR-24 路由族）。
 - `assets/`（foxbell 图集与 31 条语音）与 `demo/` 预览页。
 
-## 5. 交互与数据流总览
+## 7. 交互与数据流总览
 
 ```
 ┌─ dsh WebUI (rc.1) ────────────────────────────────────────────┐
@@ -288,7 +303,7 @@ dsh-foxbell-pet 是 DeepSeek harness（dsh）的桌宠插件，当前 v1.3.0 面
 └──────────────────────────────────────────────────────────────┘
 ```
 
-## 6. 测试与验收标准
+## 8. 测试与验收标准
 
 | 验收项 | 判据 |
 |---|---|
@@ -301,7 +316,7 @@ dsh-foxbell-pet 是 DeepSeek harness（dsh）的桌宠插件，当前 v1.3.0 面
 | 单测 | vitest 全绿；核心逻辑（状态映射/校验/管线）有覆盖 |
 | 前向 | master 冒烟结果记录于附录 C |
 
-## 7. 版本与发布
+## 9. 版本与发布
 
 - 版本 `v2.0.0`（破坏性：最低 dsh 要求提升至 0.1.2-rc.1；色彩语义变化显著标注）。
 - `package.json` 升版、`dsh.plugin.json` 不动（D4）；README/README.en/CHANGELOG 同步。
