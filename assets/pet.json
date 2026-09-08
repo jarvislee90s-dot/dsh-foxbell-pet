@@ -1,7 +1,230 @@
 {
-  "id": "foxbell-peach",
+  "schemaVersion": 2,
+  "id": "foxbell",
   "displayName": "Foxbell·水蜜桃",
   "description": "穿水蜜桃主题格纹上衣、百褶裙与波浪帽的小狐狸桌面宠物，保留灵动神态、夸张动作和上翘蓬松尾巴。",
+  "source": "builtin",
   "spriteVersionNumber": 2,
-  "spritesheetPath": "spritesheet.webp"
+  "spritesheetSizeBytes": 2654210,
+  "hasVoice": true,
+  "hasSubtitle": true,
+  "voices": [
+    {
+      "group": "general",
+      "name": "贝贝给你跳个舞吧~",
+      "file": "voice/general/贝贝给你跳个舞吧~.m4a",
+      "sizeBytes": 36369,
+      "durationMs": 2860
+    },
+    {
+      "group": "general",
+      "name": "嘿嘿，被你抓到啦~",
+      "file": "voice/general/嘿嘿，被你抓到啦~.m4a",
+      "sizeBytes": 33302,
+      "durationMs": 2620
+    },
+    {
+      "group": "general",
+      "name": "今天也要一起加油哦！",
+      "file": "voice/general/今天也要一起加油哦！.m4a",
+      "sizeBytes": 35243,
+      "durationMs": 2780
+    },
+    {
+      "group": "general",
+      "name": "摸摸头…贝贝会更厉害哦~",
+      "file": "voice/general/摸摸头…贝贝会更厉害哦~.m4a",
+      "sizeBytes": 45348,
+      "durationMs": 3680
+    },
+    {
+      "group": "general",
+      "name": "你今天辛苦啦，贝贝给你加油！",
+      "file": "voice/general/你今天辛苦啦，贝贝给你加油！.m4a",
+      "sizeBytes": 51650,
+      "durationMs": 4160
+    },
+    {
+      "group": "general",
+      "name": "你是世界上最好的麻~",
+      "file": "voice/general/你是世界上最好的麻~.m4a",
+      "sizeBytes": 41279,
+      "durationMs": 3280
+    },
+    {
+      "group": "general",
+      "name": "你下班了嘛~",
+      "file": "voice/general/你下班了嘛~.m4a",
+      "sizeBytes": 25380,
+      "durationMs": 1980
+    },
+    {
+      "group": "general",
+      "name": "你要给贝贝吃鸡腿嘛~",
+      "file": "voice/general/你要给贝贝吃鸡腿嘛~.m4a",
+      "sizeBytes": 41511,
+      "durationMs": 3280
+    },
+    {
+      "group": "general",
+      "name": "我就要赖着你",
+      "file": "voice/general/我就要赖着你.m4a",
+      "sizeBytes": 23960,
+      "durationMs": 2100
+    },
+    {
+      "group": "general",
+      "name": "小飞棍来喽",
+      "file": "voice/general/小飞棍来喽.m4a",
+      "sizeBytes": 26145,
+      "durationMs": 2200
+    },
+    {
+      "group": "general",
+      "name": "小狐狸要努力变强",
+      "file": "voice/general/小狐狸要努力变强.m4a",
+      "sizeBytes": 37160,
+      "durationMs": 3020
+    },
+    {
+      "group": "approval",
+      "name": "奥陆都追上来了，快点嘛",
+      "file": "voice/approval/奥陆都追上来了，快点嘛.m4a",
+      "sizeBytes": 43659,
+      "durationMs": 3460
+    },
+    {
+      "group": "approval",
+      "name": "等你哦，贝贝去啃个鸡腿先~",
+      "file": "voice/approval/等你哦，贝贝去啃个鸡腿先~.m4a",
+      "sizeBytes": 52087,
+      "durationMs": 4060
+    },
+    {
+      "group": "approval",
+      "name": "强者不会停止学习",
+      "file": "voice/approval/强者不会停止学习.m4a",
+      "sizeBytes": 40336,
+      "durationMs": 3200
+    },
+    {
+      "group": "approval",
+      "name": "审批通过就允许你请贝贝吃鸡腿~",
+      "file": "voice/approval/审批通过就允许你请贝贝吃鸡腿~.m4a",
+      "sizeBytes": 68190,
+      "durationMs": 5420
+    },
+    {
+      "group": "approval",
+      "name": "星黛露还等贝贝呢，快批快批！",
+      "file": "voice/approval/星黛露还等贝贝呢，快批快批！.m4a",
+      "sizeBytes": 61223,
+      "durationMs": 4840
+    },
+    {
+      "group": "approval",
+      "name": "这么好的阳光 我只能在工位上",
+      "file": "voice/approval/这么好的阳光 我只能在工位上.m4a",
+      "sizeBytes": 59787,
+      "durationMs": 4800
+    },
+    {
+      "group": "done",
+      "name": "表现不错，奖励你陪贝贝玩~",
+      "file": "voice/done/表现不错，奖励你陪贝贝玩~.m4a",
+      "sizeBytes": 55406,
+      "durationMs": 4440
+    },
+    {
+      "group": "done",
+      "name": "成功啦！贝贝是不是超厉害~",
+      "file": "voice/done/成功啦！贝贝是不是超厉害~.m4a",
+      "sizeBytes": 54693,
+      "durationMs": 4320
+    },
+    {
+      "group": "done",
+      "name": "搞定咯~ 今晚吃鸡腿好不好？",
+      "file": "voice/done/搞定咯~ 今晚吃鸡腿好不好？.m4a",
+      "sizeBytes": 52238,
+      "durationMs": 4120
+    },
+    {
+      "group": "done",
+      "name": "今天这个班就到此结束",
+      "file": "voice/done/今天这个班就到此结束.m4a",
+      "sizeBytes": 45794,
+      "durationMs": 3680
+    },
+    {
+      "group": "done",
+      "name": "事已至此，先吃饭吧",
+      "file": "voice/done/事已至此，先吃饭吧.m4a",
+      "sizeBytes": 38564,
+      "durationMs": 3060
+    },
+    {
+      "group": "done",
+      "name": "我的实力大家有目共睹",
+      "file": "voice/done/我的实力大家有目共睹.m4a",
+      "sizeBytes": 41044,
+      "durationMs": 3260
+    },
+    {
+      "group": "done",
+      "name": "小意思啦，贝贝可是探险家呢~",
+      "file": "voice/done/小意思啦，贝贝可是探险家呢~.m4a",
+      "sizeBytes": 55254,
+      "durationMs": 4420
+    },
+    {
+      "group": "error",
+      "name": "放心吧 交给我一定会搞砸的",
+      "file": "voice/error/放心吧 交给我一定会搞砸的.m4a",
+      "sizeBytes": 52733,
+      "durationMs": 4200
+    },
+    {
+      "group": "error",
+      "name": "你报警吧，把可爱的我抓走吧",
+      "file": "voice/error/你报警吧，把可爱的我抓走吧.m4a",
+      "sizeBytes": 51057,
+      "durationMs": 4080
+    },
+    {
+      "group": "error",
+      "name": "失败了…要抱抱才能继续~",
+      "file": "voice/error/失败了…要抱抱才能继续~.m4a",
+      "sizeBytes": 54615,
+      "durationMs": 4380
+    },
+    {
+      "group": "error",
+      "name": "私密马赛，哇达西不是故意的",
+      "file": "voice/error/私密马赛，哇达西不是故意的.m4a",
+      "sizeBytes": 54922,
+      "durationMs": 4380
+    },
+    {
+      "group": "error",
+      "name": "算了 我什么都不说了",
+      "file": "voice/error/算了 我什么都不说了.m4a",
+      "sizeBytes": 37057,
+      "durationMs": 3040
+    },
+    {
+      "group": "error",
+      "name": "再错就把你丢鳄鱼池哦",
+      "file": "voice/error/再错就把你丢鳄鱼池哦.m4a",
+      "sizeBytes": 43561,
+      "durationMs": 3480
+    },
+    {
+      "group": "error",
+      "name": "这日子是没法过了",
+      "file": "voice/error/这日子是没法过了.m4a",
+      "sizeBytes": 36367,
+      "durationMs": 3100
+    }
+  ]
 }

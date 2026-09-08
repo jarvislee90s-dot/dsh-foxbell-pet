@@ -2,6 +2,44 @@
 
 本文件记录本项目的所有重要变更。
 
+## [2.0.0] - 2026-09-07
+
+### 兼容性（dsh ≥ 0.1.2-rc.1，破坏性升级）
+- **B1**：状态聚合改用 rc.1 的 `session.snapshotEvents()` 方法（旧 `session.events` 数组属性已删除；判定逻辑不变）
+- **B2**：设置卡注册改用 `ctx.settings.installSection(owner, ns, schema, entry, hooks)` 服务方法（旧 `installSettingsSection` 辅助函数已删除；hooks 形状 `{setSource, onChange, validate?}` 兼容）；`@deepseek-ai/dsh-settings` 依赖提升至 `^0.1.2-rc.1`
+- **B3**：`dsh.client.inject` 按 rc.1 包级依赖边语义清理，移除已删除的 `@deepseek-ai/dsh-client-runtime`；客户端只依赖平台种子模块（react / react/jsx-runtime），inject 声明为空并与产物 require 面强校验一致
+- 最低 harness 版本：**dsh ≥ 0.1.2-rc.1**（旧 rc.7/rc.8 不再支持）
+
+### ⚠️ 用户可见变化：状态卡片色彩语义切换为 MAM 口径
+- **红 = 待审批**、**黄 = 运行中**、**绿 = 完成且未读**（旧版：绿运行 / 黄待批准 / 红报错 / 蓝完成）
+- 本插件特有的**错误/断联态以深红 + ⚠ 错误标识**呈现，与「待审批」红明确区分
+- 卡片点击跳会话 + 已读行为不变；审批语音 10 秒限流、绿卡点击即确认（本地立即消卡）
+
+### Added — 外部宠物体系（MAM v0.3.0 移植）
+- 磁盘商店 `~/.dsh/foxbell-pet/pets/<id>/`（spritesheet.webp + manifest.json + voice/<group>/<file>）；导入暂存区 `.import-staging/`（插件启动清扫残留，崩溃自愈）；manifest 原子写 + 一层 `.bak` 备份
+- 清单 v2 格式（schemaVersion/id/displayName/description/source/spriteVersionNumber/spritesheetSizeBytes/hasVoice/hasSubtitle/voices[]）；内置 foxbell 包内清单同步升级 v2（`foxbell` 为保留 id）；spriteVersionNumber 1=9 行 / 2=11 行图集运行时自适应
+- 四来源导入：本地文件夹 / zip 包（宿主安全解压：总量 ≤100MB、文件数 ≤200、条目路径防穿越）/ Codex 宠物目录 `~/.codex/pets/` / Petdex 在线仓库（列表与下载均宿主代理：域名 allowlist、响应大小上限、8s 超时）
+- 统一导入配置向导：宠物 id 实时校验（字符集/长度/保留字/Windows 保留设备名/查重，前后端双重校验）、显示名与描述、字幕开关、语音分组编辑（并行时长探测；1s < 时长 < 20s 且单文件 ≤10MB；四组齐全判定「有语音」）
+- 管理对话框：改名（id 同步 manifest 与目录）、编辑显示名/描述、按组增删语音、字幕开关、安全删除（二次确认后移入 `~/.dsh/foxbell-pet/.trash/`，不物理删除）、查看目录路径；编辑激活中宠物沿用闪切保护（暂切 foxbell，保存后切回）
+- 切换对话框与热切换：卡片式列表（内置 foxbell + 全部外部宠物）→ 激活即时生效（精灵/语音/清单热替换，无需刷新页面）
+- 激活守卫：激活与每次切换校验完整性（图集缺失/被改动、语音缺失/变动/多余、清单缺失），问题随 /state 快照下发，客户端弹修复对话（更新清单 / 换回 foxbell / 忽略 / 隐藏宠物）；宠物本体运行中不弹
+- 无语音宠物：音效开关禁用（带提示）、任务完成只播动画不出声；无字幕宠物：不显示字幕气泡
+- 右键菜单新增「🔁 切换宠物」子菜单（当前项打勾，点击即热切换）与「📏 大小」三档缩放子菜单
+- 设置卡扩展为单卡双分区：「配置」区（既有配置项 + 三档缩放 0.75/1/1.25，作用于精灵/卡片/菜单整体）与「宠物管理」区（当前宠物、切换/导入/管理按钮、Petdex 入口）
+- 错误码体系对齐 MAM PetError 码表（宿主 49 码 + 客户端本地 8 码），路由错误统一 `{code, params, detail}` JSON，客户端按插件内部 zh/en 字典映射文案、内联呈现于对话框
+- 私有路由族扩展：宠物列表/单宠物资产/四来源导入/暂存音频增删/完成取消导入/清单更新/改名/删除/激活切换/Petdex 搜索代理；`/state` 快照新增 `activePet`、`pets[]`、`guard`，`voices` 改为当前激活宠物语音清单（轮询频率维持 1.5s）
+- vitest 测试套件：状态映射、id/清单校验、清单 diff 与修复计划、导入暂存管线（真实临时目录）、zip 防护、Petdex mock、安全拒绝用例
+
+### Changed — 构建体系
+- 源码重组为 `src/host/`（纯 JS）+ `src/client/`（TSX）双树；引入 esbuild
+- `npm run build` 产物：`lib/index.js`（ESM 宿主 bundle）+ `lib/client.js`（单文件 iife 包装，react 与 `@deepseek-ai/*` external，React 18 目标，样式 CSS 内联注入）
+- `npm run validate` 扩展：产物纯度（无残留 import/export）、`dsh.client` 声明与客户端实际依赖一致、路由前缀/设置命名空间/版本号一致性、错误码表两侧一致、内置清单与磁盘素材一致——既有检查全部保留
+- 宠物本体以 MAM 为基准重写：动画优先级模型（拖拽 > 瞬时动作 > 任务态 > 环视 > 待机）、拖拽方向动画（150ms 采样窗）、投掷惯性、重力坠落（1400 px/s²）与落地压扁回弹（scaleY 0.55 / 60ms+240ms+补跳 1500ms）、单击挥手/双击语音+可配置动作、环视待机（6s 空闲触发）；Tauri 窗口几何改为 WebUI 内 DOM 定位（视口为工作区，位置记忆与边界钳制保留）
+- Config 新增 `scale`（默认 1）与 `activePetId`（默认 `foxbell`），既有字段与语义不变，旧保存配置自动得默认值
+
+### Fixed
+- rc.1 下状态卡片永远无数据（B1 静默失效）、设置卡不出现（B2）、客户端半无法挂载（B3）
+
 ## [1.3.0] - 2026-08-18
 
 ### Added

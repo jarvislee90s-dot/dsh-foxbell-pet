@@ -3,32 +3,72 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Foxbell 桌宠预览</title>
+<title>Foxbell 桌宠预览（v2）</title>
 <style>
   body { margin:0; min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:24px;
          background:#fdf6ec; font-family:system-ui,-apple-system,sans-serif; color:#7a4a2b; }
   .pet { width:192px; height:208px; background-image:url('../assets/spritesheet.webp');
-         background-size:1536px 2288px; animation:idle 0.96s steps(6,end) infinite; }
-  .pet.waving { animation:waving 0.56s steps(4,end) infinite; }
-  @keyframes idle   { from { background-position:0 0 }     to { background-position:-1152px 0 } }
-  @keyframes waving { from { background-position:0 -624px } to { background-position:-768px -624px } }
-  .tip { font-size:14px; color:#a07050; }
+         background-size:1536px 2288px; background-repeat:no-repeat; }
+  .tip { font-size:14px; color:#a07050; text-align:center; line-height:1.7; }
   button { font-size:13px; padding:6px 16px; border-radius:999px; border:1px solid rgba(122,74,43,.35);
-           background:#fff; color:#7a4a2b; cursor:pointer; }
+           background:#fff; color:#7a4a2b; cursor:pointer; margin:0 4px; }
+  .dot { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:4px; vertical-align:-1px; }
 </style>
 </head>
 <body>
   <div class="pet" id="pet"></div>
-  <div class="tip">Foxbell · DSH 桌宠（多项目状态监控 + 右键菜单 + 拖拽物理 + 语音）</div>
-  <button id="btn">挥手一下</button>
-  <script>
-    const pet = document.getElementById('pet')
-    let t
-    document.getElementById('btn').onclick = () => {
-      pet.classList.add('waving')
-      clearTimeout(t)
-      t = setTimeout(() => pet.classList.remove('waving'), 1700)
+  <div class="tip">
+    Foxbell · DSH 桌宠 v2.0.0（离线精灵预览页；完整交互需 dsh ≥ 0.1.2-rc.1 WebUI）<br>
+    状态灯（MAM 口径）：
+    <span class="dot" style="background:#ef4444"></span>待审批
+    <span class="dot" style="background:#eab308"></span>运行中
+    <span class="dot" style="background:#22c55e"></span>完成未读
+    <span class="dot" style="background:#7f1d1d"></span>报错/断联（⚠）
+  </div>
+  <div>
+    <button data-anim="idle">待机</button>
+    <button data-anim="waving">挥手</button>
+    <button data-anim="jumping">跳跃</button>
+    <button data-anim="failed">委屈</button>
+    <button data-anim="waiting">等待</button>
+    <button data-anim="running">工作</button>
+    <button data-anim="review">审查</button>
+    <button data-anim="look">环视</button>
+  </div>
+<script>
+  // 与 src/client/animations.ts 同表（离线预览用最小实现）
+  const ANIM = {
+    idle: { row: 0, d: [280, 110, 110, 140, 140, 320] },
+    waving: { row: 3, d: [140, 140, 140, 280] },
+    jumping: { row: 4, d: [140, 140, 140, 140, 280] },
+    failed: { row: 5, d: [140, 140, 140, 140, 140, 140, 140, 240] },
+    waiting: { row: 6, d: [150, 150, 150, 150, 150, 260] },
+    running: { row: 7, d: [120, 120, 120, 120, 120, 220] },
+    review: { row: 8, d: [150, 150, 150, 150, 150, 280] },
+  }
+  const pet = document.getElementById('pet')
+  let timer = null, lookTimer = null
+  function play(key) {
+    clearTimeout(timer); clearInterval(lookTimer)
+    if (key === 'look') {
+      let i = 0
+      const step = () => {
+        const row = i < 8 ? 9 : 10, col = i % 8
+        pet.style.backgroundPosition = `${-col * 192}px ${-row * 208}px`
+        i = (i + 1) % 16
+      }
+      step(); lookTimer = setInterval(step, 250)
+      return
     }
-  </script>
+    const def = ANIM[key]; let i = 0
+    const step = () => {
+      pet.style.backgroundPosition = `${-i * 192}px ${-def.row * 208}px`
+      timer = setTimeout(() => { i = (i + 1) % def.d.length; step() }, def.d[i])
+    }
+    step()
+  }
+  for (const b of document.querySelectorAll('button')) b.onclick = () => play(b.dataset.anim)
+  play('idle')
+</script>
 </body>
 </html>
