@@ -396,13 +396,13 @@ window.__ModuleLoader__.load({
         const MIN_SPEECH = 2500
         // 播一段语音并显示字幕：字幕显示的就是播放的那条语音（voice.name）；
         // 字幕时长 = max(最短 2.5s, 语音时长 + 0.25s)，以时间长的为准。
-        const playVoice = (voice, text, anim) => {
+        const playVoice = (voice, text, anim, noBubble) => {
           if (!voice) return
           // 动作先播：muted 只静音，不静止（静音 ≠ 静止）
           playTransient(anim || 'waving', 1700)
           if (cfgRef.current.muted) return
           const gen = ++speechGenRef.current
-          if (cfgRef.current.talkative) setBubble(text || voice.name) // talkative=false 时语音照播但无字幕
+          if (cfgRef.current.talkative && !noBubble) setBubble(text || voice.name) // talkative=false 时语音照播但无字幕
           playTransient(anim || 'waving', 1700)
           // 优先用预加载元素（即时出声）；没有则回退共享 audio
           const el = voiceElsRef.current ? voiceElsRef.current[voice.index] : undefined
@@ -555,7 +555,7 @@ window.__ModuleLoader__.load({
                 playTransient('jumping', 1600)
                 if (cfgRef.current.muted) continue
                 const v = pickVoice('usage')
-                if (v) { playVoice(v, a.text, 'jumping'); continue }
+                if (v) { playVoice(v, a.text, 'jumping', true); continue } // 举牌警报不叠加字幕气泡（spec 6.2 容器分工）
                 if (cfgRef.current.ttsEnabled && typeof window !== 'undefined' && window.speechSynthesis) {
                   try { const u = new window.SpeechSynthesisUtterance(a.text); u.lang = 'zh-CN'; window.speechSynthesis.speak(u) } catch {}
                 }
