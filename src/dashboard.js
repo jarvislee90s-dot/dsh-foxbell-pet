@@ -85,3 +85,38 @@ export function foldUsage(evts) {
   }
   return { byDay, grand }
 }
+
+// ---------- 组件②：阈值阶梯与里程碑（跨阈值判定，天然一次性） ----------
+
+export function formatTokens(n) {
+  if (!Number.isFinite(n) || n <= 0) return '0'
+  if (n < 10000) return String(Math.round(n))
+  if (n < 100000000) {
+    const v = (n / 10000).toFixed(1)
+    return (v.endsWith('.0') ? v.slice(0, -2) : v) + '万'
+  }
+  const v = (n / 100000000).toFixed(2)
+  return v.replace(/\.?0+$/, '') + '亿'
+}
+
+export function evaluateAlerts(prev, next, cfg) {
+  const out = []
+  const limit = cfg && cfg.dayLimitTokens > 0 ? cfg.dayLimitTokens : 0
+  if (limit > 0) {
+    const warn = limit * 0.8
+    if (prev.dayTotal < warn && next.dayTotal >= warn) {
+      out.push({ id: 'day-warn', kind: 'day-warn', text: '今日 token 已用 80% · ' + formatTokens(next.dayTotal) })
+    }
+    if (prev.dayTotal < limit && next.dayTotal >= limit) {
+      out.push({ id: 'day-hit', kind: 'day-hit', text: '今日 token 已达阈值 · ' + formatTokens(next.dayTotal) })
+    }
+  }
+  const unit = cfg && cfg.milestoneUnit > 0 ? cfg.milestoneUnit : 0
+  if (unit > 0) {
+    const k = Math.floor(next.grandTotal / unit)
+    if (k > 0 && Math.floor(prev.grandTotal / unit) < k) {
+      out.push({ id: 'milestone:' + k, kind: 'milestone', text: '里程碑：累计 ' + formatTokens(k * unit) + ' token' })
+    }
+  }
+  return out
+}

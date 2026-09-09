@@ -101,3 +101,42 @@ test('foldUsage ignores events without usage and tolerates junk', () => {
   assert.equal(r.grand.inputTokens, 0)
   assert.deepEqual(r.byDay, {})
 })
+
+import { evaluateAlerts, formatTokens } from '../src/dashboard.js'
+
+test('formatTokens short formats', () => {
+  assert.equal(formatTokens(999), '999')
+  assert.equal(formatTokens(12345), '1.2万')
+  assert.equal(formatTokens(100000), '10万')
+  assert.equal(formatTokens(123456789), '1.23亿')
+})
+
+test('no alerts when limit disabled', () => {
+  assert.deepEqual(evaluateAlerts({ dayTotal: 0, grandTotal: 0 }, { dayTotal: 999, grandTotal: 999 }, { dayLimitTokens: 0, milestoneUnit: 0 }), [])
+})
+
+test('day warn fires on crossing 80%, once', () => {
+  const cfg = { dayLimitTokens: 100, milestoneUnit: 0 }
+  const a = evaluateAlerts({ dayTotal: 0, grandTotal: 0 }, { dayTotal: 80, grandTotal: 0 }, cfg)
+  assert.equal(a.length, 1); assert.equal(a[0].kind, 'day-warn')
+  const b = evaluateAlerts({ dayTotal: 85, grandTotal: 0 }, { dayTotal: 95, grandTotal: 0 }, cfg)
+  assert.equal(b.filter((x) => x.kind === 'day-warn').length, 0)
+})
+
+test('day hit fires on crossing 100%', () => {
+  const a = evaluateAlerts({ dayTotal: 80, grandTotal: 0 }, { dayTotal: 100, grandTotal: 0 }, { dayLimitTokens: 100, milestoneUnit: 0 })
+  assert.equal(a[0].kind, 'day-hit')
+})
+
+test('milestone fires once per crossed multiple', () => {
+  const cfg = { dayLimitTokens: 0, milestoneUnit: 1000 }
+  const a = evaluateAlerts({ dayTotal: 0, grandTotal: 999 }, { dayTotal: 0, grandTotal: 1001 }, cfg)
+  assert.equal(a.length, 1); assert.equal(a[0].kind, 'milestone'); assert.equal(a[0].id, 'milestone:1')
+  const b = evaluateAlerts({ dayTotal: 0, grandTotal: 1500 }, { dayTotal: 0, grandTotal: 1800 }, cfg)
+  assert.equal(b.length, 0)
+})
+
+test('day rollover does not re-fire (prev=big yesterday, next=small today)', () => {
+  const a = evaluateAlerts({ dayTotal: 90, grandTotal: 0 }, { dayTotal: 10, grandTotal: 0 }, { dayLimitTokens: 100, milestoneUnit: 0 })
+  assert.equal(a.length, 0)
+})
