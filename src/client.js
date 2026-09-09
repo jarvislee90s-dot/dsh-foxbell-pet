@@ -977,15 +977,19 @@ window.__ModuleLoader__.load({
     function Board({ dash, mode, ttlSec, onClose }) {
       const s = (dash && dash.summary) || null
       if (!s) return null
+      // 二期预留（issue #4 F38/F40/F41/F42/F45）：黑板行可插拔——周报/缓存率趋势/失败率/耗时漂移/导出在此追加行（spec §9）
+      const rows = [
+        '会话 ' + s.sessions + ' · turn ' + s.turns + ' · 报错 ' + s.errors,
+        '今日 token ' + s.tokensText,
+        '工具 Top3 ' + s.toolsText,
+        '最长单 turn ' + s.longestText,
+      ]
       return React.createElement('div', { className: 'dyn-pet-board' + (mode === 'farewell' ? ' farewell' : '') },
         React.createElement('div', { className: 'dyn-pet-board-head' },
           React.createElement('span', null, mode === 'farewell' ? '今日收工 🦊' : '工作小结'),
           React.createElement('button', { className: 'dyn-pet-board-x', onClick: (e) => { e.stopPropagation(); onClose() } }, '✕'),
         ),
-        React.createElement('div', { className: 'dyn-pet-board-row' }, '会话 ' + s.sessions + ' · turn ' + s.turns + ' · 报错 ' + s.errors),
-        React.createElement('div', { className: 'dyn-pet-board-row' }, '今日 token ' + s.tokensText),
-        React.createElement('div', { className: 'dyn-pet-board-row' }, '工具 Top3 ' + s.toolsText),
-        React.createElement('div', { className: 'dyn-pet-board-row' }, '最长单 turn ' + s.longestText),
+        rows.map((text, i) => React.createElement('div', { key: i, className: 'dyn-pet-board-row' }, text)),
       )
     }
     // 迷你条（组件② 主动查）：节奏表盘 + 今日/本会话用量 + 项目状态计数；纯只读（CSS pointer-events:none，零可点元素）
@@ -1001,16 +1005,20 @@ window.__ModuleLoader__.load({
       const counts = { approval: 0, running: 0, done: 0 }
       for (const p of projects || []) { if (counts[p.status] !== undefined) counts[p.status] += 1 }
       const fmt = (n) => n >= 100000000 ? (n / 100000000).toFixed(2).replace(/\.?0+$/, '') + '亿' : n >= 10000 ? (n / 10000).toFixed(1).replace(/\.0$/, '') + '万' : String(Math.round(n || 0))
-      return React.createElement('div', { className: 'dyn-pet-mini' },
-        React.createElement('div', { className: 'dyn-pet-mini-dial' },
+      // 数据行数组（沿用 usageOn 门控与条件会话标题行，null 占位与旧逐参渲染逐位一致）
+      const rows = []
+      rows.push(
+        React.createElement('div', { key: 'dial', className: 'dyn-pet-mini-dial' },
           React.createElement('div', { className: 'dyn-pet-mini-bar' }, React.createElement('i', { style: { width: (TIER_PCT[pace.tier] || 20) + '%' } })),
           // pace 关闭（宿主不下发档位）显示 —；开启时空闲档由宿主下发「空闲」
           React.createElement('span', { className: 'dyn-pet-mini-tier' }, pace.label || '—'),
         ),
-        usageOn ? React.createElement('div', { className: 'dyn-pet-mini-row' }, '今日 ' + fmt(daySum) + (sessSum !== null ? ' · 本会话 ' + fmt(sessSum) : '')) : null,
-        React.createElement('div', { className: 'dyn-pet-mini-row' }, (counts.approval ? counts.approval + ' 等审批 · ' : '') + (counts.running ? counts.running + ' 运行 · ' : '') + (counts.done ? counts.done + ' 完成' : '') || '暂无进行中会话'),
-        usageOn && sess && sess.title ? React.createElement('div', { className: 'dyn-pet-mini-row dyn-pet-mini-dim' }, sess.title) : null,
       )
+      rows.push(usageOn ? React.createElement('div', { key: 'usage', className: 'dyn-pet-mini-row' }, '今日 ' + fmt(daySum) + (sessSum !== null ? ' · 本会话 ' + fmt(sessSum) : '')) : null)
+      rows.push(React.createElement('div', { key: 'counts', className: 'dyn-pet-mini-row' }, (counts.approval ? counts.approval + ' 等审批 · ' : '') + (counts.running ? counts.running + ' 运行 · ' : '') + (counts.done ? counts.done + ' 完成' : '') || '暂无进行中会话'))
+      rows.push(usageOn && sess && sess.title ? React.createElement('div', { key: 'sess', className: 'dyn-pet-mini-row dyn-pet-mini-dim' }, sess.title) : null)
+      // 二期预留（issue #4 F10）：sparkline 迷你趋势行挂此（spec §9）
+      return React.createElement('div', { className: 'dyn-pet-mini' }, ...rows)
     }
 
     const STYLE_ID = 'dyn-pet-styles'

@@ -367,7 +367,8 @@ export async function apply(ctx, config) {
     summaryState = summarize(perSessionMetrics, dayUsage)
     dashState = {
       pace: entry.paceEnabled ? paceState : null, // 关闭时不下发档位：客户端据此清掉旧档位（关闭语义）
-      usage: { day: dayUsage, session: latestSession, grandTotal },
+      // 二期预留（issue #4 F05）：按模型分布空桶——harness 事件暂无 model 字段（spec 附录 A），结构先立
+      usage: { day: dayUsage, session: latestSession, grandTotal, models: {} },
       alerts: newAlerts,
       approvals: entry.approvalFlickerMin > 0 ? approvals.filter((x) => x.waitMin >= 0) : [],
       summary: summaryState,
