@@ -229,6 +229,8 @@ window.__ModuleLoader__.load({
       const paceRef = React.useRef(null)
       const dashUiRef = React.useRef(null) // 最近一次 r.dashboard：迷你条的纯读取数据源
       const [, forceMini] = React.useReducer((x) => x + 1, 0) // dashboard 更新时强制迷你条重渲染
+      const [sign, setSign] = React.useState(null)   // 举牌文本（警报，牌面 ttl 4.2s）
+      const seenAlertsRef = React.useRef(new Set())  // 警报按 id 去重（usageEnabled=false 时也记 seen）
       const menuRef = React.useRef(null)
       const backToMain = () => setMenuPage(null)
       // 迷你条（组件② 主动查）：null 关闭 / hover 悬停临时 / manual 右键菜单打开（粘性）
@@ -542,6 +544,23 @@ window.__ModuleLoader__.load({
               dashUiRef.current = dash // 迷你条数据源随轮询刷新
               forceMini()
             }
+            // 警报举牌 + 语音三优先级：usage 语音组 > TTS > 静默；先按 id 去重（禁用时也记 seen）
+            if (Array.isArray(dash && dash.alerts)) {
+              for (const a of dash.alerts) {
+                if (!a || typeof a.id !== 'string' || seenAlertsRef.current.has(a.id)) continue
+                seenAlertsRef.current.add(a.id)
+                if (!cfgRef.current.usageEnabled) continue
+                setSign(a.text)
+                later(() => setSign(null), 4200)
+                playTransient('jumping', 1600)
+                if (cfgRef.current.muted) continue
+                const v = pickVoice('usage')
+                if (v) { playVoice(v, a.text, 'jumping'); continue }
+                if (cfgRef.current.ttsEnabled && typeof window !== 'undefined' && window.speechSynthesis) {
+                  try { const u = new window.SpeechSynthesisUtterance(a.text); u.lang = 'zh-CN'; window.speechSynthesis.speak(u) } catch {}
+                }
+              }
+            }
             if (since !== null && Array.isArray(r.completions)) {
               handleCompletions(r.completions.filter((c) => c && typeof c.seq === 'number' && c.seq > since))
             }
@@ -758,6 +777,7 @@ window.__ModuleLoader__.load({
             )),
             extra > 0 ? React.createElement('div', { className: 'dyn-pet-proj-more' }, '+' + extra + ' 更多') : null,
           ),
+          sign ? React.createElement('div', { className: 'dyn-pet-sign' }, '🏷 ', sign) : null,
           bubble ? React.createElement('div', { className: 'dyn-pet-bubble' }, bubble) : null,
           miniMode !== null && board === null ? React.createElement('div', { ref: miniRef, className: 'dyn-pet-mini-wrap' },
             React.createElement(MiniBar, { dash: dashUiRef.current, projects: projects })) : null,
@@ -901,6 +921,7 @@ window.__ModuleLoader__.load({
           padding: 6px 12px; font-size: 13px; line-height: 1.4; white-space: nowrap;
           box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18); pointer-events: none; z-index: 2;
         }
+        .dyn-pet-sign { position: absolute; bottom: 85%; left: 60%; transform: rotate(-4deg); background: #fffbe8; border: 1px solid rgba(122,74,43,0.45); color: #7a4a2b; font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 6px; box-shadow: 0 2px 6px rgba(0,0,0,0.15); pointer-events: none; z-index: 3; white-space: nowrap; }
         .dyn-pet-toggle {
           display: inline-flex; align-items: center; gap: 4px; background: transparent; border: none;
           color: #8b7355; font-size: 12px; cursor: pointer; padding: 4px 6px; border-radius: 8px;
