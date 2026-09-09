@@ -39,6 +39,7 @@ export const Config = z.object({
   doneAction: Action.default('jumping'),
   dblAction: Action.default('waving'),
   approvalAction: Action.default('waiting'),
+  runningAction: Action.default('running'),
   errorAction: Action.default('failed'),
   gravity: z.boolean().default(true),
   // v2 新增：三档缩放（精灵/卡片/菜单整体）与激活宠物 id。
@@ -69,8 +70,8 @@ export async function apply(ctx, config) {
     } catch { return entry }
   }
   try {
-    ctx.inject(['settings'], () => {
-      ctx.settings.installSection(ctx, FOXBELL_PET_NS, Config, entry, {
+    ctx.inject(['settings'], (settingsCtx) => {
+      settingsCtx.settings.installSection(ctx, FOXBELL_PET_NS, Config, entry, {
         setSource: (current) => { configSource = current; settingsAttached = true },
         onChange: () => { /* 配置热更新：/state 每轮读 readConfig()，无需额外动作 */ },
       })
