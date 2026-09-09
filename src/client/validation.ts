@@ -32,6 +32,7 @@ export interface ManifestVoice {
 }
 
 export interface PetManifestView {
+  schemaVersion: 2;
   id: string;
   displayName: string;
   description?: string;

@@ -69,6 +69,7 @@ export function GuardDialog(props: GuardDialogProps & { onClose(): void }): Reac
         voices.some((v) => v.group === g && v.durationMs > 1000 && v.durationMs < 20000 && v.sizeBytes <= 10 * 1024 * 1024));
       const manifestMissing = !old;
       const next: PetManifestView = {
+        schemaVersion: 2,
         id,
         displayName: old?.displayName || id,
         description: old?.description ?? "",

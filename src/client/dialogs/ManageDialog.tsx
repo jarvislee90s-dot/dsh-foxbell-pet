@@ -143,6 +143,7 @@ export function ManageDialog(props: { onClose(): void }): React.ReactElement {
       const valid = probed.filter((r) => r.durationMs !== null && r.durationMs > 1000 && r.durationMs < 20000 && r.sizeBytes <= 10 * 1024 * 1024);
       const hasVoice = valid.length > 0 && ["general", "approval", "done", "error"].every((g) => valid.some((r) => r.group === g));
       const next: PetManifestView = {
+        schemaVersion: 2,
         id: selected.id,
         displayName: displayName.trim() || selected.id,
         description: description.trim(),

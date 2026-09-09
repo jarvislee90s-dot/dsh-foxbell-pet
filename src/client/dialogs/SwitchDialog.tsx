@@ -86,6 +86,7 @@ export function SwitchDialog(props: { onClose(): void }): React.ReactElement {
       const hasVoice = ["general", "approval", "done", "error"].every((g) =>
         voices.some((v) => v.group === g && v.durationMs > 1000 && v.durationMs < 20000 && v.sizeBytes <= 10 * 1024 * 1024));
       const next: PetManifestView = {
+        schemaVersion: 2,
         id,
         displayName: old?.displayName || id,
         description: old?.description ?? "",
