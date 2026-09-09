@@ -63,7 +63,7 @@ for (const a of ['jumping', 'waving', 'failed', 'waiting', 'review', 'running'])
 }
 
 // src == lib 逐字节一致（build 契约）
-for (const f of ['index.js', 'client.js']) {
+for (const f of ['index.js', 'client.js', 'dashboard.js']) {
   const src = readFileSync(path.join(root, 'src/' + f), 'utf8')
   const lib = readFileSync(path.join(root, 'lib/' + f), 'utf8')
   if (src !== lib) { console.error('src/lib mismatch:', f); ok = false }
