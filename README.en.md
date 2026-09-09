@@ -2,12 +2,26 @@
 
 [中文](README.md) · [English](README.en.md)
 
-A draggable **Foxbell** desktop pet for the DeepSeek Harness (DSH) Web UI — bottom-right of the page, with multi-project status monitoring, voice alerts, a full **external pet system** (store / 4-source import / hot-swap / integrity guard), and a 🦊 show/hide switch. Built-in assets ship inside the package: **install & go**.
+A draggable **multi-pet desktop-pet system** for the DeepSeek Harness (DSH) Web UI — bottom-right of the page, with multi-project status monitoring, voice alerts, a full **external pet system** (store / 4-source import / hot-swap / integrity guard), and a 🦊 show/hide switch. One built-in pet, Foxbell the fox, ships inside the package: **install & go** — import more pets anytime and hot-swap with one click.
 
-![Foxbell](reference/桃子衣服粉狐狸形象.png)
+![Built-in pet Foxbell](reference/桃子衣服粉狐狸形象.png)
 
 > **v2.0.0 targets dsh ≥ 0.1.2-rc.1** (older rc.7/rc.8-era harnesses are no longer supported; see the compatibility table below).
 > Starting with this version the status-card color semantics follow MAM: **red = awaiting approval, yellow = running, green = done-unread, dark red + ⚠ = error/disconnected** (v1.x used green/yellow/red/blue). See [CHANGELOG](CHANGELOG.md).
+
+## Screenshots
+
+**Hot swap** — the built-in pet and imported pets are managed side by side; click to switch, effective instantly:
+
+![Switch pet](docs/screenshots/switch-pet.png)
+
+**Right-click menu** — toggles / size / five action bindings (live preview) / switch pet / hide / about:
+
+![Context menu](docs/screenshots/context-menu.png)
+
+**Four import sources** — local folder / zip / Codex pet dir / Petdex online registry:
+
+![Import pet](docs/screenshots/import-codex.png)
 
 ## Features
 
@@ -21,7 +35,7 @@ A draggable **Foxbell** desktop pet for the DeepSeek Harness (DSH) Web UI — bo
 - **Voice interactions** — single-click: waves only (silent); double-click: speaks + the configured "double-click action"; card click: switches only (silent).
 - **State-driven animations** (all 11 Codex V2 atlas rows; external v1 9-row sheets adapt at runtime) — priority chain: **drag > transient action > task pose > look-around > idle**; drag-direction run/jump, task poses (approval→waiting, running→working), idle 6s triggers a 16-direction look sweep.
 - **Drag physics** — gravity fall on release (1400 px/s²), horizontal throw inertia (150ms sampling window), squash-and-bounce landing + a hop (toggleable); the viewport is the work area, with position memory and edge clamping.
-- **Right-click menu** — 🔊 sound / 💬 subtitle / 🧲 physics toggles (auto-disabled with tooltips for pets lacking the capability), 📏 three size steps, **four action-binding submenus** (double-click / red / dark-red / green) with **live preview**, **🔁 switch pet** (current pet checkmarked, click = hot-swap), 🦊 hide, ℹ️ about.
+- **Right-click menu** — 🔊 sound / 💬 subtitle / 🧲 physics toggles (auto-disabled with tooltips for pets lacking the capability), 📏 three size steps, **five action-binding submenus** (double-click / red / yellow / dark-red / green) with **live preview**, **🔁 switch pet** (current pet checkmarked, click = hot-swap), 🦊 hide, ℹ️ about.
 - **External pet system** (ported from MAM v0.3.0) —
   - on-disk store `~/.dsh/foxbell-pet/pets/<id>/`; manifest v2 (atomic write + one `.bak`);
   - **4 import sources**: local folder / zip (host-side safe extraction: ≤100MB total, ≤200 files, path-traversal defense) / Codex pet dir `~/.codex/pets/` / **Petdex online registry** (petdex.dev — both listing and download proxied by the host half: domain allowlist, response size caps, 8s timeout);
@@ -31,7 +45,7 @@ A draggable **Foxbell** desktop pet for the DeepSeek Harness (DSH) Web UI — bo
   - **activation guard**: integrity check on plugin activation and every switch (sheet missing/changed, voices missing/changed/extra, manifest missing); issues ride the state snapshot and open a repair dialog (update manifest / switch back to foxbell / ignore / hide pet); never pops while the pet body is mid-interaction;
   - **voiceless pets**: completion plays animation only, sound toggle disabled with tooltip; **subtitle-less pets**: no speech bubble.
 - **Three scale steps** (0.75 / 1 / 1.25) — applied to sprite, cards and menu as a whole (settings card and menu share the same config).
-- **Settings card (one card, two sections)** — "Configuration" (sound/subtitle/physics, four action bindings, size) + "Pet management" (current pet, switch/import/manage buttons, Petdex entry); shares one config store with the right-click menu (localStorage + settings scope dual backend, persisted by the host to `~/.dsh/settings.yaml`).
+- **Settings card (one card, two sections)** — "Configuration" (sound/subtitle/physics, five action bindings, size) + "Pet management" (current pet, switch/import/manage buttons, Petdex entry); shares one config store with the right-click menu (localStorage + settings scope dual backend, persisted by the host to `~/.dsh/settings.yaml`).
 - **🦊 show/hide switch** — sidebar footer (same semantics as v1), persisted in localStorage.
 - **Error-code system** — aligned with the MAM PetError table (50 host codes + 8 client-local codes); route errors are uniform `{code, params, detail}` JSON, mapped to zh/en text by the plugin's internal dictionary and rendered inline in dialogs (browser language auto-detected; no harness locale dependency, no toasts).
 
@@ -66,7 +80,7 @@ Then **restart `dsh web`** and hard-refresh the browser (**Cmd/Ctrl+Shift+R**). 
 |---|---|
 | Drag | Move the pet anywhere (direction animations: run left/right, jump when lifted) |
 | Release after drag | Gravity fall / throw inertia / squash-and-bounce + hop (disable via "Drop physics") |
-| Right-click pet | Menu: toggles / size / four action bindings (live preview) / switch pet / hide / about |
+| Right-click pet | Menu: toggles / size / five action bindings (live preview) / switch pet / hide / about |
 | Single-click pet | Waves (silent) |
 | Double-click pet | Speaks a random line + the "double-click action" (subtitle = voice filename) |
 | Click a project card | Switch session + mark read (green card confirms & dismisses on click) |
@@ -112,7 +126,7 @@ dsh-foxbell-pet/
 ├── src/client/     client half (TSX: pet body/menu/settings card/dialogs/error dictionary)
 ├── test/           vitest suites (real temp dirs, mocked fetch)
 ├── scripts/        build + validate + built-in manifest generator
-├── docs/           sprite contract / QA checklist / legacy design docs
+├── docs/           sprite contract / QA checklist / screenshots / legacy design docs
 ├── demo/           standalone offline preview page
 ├── package.json  dsh.plugin.json  cordis.patch.yml
 ├── IMPLEMENTATION_NOTES.md   decisions / MAM alignment index / forward-risk assessment

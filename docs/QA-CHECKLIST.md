@@ -25,7 +25,7 @@
 ## 1. rc.1 兼容恢复（B1/B2/B3）
 
 - [ ] 1.1 启动 `dsh web`，浏览器打开 WebUI，**硬刷新**（Cmd/Ctrl+Shift+R）
-  - 预期：右下角出现狐狸桌宠（B3：客户端半挂载成功）；宿主日志含
+  - 预期：右下角出现桌宠（内置 Foxbell）（B3：客户端半挂载成功）；宿主日志含
     `[foxbell-pet] host mounted: sprite=2654210 builtinVoices=31 …`。
 - [ ] 1.2 侧栏底部出现 🦊 开关；点击切换
   - 预期：宠物即时隐藏/显示；刷新页面后状态保持（localStorage）。**（回归项）**
