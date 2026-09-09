@@ -225,6 +225,8 @@ window.__ModuleLoader__.load({
       const [lookFrame, setLookFrame] = React.useState(-1)
       const [menu, setMenu] = React.useState(null) // { x, y } 或 null
       const [menuPage, setMenuPage] = React.useState(null) // null | 动作子页 | 'About' | 'Sessions'
+      const [pace, setPace] = React.useState(null)   // { tier, label, sinceMs }
+      const paceRef = React.useRef(null)
       const menuRef = React.useRef(null)
       const backToMain = () => setMenuPage(null)
       // 占位：Task 10（今日用量 mini）/ Task 12（黑板总结）替换为真实现
@@ -288,9 +290,18 @@ window.__ModuleLoader__.load({
         setFrame(0)
         stepLoop()
       }
+      // 档位动画：仅任务态为 running 且档位 longrun 时切"看表"代用行；不变速
+      const tierAnim = () => {
+        const s = stateRef.current
+        const tier = paceRef.current && paceRef.current.tier
+        if (s.task === 'running' && tier === 'longrun') return 'waiting' // 长任务看表（代用行）
+        return null
+      }
       const refreshAnim = () => {
         const s = stateRef.current
-        applyAnim(s.drag || s.transient || s.task || (s.look ? 'look' : 'idle'))
+        // tierAnim 须排在 s.task 之前：它仅在 task==='running' 且档位 longrun 时返回 'waiting'
+        // （否则 || 短路使其永不生效）；返回 null 时其余链路（任务态 > look > idle）照旧
+        applyAnim(s.drag || s.transient || tierAnim() || s.task || (s.look ? 'look' : 'idle'))
       }
       const playTransient = (anim, ms) => {
         const s = stateRef.current
@@ -324,6 +335,9 @@ window.__ModuleLoader__.load({
       }
       const startLook = () => {
         const s = stateRef.current
+        // 摸鱼档位（loaf1..4）：咸鱼不东张西望——抑制本轮环视，但保持环视循环存活
+        const tier = paceRef.current && paceRef.current.tier
+        if (tier === 'loaf1' || tier === 'loaf2' || tier === 'loaf3' || tier === 'loaf4') { scheduleNextLook(); return }
         if (s.drag || s.transient || s.task || s.look) return
         s.look = true
         setLookFrame(0)
@@ -349,6 +363,8 @@ window.__ModuleLoader__.load({
           else scheduleNextLook()
         }, 6000)
       }
+      // 档位变化也要重算动画（如 running + longrun → waiting）
+      React.useEffect(() => { refreshAnim() }, [pace])
 
       // 动作子页实时预览：进入子页时桌宠本体循环播当前选中动作；切选项/返回/关闭即更新或停止
       React.useEffect(() => {
@@ -511,6 +527,8 @@ window.__ModuleLoader__.load({
               })
             }
             applyProjects(r.projects)
+            const dash = r.dashboard
+            if (dash && dash.pace) { paceRef.current = dash.pace; setPace(dash.pace) }
             if (since !== null && Array.isArray(r.completions)) {
               handleCompletions(r.completions.filter((c) => c && typeof c.seq === 'number' && c.seq > since))
             }
