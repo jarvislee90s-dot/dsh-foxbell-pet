@@ -34,8 +34,10 @@
   "devDependencies": {
     "@types/node": "^25.0.3",
     "@types/react": "^18.3.12",
+    "@types/react-dom": "^19.2.7",
     "esbuild": "^0.28.2",
     "typescript": "^7.0.2",
+    "vite": "^8.2.2",
     "vitest": "^5.0.0"
   },
   "files": [
@@ -47,5 +49,8 @@
     "README.en.md",
     "LICENSE",
     "docs"
-  ]
+  ],
+  "allowScripts": {
+    "esbuild@0.28.2": true
+  }
 }
