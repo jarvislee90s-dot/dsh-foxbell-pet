@@ -28,6 +28,38 @@ A draggable **Foxbell** desktop pet for the DeepSeek Harness (DSH) Web UI — bo
 - **Position memory** (v1.3.0) — the pet stays where you dropped it after a reload (localStorage, clamped to a 24px right-edge margin).
 - **Settings card** (v1.3.0, dsh rc.7+) — a settings-page plugin config section sharing the **same config** as the right-click menu (local `localStorage` + settings scope dual backend, persisted by the host to `~/.dsh/settings.yaml`).
 
+## Efficiency Dashboard (v1.4.0)
+
+Five components + two small enhancements: all aggregation happens host-side and ships with the state snapshot, **zero new permanently-visible UI** (the mini bar only exists while you hover); token numbers are **pure token counts — never converted to money**.
+
+1. **Pace tiers** (duration-pose engine) — the pet's pose follows the event rhythm automatically: active / **long-run "checking the watch"** (turn open but silent ≥3 min, so you notice a hung run) / intense / **loafing** (turn closed and silent ≥15 min, escalating in four steps). Poses switch variants, **never speed**; a tier change plays one short animation; any new event resets immediately.
+2. **Token meter** — one counter, three surfaces:
+   - **Hover mini bar**: hover the pet for ≈0.5s and a bar appears — pace dial (current tier) + "today × · this session ×" + "N awaiting approval / N running / N done"; **read-only**, disappears when the pointer leaves (right-click "🏷 today's usage" opens it manually; click outside / ESC to close);
+   - **Daily-threshold sign**: at 80% / 100% of `dayLimitTokens` the pet holds up a "today you've used X" sign, once per tier — no spamming;
+   - **Milestone callout**: crossing a round cumulative-token mark (default 1M, `milestoneUnit`) gets a one-line bubble.
+3. **Approval summons chain** — when an approval has been pending ≥5 min (`approvalFlickerMin`) **and the page is hidden**, the tab title rotates "🦊 approval waiting…"; it restores once the approval is decided or you come back. The right-click "🗂 sessions" submenu lists every session (status dot + click to jump).
+4. **Summary board** — after a task completes, a temporary "📖 summary" entry appears beside the pet (15s by default) → click it to open a board with this round's recap (sessions / turns / token breakdown / top 3 tools / longest turn / error count); it auto-dismisses after 15s, and ✕ / clicking outside / ESC all close it; hiding the pet hands out one farewell board; right-click "📊 last summary" recalls it anytime.
+5. **Expression containers** — content is routed by shape: short numbers → **held sign**, one-liners → speech bubble, details → board; alert voices follow a three-level priority (voice-pack audio > TTS > silence, `ttsEnabled`).
+
+Two small enhancements: **card age tags** — a grey "×s/×m" at the end of each card's activity line, so you can tell "just happened" from "stuck for 5 minutes"; **approval direct-jump** — clicking a card now **smart-jumps**: straight to the approval anchor if one is pending, otherwise to the conversation + mark-as-read.
+
+All of this adds **12 new config keys** (`paceEnabled` / `paceIntenseEvents` / `paceLongrunMin` / `paceLoafStartMin` / `usageEnabled` / `dayLimitTokens` / `milestoneUnit` / `approvalFlickerMin` / `summaryEnabled` / `summaryEntrySec` / `boardTtlSec` / `ttsEnabled`), shared by the settings card and the right-click menu.
+
+### Interaction quick reference (one target, one behavior)
+
+| Click / gesture target | The one behavior |
+|---|---|
+| Pet body (single-click) | Wave animation (existing) |
+| Status card (single-click) | Smart jump: approval pending → approval anchor; otherwise → conversation + mark read |
+| 📖 summary entry | Opens the board, then the entry disappears |
+| Board ✕ / blank space outside it | Close the board (both equivalent) |
+| Mini bar | Not clickable (read-only) |
+| New right-click menu items | Today's usage → manual mini bar; last summary → open board; sessions item → smart jump |
+| Hover ≈0.5s | Mini bar appears (read-only; gone when the pointer leaves) |
+| Drag | Pure physics animation, carries no command (mini bar hides, hover detection pauses) |
+| Scroll wheel | Never hijacked over the pet or mini bar — scrolls the page; the board / menu scroll their own content |
+| ESC | Closes the topmost overlay, one layer at a time (manual mini bar → board → menu) |
+
 ## Requirements
 
 - DeepSeek Harness (DSH) with a Web profile (`dsh web`).
