@@ -13,6 +13,7 @@ export interface PetConfig {
   dblAction: PetAction;
   approvalAction: PetAction;
   errorAction: PetAction;
+  runningAction: PetAction;
   gravity: boolean;
   scale: PetScale;
   activePetId: string;
@@ -30,7 +31,7 @@ export const GUARD_IGNORED_KEY = "dyn-pet-foxbell-guard-ignored";
 
 export const CFG_ACTIONS: PetAction[] = ["jumping", "waving", "failed", "waiting", "review", "running"];
 export const CFG_SCALES: PetScale[] = [0.75, 1, 1.25];
-export const ACTION_KEYS = ["doneAction", "dblAction", "approvalAction", "errorAction"] as const;
+export const ACTION_KEYS = ["doneAction", "dblAction", "approvalAction", "errorAction", "runningAction"] as const;
 
 export const CFG_DEFAULT: PetConfig = {
   muted: false,
@@ -39,6 +40,7 @@ export const CFG_DEFAULT: PetConfig = {
   dblAction: "waving",
   approvalAction: "waiting",
   errorAction: "failed",
+  runningAction: "running",
   gravity: true,
   scale: 1,
   activePetId: "foxbell",
@@ -86,6 +88,70 @@ export function createConfigStore(): ConfigStore {
   let pending: Record<string, unknown> = {};
   let prevUnsub: (() => void) | null = null;
   const listeners = new Set<() => void>();
+  /** 每个 settings 字段独立的写序号：回调只认自己发起后的最新值，过期 settle 不回读 */
+  const writeSeq: Record<string, number> = {};
+  /** scope 死引用探测：连续无响应的 scope.set 次数，超过阈值后直写 HTTP */
+  let scopeSilent = 0;
+  const SCOPE_SILENT_MAX = 2;
+
+  /**
+   * HTTP 直写（/api/settings/update，与 settings/update RPC 同一宿主端点）。
+   * scope 的 fiber 被 dispose（模块热重载/面板重挂）后 scope.set 静默 resolve、
+   * 永不发网络请求；此时用这条带 cookie 的直写通道兜底，保证切换仍生效。
+   */
+  const httpWrite = (k: string, v: unknown): Promise<void> =>
+    fetch("/api/settings/update", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        type: "client-request",
+        rpcId: `foxbell-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+        method: "settings/update",
+        payload: { args: { ns: "foxbell-pet", patch: { [k]: v } } },
+      }),
+    }).then((r) => {
+      if (!r.ok) throw new Error(`settings update HTTP ${r.status}`);
+    });
+
+  /**
+   * 真实校验：HTTP describe 读 user 层当前值。scope 快照是 mirror 缓存，
+   * fiber 死后永不更新，不能作为收敛判据。
+   */
+  const readUser = (k: string): Promise<unknown | null> =>
+    fetch("/api/settings/describe", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        type: "client-request",
+        rpcId: `foxbell-desc-${Date.now().toString(36)}`,
+        method: "settings/describe",
+        payload: { args: {} },
+      }),
+    }).then((r) => r.json())
+      .then((j) => {
+        const ns = (j?.result?.value?.namespaces || []).find((n: { ns: string }) => n.ns === "foxbell-pet");
+        const user = ns?.user && typeof ns.user === "object" ? ns.user : null;
+        return user && k in user ? user[k] : null;
+      });
+
+  /** scope.set settle 后回读校验：以真实 describe 为准，scope 缓存不可信 */
+  const verifyWrite = (k: string, v: unknown, seq: number, tries: number): void => {
+    // 该字段在此期间又有新写入：交给那次写的回调校验
+    if (writeSeq[k] !== seq) return;
+    void readUser(k).then((actual) => {
+      if (writeSeq[k] !== seq) return;
+      if (actual === v) { scopeSilent = 0; delete pending[k]; emit(); return; }
+      // 真实 user 层不是我们的值 → 写被吞/scope 死：直接 HTTP 直写兜底（最多 3 轮）
+      if (tries <= 0) { delete pending[k]; emit(); return; }
+      httpWrite(k, v).then(
+        () => verifyWrite(k, v, seq, tries - 1),
+        () => { delete pending[k]; emit(); },
+      );
+    }).catch(() => {
+      if (tries <= 0) { delete pending[k]; emit(); return; }
+      setTimeout(() => verifyWrite(k, v, seq, tries - 1), 400);
+    });
+  };
 
   const loadLocal = (): Partial<PetConfig> => {
     try {
@@ -128,14 +194,36 @@ export function createConfigStore(): ConfigStore {
       }
       local = next;
       saveLocal(local);
-      if (scope !== null) {
-        for (const [k, v] of Object.entries(patch)) {
-          if (v === undefined) continue;
-          pending[k] = v;
-          scope.set(k, v).then(
+      for (const [k, v] of Object.entries(patch)) {
+        if (v === undefined) continue;
+        pending[k] = v;
+        const seq = (writeSeq[k] ?? 0) + 1;
+        writeSeq[k] = seq;
+        // scope 死引用（fiber dispose 后 scope.set 静默 resolve、零网络请求）：
+        // 探测到后跳过 scope 直接 HTTP 直写；scope 健在则仍走 scope（享受 revision 栅栏）。
+        // 超时保护：scope.set 的 promise 可能因队列卡死/通道挂起永不 settle，超时后 HTTP 直写兜底。
+        if (scope === null || scopeSilent >= SCOPE_SILENT_MAX) {
+          httpWrite(k, v).then(
             () => { delete pending[k]; emit(); },
             () => { delete pending[k]; emit(); },
           );
+        } else {
+          let settled = false;
+          const finish = () => {
+            if (settled) return;
+            settled = true;
+            verifyWrite(k, v, seq, 5);
+          };
+          scope.set(k, v).then(finish, () => { delete pending[k]; emit(); });
+          // scope 写 3s 未 settle（队列死锁/通道挂起）→ HTTP 直写兜底
+          setTimeout(() => {
+            if (settled) return;
+            if (writeSeq[k] !== seq) return;
+            httpWrite(k, v).then(
+              () => { delete pending[k]; emit(); },
+              () => { delete pending[k]; emit(); },
+            );
+          }, 3000);
         }
       }
       emit();
@@ -161,8 +249,10 @@ export function createConfigStore(): ConfigStore {
           for (const k of Object.keys(CFG_DEFAULT)) {
             if (legacy[k as keyof PetConfig] !== undefined && !(k in user)) {
               pending[k] = legacy[k as keyof PetConfig];
+              const seq = (writeSeq[k] ?? 0) + 1;
+              writeSeq[k] = seq;
               s.set(k, legacy[k as keyof PetConfig]).then(
-                () => { delete pending[k]; emit(); },
+                () => verifyWrite(k, legacy[k as keyof PetConfig], seq, 5),
                 () => { delete pending[k]; emit(); },
               );
             }

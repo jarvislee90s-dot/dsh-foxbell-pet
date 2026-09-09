@@ -189,7 +189,7 @@ describe("validation (与宿主同规则)", () => {
   });
   it("diffManifestVsScan mirrors host guard algorithm", () => {
     const m: PetManifestView = {
-      id: "p", displayName: "P", hasVoice: true, hasSubtitle: true, spriteVersionNumber: 2,
+      schemaVersion: 2, id: "p", displayName: "P", hasVoice: true, hasSubtitle: true, spriteVersionNumber: 2,
       spritesheetSizeBytes: 100,
       voices: [
         { group: "general", name: "a", file: "voice/general/a.m4a", sizeBytes: 10, durationMs: 3000 },
@@ -212,7 +212,7 @@ describe("validation (与宿主同规则)", () => {
   });
   it("manifestVoiceCapOnDisk conservative on any drift", () => {
     const m: PetManifestView = {
-      id: "p", displayName: "P", hasVoice: true, hasSubtitle: true, spriteVersionNumber: 2, spritesheetSizeBytes: 1,
+      schemaVersion: 2, id: "p", displayName: "P", hasVoice: true, hasSubtitle: true, spriteVersionNumber: 2, spritesheetSizeBytes: 1,
       voices: [{ group: "general", name: "a", file: "voice/general/a.m4a", sizeBytes: 10, durationMs: 3000 }],
     };
     const okScan: PetScan = { id: "p", dir: "", spritesheet: { rel: "", exists: true, size: 1 }, voiceFiles: [{ rel: "voice/general/a.m4a", exists: true, size: 10 }] };
@@ -281,6 +281,67 @@ describe("config (旧配置兼容 + sanitize)", () => {
     const b = guardSignature("p", [{ kind: "voice-extra", detail: "y" }, { kind: "voice-missing", detail: "x" }]);
     expect(a).toBe(b);
     expect(guardSignature("p2", [{ kind: "voice-missing", detail: "x" }])).not.toBe(a);
+  });
+});
+
+describe("configStore × settings scope（写后回读 + 冲突重试）", () => {
+  it("scope.set 冲突吞写后，verifyWrite 用真实 describe + HTTP 直写兜底", async () => {
+    const { createConfigStore } = await import("../src/client/config");
+    // 假 scope：set 永不落盘（模拟 fiber dispose 后静默 resolve），fetch 需 mock
+    let user: Record<string, unknown> = {};
+    const writes: string[] = [];
+    const origFetch = globalThis.fetch;
+    // 模拟宿主：settings/update 落盘（成功），settings/describe 返回当前落盘值
+    let onDisk: Record<string, unknown> = {};
+    globalThis.fetch = ((input: unknown, init?: RequestInit) => {
+      const url = String(input);
+      const body = JSON.parse(String((init as RequestInit | undefined)?.body ?? "{}"));
+      if (url.includes("settings/update")) {
+        const patch = body.payload?.args?.patch ?? {};
+        onDisk = { ...onDisk, ...patch };
+        return Promise.resolve(new Response(JSON.stringify({ result: { ok: true } })));
+      }
+      if (url.includes("settings/describe")) {
+        return Promise.resolve(new Response(JSON.stringify({
+          result: { value: { namespaces: [{ ns: "foxbell-pet", user: { ...onDisk } }] } },
+        })));
+      }
+      return origFetch(input as RequestInfo, init);
+    }) as typeof fetch;
+    const scope = {
+      getSnapshot: () => ({ status: "ready", value: { ...user }, user: { ...user } }),
+      subscribe: () => () => {},
+      set: (_field: string, value: unknown) => {
+        writes.push(String(value));
+        return Promise.resolve(); // 静默 resolve，模拟死 scope
+      },
+    };
+    const store = createConfigStore();
+    const detach = store.attachScope(scope as never);
+    store.set({ activePetId: "conan" });
+    // scope 静默 → verifyWrite 真实 describe 不符 → HTTP 直写落盘
+    await new Promise((r) => setTimeout(r, 1500));
+    expect(onDisk.activePetId, "HTTP 直写应最终落盘").toBe("conan");
+    globalThis.fetch = origFetch;
+    detach();
+  });
+  it("scope user 层按写入值收敛时 pending 清除、快照取 scope 值", async () => {
+    const { createConfigStore } = await import("../src/client/config");
+    let user: Record<string, unknown> = {};
+    const scope = {
+      getSnapshot: () => ({ status: "ready", value: { ...user }, user: { ...user } }),
+      subscribe: () => () => {},
+      set: (_field: string, value: unknown) => {
+        user = { ...user, activePetId: value };
+        return Promise.resolve();
+      },
+    };
+    const store = createConfigStore();
+    const detach = store.attachScope(scope as never);
+    store.set({ activePetId: "conan" });
+    await new Promise((r) => setTimeout(r, 900));
+    expect(store.getSnapshot().activePetId).toBe("conan");
+    detach();
   });
 });
 
