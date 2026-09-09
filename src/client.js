@@ -586,24 +586,29 @@ window.__ModuleLoader__.load({
             }
             applyProjects(r.projects)
             const dash = r.dashboard
+            if (dash) { dashUiRef.current = dash; forceMini() } // 迷你条数据源随轮询刷新（不依赖 pace 是否在场，Task 13 审查修正）
+            // pace 档位下发与清除：paceEnabled=false 时宿主不下发档位（关闭语义），客户端同步清空旧档位
             if (dash && dash.pace) {
               paceRef.current = dash.pace
               setPace(dash.pace)
-              dashUiRef.current = dash // 迷你条数据源随轮询刷新
-              forceMini()
+            } else if (dash) {
+              paceRef.current = null
+              setPace(null)
             }
-            // 警报举牌 + 语音三优先级：usage 语音组 > TTS > 静默；先按 id 去重（禁用时也记 seen）
+            // 警报举牌/气泡 + 语音三优先级：usage 语音组 > TTS > 静默；先按 id 去重（禁用时也记 seen）
             if (Array.isArray(dash && dash.alerts)) {
               for (const a of dash.alerts) {
                 if (!a || typeof a.id !== 'string' || seenAlertsRef.current.has(a.id)) continue
                 seenAlertsRef.current.add(a.id)
                 if (!cfgRef.current.usageEnabled) continue
-                setSign(a.text)
-                later(() => setSign(null), 4200)
+                // 里程碑一句话走气泡容器（spec 6.2 表现面3；三形态规则：一句话（台词/里程碑）→ 气泡），数字类警报仍举牌
+                if (a.kind === 'milestone') showBubble(a.text, 4200)
+                else { setSign(a.text); later(() => setSign(null), 4200) }
                 playTransient('jumping', 1600)
                 if (cfgRef.current.muted) continue
                 const v = pickVoice('usage')
-                if (v) { playVoice(v, a.text, 'jumping', true); continue } // 举牌警报不叠加字幕气泡（spec 6.2 容器分工）
+                // 数字警报不叠加字幕气泡（spec 6.2 容器分工）；里程碑气泡即容器，不传 noBubble
+                if (v) { playVoice(v, a.text, 'jumping', a.kind === 'milestone' ? undefined : true); continue }
                 if (cfgRef.current.ttsEnabled && typeof window !== 'undefined' && window.speechSynthesis) {
                   try { const u = new window.SpeechSynthesisUtterance(a.text); u.lang = 'zh-CN'; window.speechSynthesis.speak(u) } catch {}
                 }
@@ -859,6 +864,7 @@ window.__ModuleLoader__.load({
               className: 'dyn-pet-proj',
               onPointerDown: (e) => e.stopPropagation(),
               onClick: (e) => { e.stopPropagation(); onProjectClick(p) },
+              onContextMenu: (e) => e.stopPropagation(), // 右键响应范围仅宠物本体（spec 6.6 规则 8），状态卡右键无自定义行为
             },
               React.createElement('span', { className: 'dyn-pet-dot dot-' + p.status }),
               React.createElement('div', { className: 'dyn-pet-proj-body' },
@@ -874,7 +880,7 @@ window.__ModuleLoader__.load({
           sign ? React.createElement('div', { className: 'dyn-pet-sign' }, '🏷 ', sign) : null,
           bubble ? React.createElement('div', { className: 'dyn-pet-bubble' }, bubble) : null,
           miniMode !== null && board === null ? React.createElement('div', { ref: miniRef, className: 'dyn-pet-mini-wrap' },
-            React.createElement(MiniBar, { dash: dashUiRef.current, projects: projects })) : null,
+            React.createElement(MiniBar, { dash: dashUiRef.current, projects: projects, usageOn: cfg.usageEnabled })) : null,
           React.createElement('div', {
             className: 'dyn-pet-sprite',
             style: spriteStyle,
@@ -886,6 +892,7 @@ window.__ModuleLoader__.load({
           entry ? React.createElement('div', {
             className: 'dyn-pet-entry',
             onPointerDown: (e) => e.stopPropagation(), // 入口只点按：不触发 root 拖拽/单击挥手（与项目卡片同模式）
+            onContextMenu: (e) => e.stopPropagation(), // 右键响应范围仅宠物本体（spec 6.6 规则 8），浮层右键无自定义行为
             onClick: (e) => { e.stopPropagation(); setEntry(false); openBoard('manual') },
           }, '📖 总结') : null,
         ) : null,
@@ -982,8 +989,9 @@ window.__ModuleLoader__.load({
       )
     }
     // 迷你条（组件② 主动查）：节奏表盘 + 今日/本会话用量 + 项目状态计数；纯只读（CSS pointer-events:none，零可点元素）
+    // usageOn（Fix E，usageEnabled 关闭语义）：只门控用量两行（今日/本会话 + 会话标题），表盘行与状态计数行不受它管（组件③）
     const TIER_PCT = { intense: 100, active: 65, longrun: 50, idle: 20, loaf1: 12, loaf2: 8, loaf3: 5, loaf4: 3 }
-    function MiniBar({ dash, projects }) {
+    function MiniBar({ dash, projects, usageOn }) {
       const pace = (dash && dash.pace) || {}
       const u = (dash && dash.usage) || {}
       const day = u.day || {}
@@ -996,11 +1004,12 @@ window.__ModuleLoader__.load({
       return React.createElement('div', { className: 'dyn-pet-mini' },
         React.createElement('div', { className: 'dyn-pet-mini-dial' },
           React.createElement('div', { className: 'dyn-pet-mini-bar' }, React.createElement('i', { style: { width: (TIER_PCT[pace.tier] || 20) + '%' } })),
-          React.createElement('span', { className: 'dyn-pet-mini-tier' }, pace.label || '空闲'),
+          // pace 关闭（宿主不下发档位）显示 —；开启时空闲档由宿主下发「空闲」
+          React.createElement('span', { className: 'dyn-pet-mini-tier' }, pace.label || '—'),
         ),
-        React.createElement('div', { className: 'dyn-pet-mini-row' }, '今日 ' + fmt(daySum) + (sessSum !== null ? ' · 本会话 ' + fmt(sessSum) : '')),
+        usageOn ? React.createElement('div', { className: 'dyn-pet-mini-row' }, '今日 ' + fmt(daySum) + (sessSum !== null ? ' · 本会话 ' + fmt(sessSum) : '')) : null,
         React.createElement('div', { className: 'dyn-pet-mini-row' }, (counts.approval ? counts.approval + ' 等审批 · ' : '') + (counts.running ? counts.running + ' 运行 · ' : '') + (counts.done ? counts.done + ' 完成' : '') || '暂无进行中会话'),
-        sess && sess.title ? React.createElement('div', { className: 'dyn-pet-mini-row dyn-pet-mini-dim' }, sess.title) : null,
+        usageOn && sess && sess.title ? React.createElement('div', { className: 'dyn-pet-mini-row dyn-pet-mini-dim' }, sess.title) : null,
       )
     }
 
@@ -1063,6 +1072,7 @@ window.__ModuleLoader__.load({
         .dyn-pet-settings { padding: 8px 12px; font-size: 13px; color: #333; display: flex; flex-direction: column; gap: 6px; min-width: 220px; }
         .dyn-pet-settings-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
         .dyn-pet-settings-row select { max-width: 140px; }
+        .dyn-pet-settings-note { color: #999; font-size: 11px; line-height: 1.5; }
         .dyn-pet-mini-wrap { position: absolute; left: 100%; top: 12px; margin-left: 12px; z-index: 4; }
         .dyn-pet-mini { width: 210px; background: rgba(255,252,248,0.97); border: 1px solid rgba(122,74,43,0.3); border-radius: 10px; padding: 8px 10px; font-size: 12px; color: #7a4a2b; line-height: 1.6; box-shadow: 0 2px 8px rgba(0,0,0,0.14); pointer-events: none; }
         .dyn-pet-mini-dial { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
@@ -1136,6 +1146,8 @@ window.__ModuleLoader__.load({
           React.createElement('span', null, r.label),
           React.createElement('input', { type: 'number', value: cfg[r.k], onChange: (e) => toggle(r.k, e.target.value) }),
         )),
+        // 纯 token 口径说明（spec 7.3 纪律/F71 诚实标注）：静态提示行，不可交互
+        React.createElement('div', { key: 'caliber-note', className: 'dyn-pet-settings-note' }, '用量均为纯 token 口径，不折算金额'),
       )
     }
 

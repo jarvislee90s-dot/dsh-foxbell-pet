@@ -152,8 +152,8 @@ test('ageLabel formats seconds/minutes/hours', () => {
 
 test('summarize folds per-session metrics into board fields', () => {
   const ps = [
-    { title: 'A', turns: 3, errors: 1, toolCalls: { bash: 4, edit: 1 }, longestTurnMs: 30000 },
-    { title: 'B', turns: 2, errors: 0, toolCalls: { bash: 1, grep: 2 }, longestTurnMs: 90000 },
+    { title: 'A', turns: 3, errors: 1, toolCalls: { bash: 4, edit: 1 }, toolDurMs: { bash: 15000, edit: 500 }, longestTurnMs: 30000 },
+    { title: 'B', turns: 2, errors: 0, toolCalls: { bash: 1, grep: 2 }, toolDurMs: { bash: 3000 }, longestTurnMs: 90000 },
   ]
   const day = { inputTokens: 90000, outputTokens: 12000, cacheReadTokens: 20000, cacheWriteTokens: 0 }
   const s = summarize(ps, day)
@@ -162,6 +162,7 @@ test('summarize folds per-session metrics into board fields', () => {
   assert.equal(s.errors, 1)
   assert.equal(s.longestText, '1.5 分钟')
   assert.ok(s.toolsText.includes('bash×5'))
+  assert.ok(s.toolsText.includes('18.0 秒')) // 工具耗时合并：15000+3000=18000ms（次数+耗时，spec 6.4/F31）
   assert.ok(s.tokensText.includes('12.2万'))
 })
 

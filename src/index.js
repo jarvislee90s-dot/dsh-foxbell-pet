@@ -180,7 +180,8 @@ export async function apply(ctx, config) {
     }
     const events = evts || sessionEvents(session)
     // 正向一遍：今日 turns/errors/toolCalls、最长 turn、最后事件时间、审批 ask 列表（效率看板指标）
-    const metrics = { turns: 0, errors: 0, toolCalls: {}, longestTurnMs: 0, turnStartAt: {}, lastEventTime: null, pendingList: [] }
+    // toolStart/toolDurMs：工具耗时配对（spec 6.4 指标集「工具调用 Top3（次数+耗时）」）
+    const metrics = { turns: 0, errors: 0, toolCalls: {}, toolStart: {}, toolDurMs: {}, longestTurnMs: 0, turnStartAt: {}, lastEventTime: null, pendingList: [] }
     for (let i = 0; i < events.length; i++) {
       const ev = events[i]
       const d = ev && ev.data
@@ -195,6 +196,17 @@ export async function apply(ctx, config) {
         if (typeof startAt === 'number' && today && ev.time - startAt > metrics.longestTurnMs) metrics.longestTurnMs = ev.time - startAt
       } else if (ev.type === 'tool/call' && typeof d.name === 'string' && today) {
         metrics.toolCalls[d.name] = (metrics.toolCalls[d.name] || 0) + 1
+        if (d.callId !== undefined && d.callId !== null) metrics.toolStart[d.callId] = { name: d.name, at: ev.time }
+      } else if (ev.type === 'tool/result') {
+        // tool/result 经 message.source.callId（兜底首块 toolCallId）与 tool/call 配对；一次性消费，累计耗时
+        const msg = d.message
+        const callId = (msg && msg.source && msg.source.callId)
+          || (msg && Array.isArray(msg.content) && msg.content[0] && msg.content[0].toolCallId)
+        const start = (callId !== undefined && callId !== null) ? metrics.toolStart[callId] : null
+        if (start) {
+          metrics.toolDurMs[start.name] = (metrics.toolDurMs[start.name] || 0) + Math.max(0, ev.time - start.at)
+          delete metrics.toolStart[callId]
+        }
       } else if (ev.type === 'approval/asked' && typeof d.id === 'string') {
         metrics.pendingList.push({ id: d.id, at: ev.time })
       }
@@ -311,7 +323,7 @@ export async function apply(ctx, config) {
           const sB = dayB || zeroUsage()
           latestSession = { title: info.title || a.id, inputTokens: sB.inputTokens, outputTokens: sB.outputTokens, cacheReadTokens: sB.cacheReadTokens, cacheWriteTokens: sB.cacheWriteTokens }
         }
-        perSessionMetrics.push({ title: info.title || a.id, turns: m.turns, errors: m.errors, toolCalls: m.toolCalls, longestTurnMs: m.longestTurnMs })
+        perSessionMetrics.push({ title: info.title || a.id, turns: m.turns, errors: m.errors, toolCalls: m.toolCalls, toolDurMs: m.toolDurMs || {}, longestTurnMs: m.longestTurnMs })
         for (const pnd of m.pendingList) approvals.push({ id: a.id + ':' + pnd.id, title: info.title || a.id, waitMin: Math.floor((now - pnd.at) / 60000) })
       }
       const prev = projects.get(a.id)
@@ -354,7 +366,7 @@ export async function apply(ctx, config) {
     alertPrev = { dayTotal, grandTotal } // 无论开关都推进基线，避免稍后开启时补发旧警报
     summaryState = summarize(perSessionMetrics, dayUsage)
     dashState = {
-      pace: paceState,
+      pace: entry.paceEnabled ? paceState : null, // 关闭时不下发档位：客户端据此清掉旧档位（关闭语义）
       usage: { day: dayUsage, session: latestSession, grandTotal },
       alerts: newAlerts,
       approvals: entry.approvalFlickerMin > 0 ? approvals.filter((x) => x.waitMin >= 0) : [],
