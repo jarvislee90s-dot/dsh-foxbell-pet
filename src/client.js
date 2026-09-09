@@ -557,6 +557,7 @@ window.__ModuleLoader__.load({
       }, [])
 
       const onProjectClick = (p) => {
+        // 智能跳转（spec 6.3/6.6）：有待审批的会话，sessions.open 后审批命令在会话视图内直接可见
         // 点卡片：只切换会话 + 标记已读，不触发语音
         try {
           const sessions = petCtx.get('sessions')
@@ -735,7 +736,10 @@ window.__ModuleLoader__.load({
               React.createElement('span', { className: 'dyn-pet-dot dot-' + p.status }),
               React.createElement('div', { className: 'dyn-pet-proj-body' },
                 React.createElement('div', { className: 'dyn-pet-proj-title' }, p.title),
-                Array.isArray(p.lines) ? p.lines.map((l, i) => React.createElement('div', { key: i, className: 'dyn-pet-proj-line' }, l)) : null,
+                Array.isArray(p.lines) ? p.lines.map((l, i) => React.createElement('div', { key: i, className: 'dyn-pet-proj-line' },
+                  l,
+                  i === 0 && p.age ? React.createElement('span', { className: 'dyn-pet-age' }, ' ' + p.age) : null,
+                )) : null,
               ),
             )),
             extra > 0 ? React.createElement('div', { className: 'dyn-pet-proj-more' }, '+' + extra + ' 更多') : null,
@@ -849,6 +853,7 @@ window.__ModuleLoader__.load({
         .dyn-pet-proj-body { min-width: 0; }
         .dyn-pet-proj-title { font-weight: 700; color: #7a4a2b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .dyn-pet-proj-line { color: #a07050; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .dyn-pet-age { color: #c4a484; font-size: 10px; }
         .dyn-pet-proj-more { pointer-events: none; color: #a07050; font-size: 11px; background: rgba(255, 252, 248, 0.9); border-radius: 999px; padding: 2px 8px; }
         .dyn-pet-bubble {
           position: absolute; top: 100%; left: 50%; transform: translateX(-50%); margin-top: 8px;
