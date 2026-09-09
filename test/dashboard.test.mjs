@@ -170,3 +170,19 @@ test('summarize tolerates empty input', () => {
   const s = summarize([], null)
   assert.equal(s.sessions, 0); assert.equal(s.toolsText, '—'); assert.equal(s.longestText, '0 秒')
 })
+
+// ---------- review 修复回归（2026-09-10） ----------
+
+test('day alert ids carry dateKey so next day re-fires distinctly', () => {
+  const cfg = { dayLimitTokens: 100, milestoneUnit: 0 }
+  const a = evaluateAlerts({ dayTotal: 0, grandTotal: 0 }, { dayTotal: 82, grandTotal: 0 }, cfg, '2026-09-10')
+  assert.equal(a[0].id, 'day-warn:2026-09-10')
+  const b = evaluateAlerts({ dayTotal: 0, grandTotal: 0 }, { dayTotal: 82, grandTotal: 0 }, cfg, '2026-09-11')
+  assert.equal(b[0].id, 'day-warn:2026-09-11')
+})
+
+test('foldUsage skips samples without finite time (no NaN day bucket)', () => {
+  const r = foldUsage([{ type: 'assistant/message', data: { turn: 0, step: 0, usage: { inputTokens: 50, outputTokens: 5 } } }])
+  assert.equal(r.grand.inputTokens, 0)
+  assert.deepEqual(r.byDay, {})
+})

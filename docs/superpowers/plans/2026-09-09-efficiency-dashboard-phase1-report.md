@@ -101,3 +101,14 @@
 - 计划 15 任务逐项完成并经任务级双裁决审查；全分支终审（含 14 项 Minor 裁量）结论 **With fixes**——唯一合并前项已修复并验证（`7ed191d`），其余裁定为非阻塞后续项（§5）。
 - 硬约束核对：纯 JS 无转译 ✓；client.js 仅 `require('react')`（每任务 purity 检查）✓；纯 token 零金额 ✓；宠物上无 prompt 原文/代码/密钥（终审复核新表面仅数字/标题/工具名/时长）✓；installSettingsSection 与 package.json `dsh.client` 声明未动 ✓；localStorage 三键未改名、轮询 1.5s、路由前缀不变 ✓；每任务三绿后提交 ✓。
 - 交互规则以 spec 6.6 为准：单击每目标唯一行为、悬停纯读取（迷你条零可点元素 + pointer-events:none）、拖拽无附加命令、ESC 分层关闭、宠物区滚轮穿透——终审逐条核验通过。
+
+## 6. Review 处置记录（2026-09-10，独立审查后修复）
+
+独立审查结论：0 Critical / 3 Important / 7 Minor，判定 With fixes。三条 Important 经复核全部属实，已修复并补回归测试（25/25 通过，三绿）：
+
+1. **跨天日阈值警报静默**（Important #1）：`day-warn`/`day-hit` 恒定 id + 客户端 `seenAlertsRef` 页面生命周期去重，长驻 SPA 次日同档警报被永久跳过。修复：`evaluateAlerts` 增加可选 `dateKey` 参数拼入 id（`day-warn:2026-09-10`），宿主调用侧传入 `dayKey`。回归测试：不同日键产生不同 id。
+2. **dsh.plugin.json 版本漏更**（Important #2）：1.3.0 → 1.4.0。
+3. **宿主侧配置门冻结在 apply 快照**（Important #3）：`setSource: () => {}` 丢弃了 dsh-settings 的 live getter，设置卡改 `paceEnabled`/`dayLimitTokens` 等宿主门不生效直至重载。修复：接住 getter（`configSource`），聚合时读 live 值并逐键回退 schema 默认（`cfgB`/`cfgN`）。
+4. **顺手加固**（Minor #5a 前半）：`foldUsage` 对无 `ev.time` 的样本加守卫，杜绝 `byDay['NaN-NaN-NaN']` 桶。回归测试补齐。
+
+Minor #4/#5b/#6/#7/#8/#9/#10（同轮双跨覆盖显示、死代码清理、滚轮 preventDefault、黑板锚定跟随宠物、拖拽后悬停恢复、增量扫描、测试缺口）未在本期处理，已归档至 issue #4 评论跟踪；其中黑板锚定与悬停恢复为 spec 6.6/6.4 与计划草图之间的张力项，按 spec 语义应在二期补齐。
