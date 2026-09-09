@@ -5,7 +5,7 @@ import { cpSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
 const root = new URL('../', import.meta.url)
-for (const f of ['index.js', 'client.js']) {
+for (const f of ['index.js', 'client.js', 'dashboard.js']) {
   cpSync(new URL('src/' + f, root), new URL('lib/' + f, root))
   console.log(`lib/${f}  <-  src/${f}`)
 }

@@ -8,7 +8,7 @@ import path from 'node:path'
 const root = fileURLToPath(new URL('../', import.meta.url))
 let ok = true
 
-const codeFiles = ['src/index.js', 'src/client.js', 'lib/index.js', 'lib/client.js']
+const codeFiles = ['src/index.js', 'src/client.js', 'src/dashboard.js', 'lib/index.js', 'lib/client.js', 'lib/dashboard.js']
 for (const f of codeFiles) {
   const p = path.join(root, f)
   if (!existsSync(p)) { console.error('missing:', f); ok = false; continue }

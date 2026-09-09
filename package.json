@@ -27,7 +27,8 @@
   },
   "scripts": {
     "build": "node scripts/build.mjs",
-    "validate": "node scripts/validate.mjs"
+    "validate": "node scripts/validate.mjs",
+    "test": "node --test test/"
   },
   "dependencies": {
     "@deepseek-ai/dsh-settings": "^0.1.0-rc.7",
