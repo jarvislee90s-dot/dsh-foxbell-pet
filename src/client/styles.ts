@@ -48,6 +48,16 @@ const CSS = `
 .dyn-pet-menu-sub:hover { background:rgba(255,255,255,.08); }
 .dyn-pet-menu-val { color:#a1a1aa; font-size:12px; }
 .dyn-pet-menu-divider { height:1px; margin:4px 10px; background:rgba(255,255,255,.12); }
+.dyn-pet-card { list-style:none; border:0.5px solid var(--dsw-alias-border-l4, rgba(0,0,0,.1)); border-radius:16px; background:var(--dsw-alias-bg-layer-3, #fff); transition:border-color .16s, background .16s; }
+.dyn-pet-card:hover { border-color:var(--dsw-alias-label-dimmed, rgba(0,0,0,.25)); }
+.dyn-pet-card.open { background:var(--dsw-alias-bg-layer-2, #fff); border-color:var(--dsw-alias-label-dimmed, rgba(0,0,0,.25)); }
+.dyn-pet-card-header { width:100%; appearance:none; border:0; background:none; font:inherit; color:inherit; text-align:left; cursor:pointer; display:flex; align-items:center; gap:12px; padding:14px 16px; border-radius:12px; }
+.dyn-pet-card-headtext { flex:1; min-width:0; display:flex; flex-direction:column; gap:4px; }
+.dyn-pet-card-name { font-size:15px; font-weight:600; line-height:1.4; color:var(--dsw-alias-label-primary, #1f1f1f); }
+.dyn-pet-card-desc { font-size:13px; line-height:1.5; color:var(--dsw-alias-label-tertiary, #8a8a8a); }
+.dyn-pet-card-chevron { flex:none; color:var(--dsw-alias-label-tertiary, #8a8a8a); transition:transform .16s; }
+.dyn-pet-card-chevron.open { transform:rotate(180deg); }
+.dyn-pet-card-body { border-top:0.5px solid var(--dsw-alias-border-l2, rgba(0,0,0,.08)); margin:0 16px; padding-bottom:8px; }
 .dyn-pet-settings { padding: 8px 12px; font-size: 13px; color: #333; display: flex; flex-direction: column; gap: 6px; min-width: 240px; }
 .dyn-pet-settings-section { font-weight: 700; margin-top: 4px; padding-bottom: 2px; border-bottom: 1px solid rgba(122,74,43,.18); color:#7a4a2b; }
 .dyn-pet-settings-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }

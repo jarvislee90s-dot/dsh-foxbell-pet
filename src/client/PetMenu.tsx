@@ -1,6 +1,6 @@
-// PetMenu.tsx — 右键菜单（MAM PetMenu.tsx 结构基准 + 本插件四场景动作绑定与切换宠物子菜单）。
+// PetMenu.tsx — 右键菜单（MAM PetMenu.tsx 结构基准 + 本插件五场景动作绑定与切换宠物子菜单）。
 // 主页：🔊出声 / 💬语音字幕 / 🧲物理坠落（无语音/无字幕宠物对应行禁用带提示）
-//       ─ 📏大小（三档缩放）─ 🖱️双击 / 🔴红灯 / 🟥深红灯 / 🟢绿灯 四场景动作绑定（实时预览）
+//       ─ 📏大小（三档缩放）─ 🖱️双击 / 🔴红灯 / 🟡黄灯 / 🟥深红灯 / 🟢绿灯 五场景动作绑定（实时预览）
 //       ─ 🔁切换宠物（当前项打勾，点击即热切换）─ 🦊隐藏桌宠 ─ ℹ️关于
 import React, { useEffect } from "react";
 import { CFG_ACTIONS, CFG_SCALES, type PetAction, type PetConfig, type PetScale } from "./config";
@@ -10,13 +10,14 @@ import type { PetSummary } from "./api";
 import { t } from "./i18n";
 import { openDialog } from "./dialogs/host";
 
-export type MenuPage = null | "Size" | "Dbl" | "Approval" | "Error" | "Done" | "SwitchPet" | "About";
+export type MenuPage = null | "Size" | "Dbl" | "Approval" | "Error" | "Done" | "Running" | "SwitchPet" | "About";
 
-const ACTION_PAGE: Record<"Dbl" | "Approval" | "Error" | "Done", keyof PetConfig> = {
+const ACTION_PAGE: Record<"Dbl" | "Approval" | "Error" | "Done" | "Running", keyof PetConfig> = {
   Dbl: "dblAction",
   Approval: "approvalAction",
   Error: "errorAction",
   Done: "doneAction",
+  Running: "runningAction",
 };
 
 export const PLUGIN_VERSION = "v2.0.0"; // validate 校验与 package.json 一致
@@ -149,6 +150,7 @@ export function PetMenu(props: {
         <Sub label={t("menu.size")} value={scaleLabel(cfg.scale)} onOpen={() => setPage("Size")} />
         <Sub label={t("menu.dblAction")} value={actionLabel(cfg.dblAction)} onOpen={() => setPage("Dbl")} />
         <Sub label={t("menu.approvalAction")} value={actionLabel(cfg.approvalAction)} onOpen={() => setPage("Approval")} />
+        <Sub label={t("menu.runningAction")} value={actionLabel(cfg.runningAction)} onOpen={() => setPage("Running")} />
         <Sub label={t("menu.errorAction")} value={actionLabel(cfg.errorAction)} onOpen={() => setPage("Error")} />
         <Sub label={t("menu.doneAction")} value={actionLabel(cfg.doneAction)} onOpen={() => setPage("Done")} />
         <div className="dyn-pet-menu-divider" />

@@ -227,16 +227,18 @@ export function Pet(props: PetProps): React.ReactElement | null {
       const fresh = snap.completions.filter((c) => c && typeof c.seq === "number" && c.seq > since);
       if (fresh.length > 0) playVoiceRef.current("done", cfgRef.current.doneAction);
     }
-    // error / approval 差分
+    // error / approval / running 差分
     const prev = prevStatusRef.current;
     const statuses: Record<string, string> = {};
     let errAppeared = false;
     let approvalAppeared = false;
+    let runningAppeared = false;
     for (const p of cards) {
       if (!p || !p.id) continue;
       statuses[p.id] = p.status;
       if (p.status === "error" && prev[p.id] !== "error") errAppeared = true;
       if (p.status === "approval" && prev[p.id] !== "approval") approvalAppeared = true;
+      if (p.status === "running" && prev[p.id] !== "running") runningAppeared = true;
     }
     prevStatusRef.current = statuses;
     if (errAppeared) {
@@ -249,6 +251,10 @@ export function Pet(props: PetProps): React.ReactElement | null {
         lastApprovalAtRef.current = now;
         playVoiceRef.current("approval", cfgRef.current.approvalAction);
       }
+    }
+    if (runningAppeared) {
+      // 开始运行 → general 组语音 + runningAction 动作（黄灯差分；无语音宠物只播动作）
+      playVoiceRef.current("general", cfgRef.current.runningAction);
     }
     // 任务姿态（MAM 口径）：waiting > running；全绿/无卡回落
     const task = taskPoseOf(cards);
