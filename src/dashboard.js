@@ -41,3 +41,47 @@ export function derivePaceTier(agg, now, opt) {
   if (sinceMs >= o.loafStartMs) return { tier: 'loaf1', sinceMs, label: PACE_LABELS.loaf1 }
   return { tier: 'idle', sinceMs, label: PACE_LABELS.idle }
 }
+
+// ---------- 组件②：token 三分账 ----------
+// 与 harness token-meter 的 usage-projection 语义对齐（rc.1 验证）：最终 assistant/message
+// 样本替换同 (turn,step) 的早期样本；llm/retry-started 关闭替换槽 → 重试样本累加。
+
+export function dateKeyOf(ms) {
+  const d = new Date(ms)
+  const p = (x) => String(x).padStart(2, '0')
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
+}
+
+const USAGE_KEYS = ['inputTokens', 'outputTokens', 'cacheReadTokens', 'cacheWriteTokens']
+const zeroUsage = () => ({ inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 })
+
+export function foldUsage(evts) {
+  const byDay = {}
+  const grand = zeroUsage()
+  let lastKey = null
+  let lastBuckets = null
+  let lastDay = null
+  const apply = (b, day, sign) => {
+    for (const k of USAGE_KEYS) {
+      const v = (b[k] || 0) * sign
+      grand[k] += v
+      const d = byDay[day] || (byDay[day] = zeroUsage())
+      d[k] += v
+    }
+  }
+  for (const ev of Array.isArray(evts) ? evts : []) {
+    const d = ev && ev.data
+    if (!d) continue
+    if (ev.type === 'llm/retry-started') { lastKey = null; lastBuckets = null; continue }
+    if (ev.type !== 'assistant/message' || !d.usage || typeof d.usage !== 'object') continue
+    const u = d.usage
+    const b = {}
+    for (const k of USAGE_KEYS) b[k] = typeof u[k] === 'number' && Number.isFinite(u[k]) && u[k] > 0 ? u[k] : 0
+    const key = d.turn + ':' + d.step
+    const day = dateKeyOf(ev.time)
+    if (key === lastKey && lastBuckets && lastDay) apply(lastBuckets, lastDay, -1)
+    apply(b, day, 1)
+    lastKey = key; lastBuckets = b; lastDay = day
+  }
+  return { byDay, grand }
+}
