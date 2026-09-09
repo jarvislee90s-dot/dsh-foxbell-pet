@@ -615,6 +615,30 @@ window.__ModuleLoader__.load({
         }
       }, [])
 
+      // 标题闪烁（组件③页外召集，spec 6.3）：页面不可见且存在 waitMin ≥ approvalFlickerMin（0=关）的未决审批时，
+      // document.title 每秒轮换「🦊 审批等待中…」/原标题；回到页面或审批 decided（不再满足）即恢复。全部走 ref，挂载时捕获原标题
+      React.useEffect(() => {
+        const base = document.title
+        let on = false, t = null, flip = false
+        const stop = () => { if (t) { clearInterval(t); t = null } if (on) { document.title = base; on = false } }
+        const tick = () => {
+          const min = cfgRef.current.approvalFlickerMin
+          const dash = dashUiRef.current
+          const hit = min > 0 && dash && Array.isArray(dash.approvals)
+            && dash.approvals.some((a) => a && a.waitMin >= min)
+            && document.visibilityState !== 'visible'
+          if (hit && !on) {
+            on = true
+            t = setInterval(() => { flip = !flip; document.title = flip ? '🦊 审批等待中…' : base }, 1000)
+          } else if (!hit && on) stop()
+        }
+        tick()
+        const iv = setInterval(tick, 1500)
+        const onVis = () => tick()
+        document.addEventListener('visibilitychange', onVis)
+        return () => { clearInterval(iv); stop(); document.removeEventListener('visibilitychange', onVis) }
+      }, [])
+
       const onProjectClick = (p) => {
         // 智能跳转（spec 6.3/6.6）：有待审批的会话，sessions.open 后审批命令在会话视图内直接可见
         // 点卡片：只切换会话 + 标记已读，不触发语音
