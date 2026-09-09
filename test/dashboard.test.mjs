@@ -140,3 +140,32 @@ test('day rollover does not re-fire (prev=big yesterday, next=small today)', () 
   const a = evaluateAlerts({ dayTotal: 90, grandTotal: 0 }, { dayTotal: 10, grandTotal: 0 }, { dayLimitTokens: 100, milestoneUnit: 0 })
   assert.equal(a.length, 0)
 })
+
+import { ageLabel, summarize } from '../src/dashboard.js'
+
+test('ageLabel formats seconds/minutes/hours', () => {
+  assert.equal(ageLabel(-1), '')
+  assert.equal(ageLabel(45), '45s')
+  assert.equal(ageLabel(125), '2m')
+  assert.equal(ageLabel(7300), '2h')
+})
+
+test('summarize folds per-session metrics into board fields', () => {
+  const ps = [
+    { title: 'A', turns: 3, errors: 1, toolCalls: { bash: 4, edit: 1 }, longestTurnMs: 30000 },
+    { title: 'B', turns: 2, errors: 0, toolCalls: { bash: 1, grep: 2 }, longestTurnMs: 90000 },
+  ]
+  const day = { inputTokens: 90000, outputTokens: 12000, cacheReadTokens: 20000, cacheWriteTokens: 0 }
+  const s = summarize(ps, day)
+  assert.equal(s.sessions, 2)
+  assert.equal(s.turns, 5)
+  assert.equal(s.errors, 1)
+  assert.equal(s.longestText, '1.5 分钟')
+  assert.ok(s.toolsText.includes('bash×5'))
+  assert.ok(s.tokensText.includes('12.2万'))
+})
+
+test('summarize tolerates empty input', () => {
+  const s = summarize([], null)
+  assert.equal(s.sessions, 0); assert.equal(s.toolsText, '—'); assert.equal(s.longestText, '0 秒')
+})
