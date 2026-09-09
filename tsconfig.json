@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "types": ["node"],
+    "allowJs": false
+  },
+  "include": ["src/client/**/*.ts", "src/client/**/*.tsx", "test/**/*.ts"],
+  "exclude": ["node_modules", "lib"]
+}
