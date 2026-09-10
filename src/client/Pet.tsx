@@ -244,6 +244,7 @@ export function Pet(props: PetProps): React.ReactElement | null {
   const [entry, setEntry] = useState(false); // 📖 限时总结入口（ttl summaryEntrySec）
   // Task 7 挂接点：入口按钮的渲染（.dyn-pet-entry 样式）与点击 → 开黑板在 Task 7 落地，此处仅驱动状态与 ttl
   const entryTimerRef = useRef<(() => void) | null>(null); // 入口 ttl 定时器：新完成事件先清旧定时器，防堆叠后最早到期误关
+  const signTimerRef = useRef<(() => void) | null>(null); // 举牌 4.2s 清除定时器（review Minor1：卸载可清理）
   const paceTierRef = useRef<PaceTier | null>(null); // 档位差分：档位变化重算动画（源 useEffect([pace]) 语义）
 
   // ---- v2.1 迷你条（源 client.js L254-265 状态移植）：null | 'hover' | 'manual' ----
@@ -309,7 +310,7 @@ export function Pet(props: PetProps): React.ReactElement | null {
         if (!cfgRef.current.usageEnabled) continue;
         // 里程碑一句话走气泡容器（spec 6.2 表现面3；一句话→气泡），数字类警报仍举牌
         if (a.kind === "milestone") showBubble(a.text, 4200);
-        else { setSign(a.text); later(() => setSign(null), 4200); }
+        else { setSign(a.text); if (signTimerRef.current) { try { signTimerRef.current(); } catch { /* ignore */ } } signTimerRef.current = later(() => setSign(null), 4200); }
         playTransient("jumping", 1600);
         if (cfgRef.current.muted) continue;
         // 三优先级①：usage 组语音命中即播（pick 组空返回 null，语义同源 pickVoice('usage')）
@@ -631,6 +632,8 @@ export function Pet(props: PetProps): React.ReactElement | null {
       stopLook();
       clearHoverTimer(); // 迷你条 hover 定时器随卸载清掉（源 clearHoverTimer 卫生）
       if (boardTimerRef.current) { const d = boardTimerRef.current; boardTimerRef.current = null; try { d(); } catch { /* ignore */ } } // 黑板 ttl 随卸载清掉
+      if (entryTimerRef.current) { const d = entryTimerRef.current; entryTimerRef.current = null; try { d(); } catch { /* ignore */ } } // 入口 ttl 随卸载清掉（review Minor1）
+      if (signTimerRef.current) { const d = signTimerRef.current; signTimerRef.current = null; try { d(); } catch { /* ignore */ } } // 举牌清除随卸载清掉（review Minor1）
       genRef.current.look += 1; // 使在途 look 调度链失效
       stopPreview();
       if (fallRaf.current) { cancelAnimationFrame(fallRaf.current); fallRaf.current = 0; }
@@ -786,7 +789,7 @@ export function Pet(props: PetProps): React.ReactElement | null {
           ) : null}
         </div>
         {/* 警报举牌（源 L880：'🏷 ' + text；容器分工见 alerts 消费段） */}
-        {sign !== null ? <Sign text={sign} scale={scale} /> : null}
+        {sign ? <Sign text={sign} scale={scale} /> : null}
         {subtitle ? (
           <div
             className="dyn-pet-bubble"
