@@ -2,7 +2,8 @@
 // 纯展示：宿主 dashboard.summary 驱动；无 summary 返回 null（无数据不弹，farewell 同样如此——源语义）。
 // 关闭四路：✕ 在此；点外部/ESC 由 Pet 统一收口（均走 closeBoard，同时取消 ttl 定时器）；
 // 自动消失由调用方（Pet.openBoard）的 ttl 定时器负责——Board 内不消费 ttlSec，仅作契约形状保留（与源一致）。
-// 样式 310px 固定版式（.dyn-pet-board*，源 CSS 原样移植；行 normal 换行 per 7e16d62），不随 scale 缩放。
+// 样式 310px 版式（.dyn-pet-board*，源 CSS 原样移植；行 normal 换行 per 7e16d62）；scale 缩放由
+// 调用方（Pet 的 boardLayer 包装层 transform）承担——契约接口地图「位置与字号随三档缩放」适配点。
 import type { ReactElement } from "react";
 import { t } from "./i18n";
 import type { DashboardSnapshot } from "./api";

@@ -181,7 +181,7 @@ secStart()
   // CHANGELOG 顶部条目与版本一致
   const changelog = readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8')
   if (!changelog.includes(`[${pkg.version}]`)) fail(`CHANGELOG 缺少 [${pkg.version}] 条目`)
-  // dsh.plugin.json 按任务要求保持不动（1.3.0 冻结），不参与版本一致性断言——见 NOTES
+  // dsh.plugin.json 不参与版本一致性断言（v2.1.0 起随 package.json 一同升版，移植计划 Task 10 裁定）
 }
 
 secEnd('8. 路由前缀 / 设置命名空间 / 版本号一致性')

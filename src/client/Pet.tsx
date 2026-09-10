@@ -699,7 +699,10 @@ export function Pet(props: PetProps): React.ReactElement | null {
   // 小黑板：fragment 层渲染（源 L924-926：farewell 要在宠物隐藏后仍显示；无 summary 时 Board 自身返回 null）。
   // 定位/层级与源一致：fixed 右下（bottom 与宠物默认落点同 76）、zIndex 与宠物 root 同层
   const boardLayer = board !== null ? (
-    <div ref={boardRef} style={{ position: "fixed", right: 24, bottom: BOTTOM_MARGIN, zIndex: 2147483000 }}>
+    <div
+      ref={boardRef}
+      style={{ position: "fixed", right: 24, bottom: BOTTOM_MARGIN, zIndex: 2147483000, transform: `scale(${scale})`, transformOrigin: "bottom right" }}
+    >
       <Board
         dash={snap?.dashboard ?? null}
         mode={board.mode}
@@ -826,6 +829,7 @@ export function Pet(props: PetProps): React.ReactElement | null {
         {entry ? (
           <div
             className="dyn-pet-entry"
+            style={{ fontSize: px(12) }}
             onPointerDown={(e) => e.stopPropagation()} // 入口只点按：不触发 root 拖拽/单击挥手（与项目卡片同模式）
             onContextMenu={(e) => e.stopPropagation()} // 右键响应范围仅宠物本体（spec 6.6 规则 8），浮层右键无自定义行为
             onClick={(e) => { e.stopPropagation(); setEntry(false); openBoard("manual"); }}
