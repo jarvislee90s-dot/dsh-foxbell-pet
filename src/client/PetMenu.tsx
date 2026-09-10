@@ -23,7 +23,7 @@ const ACTION_PAGE: Record<"Dbl" | "Approval" | "Error" | "Done" | "Running", key
   Running: "runningAction",
 };
 
-export const PLUGIN_VERSION = "v2.0.0"; // validate 校验与 package.json 一致
+export const PLUGIN_VERSION = "v2.1.0"; // validate 校验与 package.json 一致
 
 export function PetMenu(props: {
   page: MenuPage;
