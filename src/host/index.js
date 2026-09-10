@@ -46,6 +46,20 @@ export const Config = z.object({
   // 旧保存配置无这两个字段 → schema default 自动补齐，无需用户干预。
   scale: z.union([0.75, 1, 1.25]).default(1),
   activePetId: z.string().default(BUILTIN_PET_ID),
+  // v2.1 效率看板 12 项（键名/默认值逐字对齐 v1.4.0 Config 契约；引擎逐键消费、缺键回退）。
+  // 前 8 项为看板引擎门/阈值；summaryEntrySec/boardTtlSec/ttsEnabled/summaryEnabled 为客户端门。
+  paceEnabled: z.boolean().default(true),
+  paceIntenseEvents: z.number().default(12),
+  paceLongrunMin: z.number().default(3),
+  paceLoafStartMin: z.number().default(15),
+  usageEnabled: z.boolean().default(true),
+  dayLimitTokens: z.number().default(0),
+  milestoneUnit: z.number().default(1000000),
+  approvalFlickerMin: z.number().default(5),
+  summaryEnabled: z.boolean().default(true),
+  summaryEntrySec: z.number().default(15),
+  boardTtlSec: z.number().default(15),
+  ttsEnabled: z.boolean().default(false),
 })
 
 // 硬依赖注入：与 v1.3.0 相同（settings 为可选注入，见 apply 内 ctx.inject）。
@@ -158,6 +172,7 @@ export async function apply(ctx, config) {
     getSession: (id) => (sessions !== undefined ? sessions.get(id) : undefined),
     getTitle: (session) => (sessionTitle !== undefined ? sessionTitle.get(session) : undefined),
     now: () => Date.now(),
+    readConfig, // v2.1 看板 8 键 live 读（整对象透传，引擎逐键判型回退 BOARD_DEFAULTS）
   })
   engine.compute()
 
@@ -230,6 +245,8 @@ export async function apply(ctx, config) {
       completions: engine.queue,
       runningSessions: projects.filter((p) => p.status === 'running').length,
       projects,
+      // v2.1 效率看板聚合（本轮 compute() 刚跑完，非 null；形状见 dashboard.js buildDashboard）
+      dashboard: engine.dashboard(),
       // voices 改为当前激活宠物的语音清单（资产 URL 指向 /pets/<id>/…）
       voices: voiceUrls(active.id, activeManifest),
       activePet: active,

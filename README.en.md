@@ -6,8 +6,8 @@ A draggable **multi-pet desktop-pet system** for the DeepSeek Harness (DSH) Web 
 
 ![Built-in pet Foxbell](reference/桃子衣服粉狐狸形象.png)
 
-> **v2.0.0 targets dsh ≥ 0.1.2-rc.1** (older rc.7/rc.8-era harnesses are no longer supported; see the compatibility table below).
-> Starting with this version the status-card color semantics follow MAM: **red = awaiting approval, yellow = running, green = done-unread, dark red + ⚠ = error/disconnected** (v1.x used green/yellow/red/blue). See [CHANGELOG](CHANGELOG.md).
+> **v2.1.0 targets dsh ≥ 0.1.2-rc.1** (older rc.7/rc.8-era harnesses are no longer supported; see the compatibility table below; **0.1.5-rc.2 verified compatible surface-by-surface**).
+> Starting with v2.0.0 the status-card color semantics follow MAM: **red = awaiting approval, yellow = running, green = done-unread, dark red + ⚠ = error/disconnected** (v1.x used green/yellow/red/blue). See [CHANGELOG](CHANGELOG.md).
 
 ## Screenshots
 
@@ -49,6 +49,34 @@ A draggable **multi-pet desktop-pet system** for the DeepSeek Harness (DSH) Web 
 - **🦊 show/hide switch** — sidebar footer (same semantics as v1), persisted in localStorage.
 - **Error-code system** — aligned with the MAM PetError table (50 host codes + 8 client-local codes); route errors are uniform `{code, params, detail}` JSON, mapped to zh/en text by the plugin's internal dictionary and rendered inline in dialogs (browser language auto-detected; no harness locale dependency, no toasts).
 
+## Efficiency Dashboard (ported in v2.1.0)
+
+The v1.4.0 efficiency-dashboard phase one, ported wholesale onto the v2 architecture: aggregated by the host half and delivered with the `/state` snapshot, **zero always-on UI** (the mini bar exists only while hovering). Usage is always **pure tokens — never converted to money** — presented in **five metrics**: **request input / cache hit / hit rate / output / your input (est.)** (plus a "incl. subagents" tag).
+
+1. **Pace dial** (duration-posture engine) — the pet's pose follows the event timeline through tiers: intense / active / **long-run** (turn open but silent ≥3 min — guards against babysitting a hanging task) / idle / **four loafing stages** (turn closed but silent ≥15 min: resting → lounging → idling → dried-fish, progressively suppressing the idle look-around). Swapping animation variants does **not** change speed; a tier transition plays one short animation, and any new event resets immediately.
+2. **Five-metric mini bar** — hover the pet ≈0.5s and it appears: pace dial (current tier readout) + "today × · this session ×" five-metric usage + an "N awaiting approval / N running / N done" status line; **read-only**, vanishes when the pointer leaves (right-click "🏷 Today's usage" summons it manually; close via outside click / ESC).
+3. **Alert placards + three-tier voice priority** — daily threshold `dayLimitTokens` raises a placard "spent X today" once each at 80% / 100%; crossing a `milestoneUnit` token milestone speaks one bubble line. Alert voice priority: **voice-group audio > TTS > silence** (enable via `ttsEnabled`). Current builtin and external pet inventories ship no usage voice group, so threshold/milestone alerts actually fall through to TTS/silence.
+4. **Blackboard + 📖 limited-time entry** — after a task completes, a "📖 Summary" entry appears next to the pet for a limited time (default 15s; 10/15/20 configurable) → clicking opens the summary board (sessions / turns / five-metric token ledger / top-3 tools / longest single turn / error count); it auto-dismisses after `boardTtlSec`, and ✕ / outside click / ESC all close it; right-click "📊 Last summary" reopens it anytime.
+5. **Farewell on hide** — hiding the pet dispatches a "Wrapping up today" board once, so the day ends with a report.
+
+Two small enhancements: **title blink** — when an approval waits ≥N minutes (`approvalFlickerMin`) and the page is hidden, the tab title alternates with "🦊 approval waiting…", restored on approval or on returning to the page; **age annotation** — a gray "×s/×m" tail on each status-card line distinguishes "just happened" from "stuck for 5 minutes". Plus a right-click "🗂 Session overview" listing all conversations (status dots + click to jump).
+
+All of this adds **12 new settings** (`paceEnabled` / `usageEnabled` / `summaryEnabled` / `ttsEnabled` / `dayLimitTokens` / `milestoneUnit` / `paceIntenseEvents` / `paceLongrunMin` / `paceLoafStartMin` / `approvalFlickerMin` / `summaryEntrySec` / `boardTtlSec`), edited in the settings card as a **draft with unified save** (edits stage into a draft; save/discard applies them together; the card collapses on save).
+
+### Efficiency-dashboard interaction quick reference (one target, one action)
+
+| Click / gesture target | The one behavior |
+|---|---|
+| Status card (single click) | Smart jump: with a pending approval → approval anchor; otherwise → session + mark read |
+| 📖 summary limited-time entry | Open the blackboard; the entry then disappears |
+| New right-click menu items | Today's usage → open mini bar manually; Last summary → open blackboard; session-overview item → smart jump |
+| Hover ≈0.5s | Mini bar appears (**read-only**, nothing clickable, gone when the pointer leaves) |
+| Drag | Pure physics animation, **carries no command** (mini bar hides and hover detection suspends while dragging) |
+| Mouse wheel | Never hijacked over the pet body or mini bar — scrolls the page through; the blackboard / menu scroll their own content |
+| Right-click | **Pet body only** opens the menu (status card and floating layers have no custom right-click behavior) |
+| ESC | Peels one layer at a time, topmost first (manual mini bar → blackboard → menu) |
+| Blackboard vs mini bar | **Blackboard wins the yield**: while the blackboard is open the mini bar stays hidden and reappears once it closes |
+
 ## Requirements (compatibility)
 
 | Component | Requirement |
@@ -56,6 +84,7 @@ A draggable **multi-pet desktop-pet system** for the DeepSeek Harness (DSH) Web 
 | DeepSeek Harness (DSH) | **≥ 0.1.2-rc.1** (Web profile, `dsh web`) |
 | rc.1 surfaces used | `session.snapshotEvents()` (B1), `ctx.settings.installSection` (B2), package-edge `dsh.client.inject` semantics (B3 — declared empty: only platform seed modules like react are required) |
 | master (0.1.3-alpha.1) | static-diff assessment found no breaking surface (IMPLEMENTATION_NOTES §9) |
+| 0.1.5-rc.2 | protocol surface (events/routes/settings) verified compatible item-by-item (regressed before the v2.1.0 release) |
 | v1.x (rc.7/rc.8 era) | **unsupported** (legacy `session.events` / `installSettingsSection` / `dsh-client-runtime` were removed in rc.1; use plugin v1.3.0 there) |
 
 Built-in assets ship with the package; external pet assets are user-imported.

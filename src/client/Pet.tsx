@@ -16,10 +16,13 @@ import {
 import { MIN_SPEECH_MS } from "./voices";
 import type { VoiceGroup } from "./validation";
 import { appStore, ackProject, cfgStore, petStore, voicePlayer, type ActivePetRuntime } from "./store";
-import { apiPost, type ActivateResult, type GuardIssue, type ProjectCard } from "./api";
+import { apiPost, type ActivateResult, type GuardIssue, type PaceTier, type ProjectCard } from "./api";
 import { DOT_COLOR, DOT_HALO, lightOf, taskPoseOf } from "./statuscards";
 import { t } from "./i18n";
 import { PetMenu, type MenuPage } from "./PetMenu";
+import { Sign } from "./Sign";
+import { MiniBar, type MiniMode } from "./MiniBar";
+import { Board, type BoardMode } from "./Board";
 import { openDialog } from "./dialogs/host";
 
 const BOTTOM_MARGIN = 76; // 精灵底边距视口底（v1 默认 bottom:76 落点，随 scale 缩放）
@@ -27,6 +30,7 @@ const LOOK_FRAME_MS = 250;
 const LOOK_IDLE_MS = 6000;
 const TRANSIENT_WAVE_MS = 1700;
 const APPROVAL_THROTTLE_MS = 10_000;
+const MINI_HOVER_MS = 500; // 悬停 0.5s 出迷你条（源 client.js L888 定时时长）
 
 interface PetProps {
   ctx: { get(name: string): unknown };
@@ -46,7 +50,16 @@ export function Pet(props: PetProps): React.ReactElement | null {
   useEffect(() => { cfgRef.current = cfg; }, [cfg]);
 
   const [visible, setVisible] = useState(petStore.visible);
-  useEffect(() => petStore.subscribe(() => setVisible(petStore.visible)), []);
+  // 关宠分发（源 client.js L196-200 客户端聚合）：隐藏桌宠时若 summaryEnabled 且最近总结在 → farewell 黑板
+  // （黑板在宠物隐藏后仍渲染，ttl 到点自动消失）。effect 首挂载后才执行，捕获首渲染绑定
+  // （openBoard/cfgRef 稳定：openBoard 只触 refs/setState——同源 openBoard 声明在本 effect 之后的 const 惯例）
+  useEffect(() => petStore.subscribe(() => {
+    setVisible(petStore.visible);
+    if (petStore.visible === false && cfgRef.current.summaryEnabled) {
+      const dash = appStore.getSnapshot()?.dashboard ?? null;
+      if (dash && dash.summary) openBoardRef.current("farewell");
+    }
+  }), []);
 
   const [snap, setSnap] = useState(appStore.getSnapshot());
   const [runtime, setRuntime] = useState<ActivePetRuntime>(appStore.getRuntime());
@@ -131,9 +144,18 @@ export function Pet(props: PetProps): React.ReactElement | null {
     setFrame(0);
     stepLoop();
   };
+  // 档位动画（v2.1 移植）：仅任务态为 running 且档位 longrun 时切"看表"代用行；不变速。
+  // 档位从最新快照读（看板未下发 → 无档位 → 返回 null）
+  const tierAnim = (): PetAnimKey | null => {
+    if (stateRef.current.task === "running"
+      && appStore.getSnapshot()?.dashboard?.pace?.tier === "longrun") return "waiting"; // 长任务看表（代用行）
+    return null;
+  };
   const refreshAnim = () => {
     const s = stateRef.current;
-    applyAnim(s.drag ?? s.transient ?? s.task ?? (s.look ? "look" : "idle"));
+    // tierAnim 须排在 s.task 之前（v1.4.0 已验证修正）：它仅在 task==='running' 且档位 longrun 时
+    // 返回 'waiting'；放在 s.task 之后会被 ||/?? 短路成死代码。返回 null 时其余链路照旧。
+    applyAnim(s.drag ?? s.transient ?? tierAnim() ?? s.task ?? (s.look ? "look" : "idle"));
   };
   /** 瞬时动作（代数计数防过期覆盖，spec F4） */
   const playTransient = useRef((key: PetAnimKey, ms: number) => {
@@ -156,6 +178,10 @@ export function Pet(props: PetProps): React.ReactElement | null {
       if (genRef.current.look !== gen) return;
       if (rowsRef.current !== 11) { scheduleNextLook.current(); return; }
       const s = stateRef.current;
+      // 摸鱼档位（loaf1..4）：咸鱼不东张西望——抑制本轮环视，直接重排保持循环存活
+      // （源 startLook 处移植；档位读最新快照，看板未下发视为非摸鱼；不变速）
+      const tier = appStore.getSnapshot()?.dashboard?.pace?.tier;
+      if (typeof tier === "string" && tier.startsWith("loaf")) { scheduleNextLook.current(); return; }
       if (!s.drag && !s.transient && !s.task) {
         s.look = true;
         setLookFrame(0);
@@ -212,6 +238,44 @@ export function Pet(props: PetProps): React.ReactElement | null {
   const playVoiceRef = useRef(playVoice);
   useEffect(() => { playVoiceRef.current = playVoice; });
 
+  // ---- v2.1 效率看板接入（源 client.js L249-261 状态声明移植）----
+  const [sign, setSign] = useState<string | null>(null); // 举牌文本（数字类警报，牌面 ttl 4.2s）
+  const seenAlertsRef = useRef(new Set<string>()); // 警报按 id 去重（usageEnabled=false 时也记 seen；会话生命周期一次）
+  const [entry, setEntry] = useState(false); // 📖 限时总结入口（ttl summaryEntrySec）
+  // Task 7 挂接点：入口按钮的渲染（.dyn-pet-entry 样式）与点击 → 开黑板在 Task 7 落地，此处仅驱动状态与 ttl
+  const entryTimerRef = useRef<(() => void) | null>(null); // 入口 ttl 定时器：新完成事件先清旧定时器，防堆叠后最早到期误关
+  const signTimerRef = useRef<(() => void) | null>(null); // 举牌 4.2s 清除定时器（review Minor1：卸载可清理）
+  const paceTierRef = useRef<PaceTier | null>(null); // 档位差分：档位变化重算动画（源 useEffect([pace]) 语义）
+
+  // ---- v2.1 迷你条（源 client.js L254-265 状态移植）：null | 'hover' | 'manual' ----
+  // hover：sprite 悬停 0.5s 定时进入、离开即退；manual：菜单「今日用量」进入（ESC/点外部退出）。
+  // 渲染守卫见 JSX 处 miniVisible 条件（拖拽强制隐藏 + 黑板优先挂钩点）。
+  const [miniMode, setMiniMode] = useState<MiniMode | null>(null);
+  const hoverTimerRef = useRef<(() => void) | null>(null);
+  const clearHoverTimer = () => {
+    if (hoverTimerRef.current) { const d = hoverTimerRef.current; hoverTimerRef.current = null; try { d(); } catch { /* ignore */ } }
+  };
+  const rootRef = useRef<HTMLDivElement | null>(null); // 手动迷你条「点外部关闭」的宠物本体 contains 判定
+
+  // ---- v2.1 小黑板（源 client.js L266-283 状态簇移植）：null 关闭 / manual 菜单或📖入口 / farewell 关宠分发 ----
+  // 黑板开着不渲染迷你条（黑板优先，渲染守卫见 JSX 处 board === null 条件）
+  const [board, setBoard] = useState<{ mode: BoardMode } | null>(null);
+  const boardTimerRef = useRef<(() => void) | null>(null); // 黑板 ttl 定时器：所有打开路径统一走 openBoard，防跨模式泄漏/堆叠
+  const boardRef = useRef<HTMLDivElement | null>(null); // 「点外部关闭」的黑板 contains 判定
+  const openBoardRef = useRef<(mode: BoardMode) => void>(() => {}); // 关宠 effect（声明在本组件更早处）的稳定调用口
+  // 开黑板（spec ④：黑板出现→停留 boardTtlSec→自动消失，manual/farewell 一视同仁）：先清旧 ttl 再按当前配置重设
+  const openBoard = (mode: BoardMode) => {
+    if (boardTimerRef.current) { const d = boardTimerRef.current; boardTimerRef.current = null; try { d(); } catch { /* ignore */ } }
+    setBoard({ mode });
+    boardTimerRef.current = later(() => { boardTimerRef.current = null; setBoard(null); }, (cfgRef.current.boardTtlSec || 15) * 1000);
+  };
+  useEffect(() => { openBoardRef.current = openBoard; }); // 每渲染同步（闭包只触 refs/setState，稳定）
+  // 关黑板（✕/点外部/ESC 三路等价收口）：同时取消 ttl 定时器（源 closeBoard 原样语义）
+  const closeBoard = () => {
+    if (boardTimerRef.current) { const d = boardTimerRef.current; boardTimerRef.current = null; try { d(); } catch { /* ignore */ } }
+    setBoard(null);
+  };
+
   // ---- 状态卡片差分（approval 10s 限流 / done / error）----
   const prevStatusRef = useRef<Record<string, string>>({});
   const lastApprovalAtRef = useRef(0);
@@ -220,12 +284,58 @@ export function Pet(props: PetProps): React.ReactElement | null {
   useEffect(() => {
     if (!snap) return;
     const cards: ProjectCard[] = Array.isArray(snap.projects) ? snap.projects : [];
+    const dash = snap.dashboard;
     // 完成事件：宿主 completions 队列按 seq 差分（v1 同款）
     const since = sinceSeqRef.current;
     sinceSeqRef.current = snap.seq;
     if (since !== null && Array.isArray(snap.completions)) {
       const fresh = snap.completions.filter((c) => c && typeof c.seq === "number" && c.seq > since);
-      if (fresh.length > 0) playVoiceRef.current("done", cfgRef.current.doneAction);
+      if (fresh.length > 0) {
+        // 📖 限时总结入口：任何有效完成事件都触发（不依赖语音是否存在，spec 6.4）；
+        // 先清旧 ttl 定时器防堆叠（否则入口在首个事件的截止时刻提前消失）
+        if (cfgRef.current.summaryEnabled) {
+          if (entryTimerRef.current) { const d = entryTimerRef.current; entryTimerRef.current = null; try { d(); } catch { /* ignore */ } }
+          setEntry(true);
+          entryTimerRef.current = later(() => setEntry(false), (cfgRef.current.summaryEntrySec || 15) * 1000);
+        }
+        playVoiceRef.current("done", cfgRef.current.doneAction);
+      }
+    }
+    // ---- v2.1 警报举牌/气泡 + 语音三优先级（源 refresh 警报段原样移植）：
+    // usage 语音组 > TTS 兜底 > 静默；先按 id 去重（usageEnabled=false 时也记 seen，开启瞬间不补发旧警报）
+    if (dash && Array.isArray(dash.alerts)) {
+      for (const a of dash.alerts) {
+        if (!a || typeof a.id !== "string" || seenAlertsRef.current.has(a.id)) continue;
+        seenAlertsRef.current.add(a.id);
+        if (!cfgRef.current.usageEnabled) continue;
+        // 里程碑一句话走气泡容器（spec 6.2 表现面3；一句话→气泡），数字类警报仍举牌
+        if (a.kind === "milestone") showBubble(a.text, 4200);
+        else { setSign(a.text); if (signTimerRef.current) { try { signTimerRef.current(); } catch { /* ignore */ } } signTimerRef.current = later(() => setSign(null), 4200); }
+        playTransient("jumping", 1600);
+        if (cfgRef.current.muted) continue;
+        // 三优先级①：usage 组语音命中即播（pick 组空返回 null，语义同源 pickVoice('usage')）
+        const v = voicePlayer.pick("usage");
+        if (v) {
+          // 里程碑：气泡即容器，语音时长对齐刷新气泡；数字警报：举牌即容器，不叠加字幕气泡（spec 6.2 容器分工）
+          voicePlayer.play(v, {
+            muted: cfgRef.current.muted,
+            onSubtitle: a.kind === "milestone"
+              ? (name, ms) => {
+                  if (!cfgRef.current.muted && cfgRef.current.talkative && runtimeRef.current.hasSubtitle) showBubble(a.text || name, ms);
+                }
+              : undefined,
+          });
+          continue;
+        }
+        // 三优先级②：TTS 兜底（zh-CN）；③静默
+        if (cfgRef.current.ttsEnabled && typeof window !== "undefined" && window.speechSynthesis) {
+          try {
+            const u = new window.SpeechSynthesisUtterance(a.text);
+            u.lang = "zh-CN";
+            window.speechSynthesis.speak(u);
+          } catch { /* ignore */ }
+        }
+      }
     }
     // error / approval / running 差分
     const prev = prevStatusRef.current;
@@ -262,6 +372,13 @@ export function Pet(props: PetProps): React.ReactElement | null {
       stateRef.current.task = task;
       refreshAnim();
     }
+    // 档位变化也要重算动画（源 useEffect(() => { refreshAnim() }, [pace]) 移植）：
+    // running 中档位变为 longrun 时刷新链才会切到看表代用行
+    const tier = dash && dash.pace ? dash.pace.tier : null;
+    if (paceTierRef.current !== tier) {
+      paceTierRef.current = tier;
+      refreshAnim();
+    }
     // 当前会话的 done/error 未读卡自动 ack（v1 已读即消失语义不变）
     const active = currentIdRef.current;
     for (const p of cards) {
@@ -277,6 +394,7 @@ export function Pet(props: PetProps): React.ReactElement | null {
   const busyRef = useRef(false); // 拖拽/坠落中 = 「宠物本体运行中」（守卫不弹对话）
 
   const onPointerDown = (e: React.PointerEvent) => {
+    clearHoverTimer(); if (miniMode !== "manual") setMiniMode(null); // 拖拽即隐藏（手动模式除外；手动层由渲染守卫强制隐藏）
     if (e.button !== 0) return; // 右键留给菜单
     if (fallRaf.current) { cancelAnimationFrame(fallRaf.current); fallRaf.current = 0; }
     e.preventDefault();
@@ -388,6 +506,29 @@ export function Pet(props: PetProps): React.ReactElement | null {
     playVoiceRef.current("general", cfgRef.current.dblAction); // 双击说话 + dblAction
   };
 
+  // 滚轮穿透（spec 6.6 规则 7；源 client.js L808-830 原样移植）：宠物本体上滚动 → 暂时摘掉自身
+  // pointer-events，用 elementFromPoint 找到下方元素，把滚动量转给其最近可滚动祖先（无则落到页面
+  // 滚动元素）。黑板/菜单是独立 fixed 元素不经过此 handler（仅宠物根挂 onWheel），内部滚动天然正常
+  const scrollableAncestor = (el: Element): Element => {
+    let n: Element | null = el;
+    while (n && n !== document.body && n !== document.documentElement) {
+      const st = window.getComputedStyle(n);
+      if (n.scrollHeight > n.clientHeight + 1 && /auto|scroll|overlay/.test(st.overflowY)) return n;
+      n = n.parentElement;
+    }
+    return document.scrollingElement || document.body;
+  };
+  const onWheel = (e: React.WheelEvent<HTMLDivElement>) => {
+    const root = e.currentTarget;
+    const prev = root.style.pointerEvents;
+    root.style.pointerEvents = "none";
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    root.style.pointerEvents = prev || "auto";
+    if (!el) return;
+    const sc = scrollableAncestor(el);
+    if (sc) sc.scrollTop += e.deltaY;
+  };
+
   // ---- 右键菜单 ----
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [menuPage, setMenuPage] = useState<MenuPage>(null);
@@ -407,14 +548,41 @@ export function Pet(props: PetProps): React.ReactElement | null {
     }
   }, [playTransient, stopPreview]);
   const closeMenu = useCallback(() => { setMenu(null); setMenuPage(null); stopPreview(); }, [stopPreview]);
+  // 菜单「点外部关闭」独立收口（源 client.js L279-282 原样）；ESC 键路径随 Task 8 并入下方统一分层 effect
   useEffect(() => {
     if (menu === null || !visible) return;
     const onDown = (e: PointerEvent) => { if (menuRef.current && menuRef.current.contains(e.target as Node)) return; closeMenu(); };
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") closeMenu(); };
     window.addEventListener("pointerdown", onDown, true);
-    window.addEventListener("keydown", onKey);
-    return () => { window.removeEventListener("pointerdown", onDown, true); window.removeEventListener("keydown", onKey); };
+    return () => { window.removeEventListener("pointerdown", onDown, true); };
   }, [menu, visible, closeMenu]);
+
+  // 手动迷你条/黑板/菜单统一分层关闭（源 client.js L281-300 原样移植）：
+  // 点外部（宠物本体/迷你条/黑板/菜单之外）关闭——手动迷你条与黑板可同时关（源两连 if 原样）；
+  // ESC 一次剥一层，源序：手动迷你条 → 黑板 → 菜单；黑板层必须走 closeBoard（同时取消 ttl 定时器）。
+  // 菜单层走 closeMenu（连带剥 menuPage + 停预览，v2 等价于源 setMenu(null) 的收尾语义）。
+  // 迷你条 pointer-events:none（spec 6.6 纯读取），点击必落在其外，无需 contains 检查。
+  useEffect(() => {
+    if (miniMode !== "manual" && board === null && menu === null) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (miniMode === "manual") { setMiniMode(null); return; }
+      if (board !== null) { closeBoard(); return; }
+      if (menu !== null) closeMenu();
+    };
+    const onDown = (e: PointerEvent) => {
+      if (miniMode !== "manual" && board === null) return; // 菜单点外部由其自身 effect 收口（源 L279-282 分立）
+      const target = e.target as Node;
+      // 宠物本体（含状态卡/举牌/迷你条/📖入口挂点）、菜单与黑板内部点击不关
+      if (rootRef.current && rootRef.current.contains(target)) return;
+      if (menuRef.current && menuRef.current.contains(target)) return;
+      if (boardRef.current && boardRef.current.contains(target)) return;
+      if (miniMode === "manual") setMiniMode(null);
+      if (board !== null) closeBoard();
+    };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("pointerdown", onDown, true);
+    return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("pointerdown", onDown, true); };
+  }, [miniMode, board, menu, closeMenu]);
 
   /** 切换宠物（菜单子项/切换对话框共用）：activate 校验 → 热切换写配置 */
   const switchTo = useCallback(async (id: string): Promise<ActivateResult | null> => {
@@ -462,6 +630,10 @@ export function Pet(props: PetProps): React.ReactElement | null {
     return () => {
       cancelStep();
       stopLook();
+      clearHoverTimer(); // 迷你条 hover 定时器随卸载清掉（源 clearHoverTimer 卫生）
+      if (boardTimerRef.current) { const d = boardTimerRef.current; boardTimerRef.current = null; try { d(); } catch { /* ignore */ } } // 黑板 ttl 随卸载清掉
+      if (entryTimerRef.current) { const d = entryTimerRef.current; entryTimerRef.current = null; try { d(); } catch { /* ignore */ } } // 入口 ttl 随卸载清掉（review Minor1）
+      if (signTimerRef.current) { const d = signTimerRef.current; signTimerRef.current = null; try { d(); } catch { /* ignore */ } } // 举牌清除随卸载清掉（review Minor1）
       genRef.current.look += 1; // 使在途 look 调度链失效
       stopPreview();
       if (fallRaf.current) { cancelAnimationFrame(fallRaf.current); fallRaf.current = 0; }
@@ -471,6 +643,36 @@ export function Pet(props: PetProps): React.ReactElement | null {
   useEffect(() => {
     if (!visible && fallRaf.current) { cancelAnimationFrame(fallRaf.current); fallRaf.current = 0; busyRef.current = false; }
   }, [visible]);
+
+  // 标题闪烁（组件③页外召集，spec 6.3；源 client.js L644-667 原样移植）：页面不可见且存在
+  // waitMin ≥ approvalFlickerMin（0=关）的未决审批时，document.title 每秒轮换「🦊 审批等待中…」/
+  // 原标题；回到页面或审批 decided（不再满足）即恢复。全部走 ref/快照直读（cfgRef + appStore，
+  // 同 alerts 消费段的最新快照读取方式），挂载时捕获原标题，卸载/停止必恢复
+  useEffect(() => {
+    const base = document.title;
+    const flickerText = t("dash.flickerTitle");
+    let on = false, flip = false, flickIv: number | null = null;
+    const stop = () => {
+      if (flickIv !== null) { window.clearInterval(flickIv); flickIv = null; }
+      if (on) { document.title = base; on = false; }
+    };
+    const tick = () => {
+      const min = cfgRef.current.approvalFlickerMin;
+      const dash = appStore.getSnapshot()?.dashboard ?? null;
+      const hit = min > 0 && dash !== null && Array.isArray(dash.approvals)
+        && dash.approvals.some((a) => a && a.waitMin >= min)
+        && document.visibilityState !== "visible";
+      if (hit && !on) {
+        on = true;
+        flickIv = window.setInterval(() => { flip = !flip; document.title = flip ? flickerText : base; }, 1000);
+      } else if (!hit && on) stop();
+    };
+    tick();
+    const iv = window.setInterval(tick, 1500);
+    const onVis = () => tick();
+    document.addEventListener("visibilitychange", onVis);
+    return () => { window.clearInterval(iv); stop(); document.removeEventListener("visibilitychange", onVis); };
+  }, []);
 
   // ---- 卡片点击：跳会话 + 已读（语义不变）----
   const onProjectClick = (p: ProjectCard) => {
@@ -497,7 +699,23 @@ export function Pet(props: PetProps): React.ReactElement | null {
     });
   }, [snap]);
 
-  if (!visible) return null;
+  // 小黑板：fragment 层渲染（源 L924-926：farewell 要在宠物隐藏后仍显示；无 summary 时 Board 自身返回 null）。
+  // 定位/层级与源一致：fixed 右下（bottom 与宠物默认落点同 76）、zIndex 与宠物 root 同层
+  const boardLayer = board !== null ? (
+    <div
+      ref={boardRef}
+      style={{ position: "fixed", right: 24, bottom: BOTTOM_MARGIN, zIndex: 2147483000, transform: `scale(${scale})`, transformOrigin: "bottom right" }}
+    >
+      <Board
+        dash={snap?.dashboard ?? null}
+        mode={board.mode}
+        ttlSec={cfg.boardTtlSec}
+        onClose={closeBoard}
+      />
+    </div>
+  ) : null;
+
+  if (!visible) return boardLayer; // 关宠后黑板仍在（ttl 到点自动消失；✕/点外部/ESC 可关）
 
   const cards = (snap?.projects ?? []).filter((p) => !(p.status === "done" && localAcked.has(p.id)));
   const shown = cards.slice(0, 6);
@@ -513,6 +731,7 @@ export function Pet(props: PetProps): React.ReactElement | null {
   return (
     <>
       <div
+        ref={rootRef}
         className="dyn-pet-root"
         style={rootStyle}
         onPointerDown={onPointerDown}
@@ -520,6 +739,7 @@ export function Pet(props: PetProps): React.ReactElement | null {
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
         onDoubleClick={onDoubleClick}
+        onWheel={onWheel}
         onContextMenu={(e) => {
           e.preventDefault();
           setMenu({
@@ -539,6 +759,7 @@ export function Pet(props: PetProps): React.ReactElement | null {
                 style={{ padding: `${px(5)}px ${px(10)}px`, borderRadius: px(10), gap: px(7), fontSize: px(12) }}
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={(e) => { e.stopPropagation(); onProjectClick(p); }}
+                onContextMenu={(e) => e.stopPropagation()} /* 右键响应范围仅宠物本体（spec 6.6 规则 8），状态卡右键无自定义行为 */
               >
                 <span
                   className="dyn-pet-dot"
@@ -553,7 +774,11 @@ export function Pet(props: PetProps): React.ReactElement | null {
                     {light === "error-darkred" ? "⚠ " : ""}{p.title}
                   </div>
                   {Array.isArray(p.lines) ? p.lines.map((l, i) => (
-                    <div key={i} className="dyn-pet-proj-line" style={{ fontSize: px(11.5) }}>{l}</div>
+                    <div key={i} className="dyn-pet-proj-line" style={{ fontSize: px(11.5) }}>
+                      {l}
+                      {/* v2.1 卡片年龄标注（源 L874）：仅首行且 age 非空 */}
+                      {i === 0 && p.age ? <span className="dyn-pet-age" style={{ fontSize: px(10) }}>{" " + p.age}</span> : null}
+                    </div>
                   )) : null}
                 </div>
               </div>
@@ -563,6 +788,8 @@ export function Pet(props: PetProps): React.ReactElement | null {
             <div className="dyn-pet-proj-more" style={{ fontSize: px(11) }}>+{extra} {t("card.more")}</div>
           ) : null}
         </div>
+        {/* 警报举牌（源 L880：'🏷 ' + text；容器分工见 alerts 消费段） */}
+        {sign ? <Sign text={sign} scale={scale} /> : null}
         {subtitle ? (
           <div
             className="dyn-pet-bubble"
@@ -571,9 +798,27 @@ export function Pet(props: PetProps): React.ReactElement | null {
             {subtitle}
           </div>
         ) : null}
+        {/* 五口径迷你条（源 L882 挂载点：sprite 之前、miniMode !== null 时渲染）。
+            渲染守卫：拖拽激活（dragging 于 pointerdown 置位，覆盖按下→方向阈值窗口；stateRef.drag 为方向动画段）
+            强制隐藏 + 黑板优先（board !== null 时不渲染迷你条——源 L884 miniMode !== null && board === null 原样）。 */}
+        {miniMode !== null && board === null && !dragging && stateRef.current.drag === null ? (
+          <div className="dyn-pet-mini-wrap">
+            <MiniBar
+              dash={snap?.dashboard ?? null}
+              cards={cards}
+              mode={miniMode}
+              scale={scale}
+              usageOn={cfg.usageEnabled}
+            />
+          </div>
+        ) : null}
         <div
           ref={spriteRef}
           className={"dyn-pet-sprite " + (dragging ? "dragging" : "")}
+          onPointerEnter={() => { // 悬停 0.5s 出迷你条（源 L888；手动模式不重设定时器）
+            if (miniMode !== "manual") { clearHoverTimer(); hoverTimerRef.current = later(() => setMiniMode("hover"), MINI_HOVER_MS); }
+          }}
+          onPointerLeave={() => { clearHoverTimer(); if (miniMode === "hover") setMiniMode(null); }} // 源 L889
           style={{
             width: frameW, height: frameH,
             backgroundImage: runtime.spriteUrl ? `url('${runtime.spriteUrl}')` : undefined,
@@ -583,6 +828,19 @@ export function Pet(props: PetProps): React.ReactElement | null {
             cursor: dragging ? "grabbing" : "grab",
           }}
         />
+        {/* 📖 限时总结入口（源 L891-896 移植）：挂主 root 内 sprite 右上（.dyn-pet-entry 的 absolute
+            偏移以 192×208 root 为锚，spec 6.0/6.4 宠物旁限时出现）；点击展开黑板并自毁 */}
+        {entry ? (
+          <div
+            className="dyn-pet-entry"
+            style={{ fontSize: px(12) }}
+            onPointerDown={(e) => e.stopPropagation()} // 入口只点按：不触发 root 拖拽/单击挥手（与项目卡片同模式）
+            onContextMenu={(e) => e.stopPropagation()} // 右键响应范围仅宠物本体（spec 6.6 规则 8），浮层右键无自定义行为
+            onClick={(e) => { e.stopPropagation(); setEntry(false); openBoard("manual"); }}
+          >
+            {t("dash.summaryEntry")}
+          </div>
+        ) : null}
       </div>
       {menu !== null ? (
         <div ref={menuRef} className="dyn-pet-menu-wrap" style={{ left: menu.x, top: menu.y, zIndex: 2147483001 }}>
@@ -599,9 +857,14 @@ export function Pet(props: PetProps): React.ReactElement | null {
             onPreview={handlePreview}
             onHide={() => { closeMenu(); petStore.set(false); }}
             onSwitchPet={(id) => { closeMenu(); void switchTo(id); }}
+            onMiniUsage={() => { closeMenu(); setMiniMode("manual"); }} // 🏷 今日用量：手动迷你条（源 miniOpen）
+            onBoardSummary={() => { closeMenu(); openBoard("manual"); }} // 📊 查看最近总结：关菜单 + 开黑板（源 boardOpen）
+            onSessionPick={(p) => { closeMenu(); onProjectClick(p); }} // 🗂 会话一览点选：关菜单 + 跳会话（源 SessionsPage onPick）
+            sessions={snap?.projects ?? []}
           />
         </div>
       ) : null}
+      {boardLayer}
     </>
   );
 }

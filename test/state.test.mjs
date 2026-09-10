@@ -183,6 +183,29 @@ describe("state engine", () => {
     expect(eng.projects.get("p1").unread).toBe(false);
   });
 
+  it("list() carries age label from last event time (v2.1 卡片年龄标注)", () => {
+    // 注意：scanInfo 以 `ev.time > lastEventTime(null)` 记最后事件，time=0 不入（源同款），须用真实时间戳
+    const at = (time, type, seq, data) => ({ ...ev(type, seq, data), time });
+    const events = [
+      at(60000, "turn/start", 1, { turn: 1 }),
+      at(60000, "user/message", 2, { content: [{ type: "text", text: "hi" }] }),
+    ];
+    const sessions = new Map([["p1", fakeSession(events)]]);
+    const { eng, setNow } = harness([{ id: "p1", status: "running" }], sessions);
+    setNow(105000); // 距最后事件 45s
+    eng.compute();
+    expect(eng.list()[0].age).toBe("45s");
+    setNow(230000); // 距最后事件 170s → 2m
+    eng.compute();
+    expect(eng.list()[0].age).toBe("2m");
+  });
+
+  it("list() age falls back to '' when session unresolvable (metrics 缺失路径)", () => {
+    const { eng } = harness([{ id: "ghost", status: "running" }], new Map());
+    eng.compute();
+    expect(eng.list()[0].age).toBe("");
+  });
+
   it("sorts error > approval > running > done", () => {
     const sessions = new Map([
       ["d", fakeSession([ev("turn/start", 1, {}), ev("turn/end", 2, { reason: { kind: "completed" } })])],

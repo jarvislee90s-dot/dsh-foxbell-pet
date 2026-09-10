@@ -20,12 +20,19 @@ const CSS = `
 .dyn-pet-proj-body { min-width: 0; }
 .dyn-pet-proj-title { font-weight: 700; color: #7a4a2b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dyn-pet-proj-line { color: #a07050; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dyn-pet-age { color: #c4a484; }
 .dyn-pet-proj-more { pointer-events: none; color: #a07050; background: rgba(255, 252, 248, 0.9); border-radius: 999px; padding: 2px 8px; }
 .dyn-pet-bubble {
   position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
   background: rgba(255, 255, 255, 0.96); color: #7a4a2b; border: 1px solid rgba(122, 74, 43, 0.35);
   line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18); pointer-events: none; z-index: 2;
+}
+/* 举牌（v1.4.0 .dyn-pet-sign 移植）：字号/内边距/圆角由 Sign.tsx 内联 px() 缩放下发 */
+.dyn-pet-sign {
+  position: absolute; bottom: 85%; left: 60%; transform: rotate(-4deg);
+  background: #fffbe8; border: 1px solid rgba(122, 74, 43, 0.45); color: #7a4a2b; font-weight: 600;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15); pointer-events: none; z-index: 3; white-space: nowrap;
 }
 .dyn-pet-toggle {
   display: inline-flex; align-items: center; gap: 4px; background: transparent; border: none;
@@ -62,6 +69,15 @@ const CSS = `
 .dyn-pet-settings-section { font-weight: 700; margin-top: 4px; padding-bottom: 2px; border-bottom: 1px solid rgba(122,74,43,.18); color:#7a4a2b; }
 .dyn-pet-settings-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .dyn-pet-settings-row select { max-width: 140px; }
+/* ---- v2.1 设置卡草稿态（v1.4.0 client.js L1098-1109 移植：头部状态字/口径注/保存条/无效数字红框）---- */
+.dyn-pet-settings-dirty { flex: none; color: #b45309; font-size: 12px; }
+.dyn-pet-settings-saved { flex: none; color: #16a34a; font-size: 12px; }
+.dyn-pet-settings-note { color: #999; font-size: 11px; line-height: 1.5; }
+.dyn-pet-settings-savebar { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 6px; }
+.dyn-pet-settings-discard { background: transparent; color: #8b7355; border: 1px solid #d6c7b2; border-radius: 8px; padding: 4px 12px; font-size: 12px; cursor: pointer; }
+.dyn-pet-settings-save { background: #16a34a; color: #fff; border: none; border-radius: 8px; padding: 5px 18px; font-size: 13px; cursor: pointer; }
+.dyn-pet-settings-save:disabled { background: #c9bdae; cursor: default; }
+.dyn-pet-settings-row.bad input { border: 1px solid #ef4444; border-radius: 4px; }
 .dyn-pet-settings-actions { justify-content: flex-start; flex-wrap: wrap; }
 .dyn-pet-scale-group { display: inline-flex; gap: 4px; }
 .dyn-pet-scale-btn { border:1px solid rgba(122,74,43,.35); background:#fff; color:#7a4a2b; border-radius:8px; font-size:12px; padding:2px 10px; cursor:pointer; }
@@ -133,6 +149,24 @@ const CSS = `
 .dyn-pet-manage-actions { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
 .dyn-pet-delete-confirm { display:inline-flex; gap:8px; align-items:center; }
 .dyn-pet-import-done { color:#15803d; font-weight:600; }
+/* ---- v2.1 迷你条（v1.4.0 client.js L1110-1117 原样移植；7e16d62：行内换行不截断）----
+   CSS 留 scale=1 版式，实际字号/内边距/宽度由 MiniBar.tsx 内联 px() 缩放下发（与 Sign.tsx 同口径） */
+.dyn-pet-mini-wrap { position: absolute; left: 100%; top: 12px; margin-left: 12px; z-index: 4; }
+.dyn-pet-mini { width: 248px; background: rgba(255,252,248,0.97); border: 1px solid rgba(122,74,43,0.3); border-radius: 10px; padding: 8px 10px; font-size: 12px; color: #7a4a2b; line-height: 1.6; box-shadow: 0 2px 8px rgba(0,0,0,0.14); pointer-events: none; }
+.dyn-pet-mini-dial { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.dyn-pet-mini-bar { flex: 1; height: 6px; border-radius: 999px; background: rgba(122,74,43,0.15); overflow: hidden; }
+.dyn-pet-mini-bar i { display: block; height: 100%; background: linear-gradient(90deg,#f59e0b,#ef4444); border-radius: 999px; transition: width .4s ease; }
+.dyn-pet-mini-tier { font-weight: 700; white-space: nowrap; }
+.dyn-pet-mini-row { white-space: normal; word-break: break-word; }
+.dyn-pet-mini-dim { color: #a07050; font-size: 11px; }
+/* ---- v2.1 小黑板 + 📖 限时入口（v1.4.0 client.js L1118-1123 原样移植；行 normal 换行 per 7e16d62）----
+   黑板为 310px 固定版式（fixed 右下挂点与 scale 缩放由 Pet.tsx boardLayer 内联下发） */
+.dyn-pet-board { width: 310px; background: #2f2a26; color: #f3e9dc; border-radius: 12px; padding: 10px 12px; font-size: 12.5px; line-height: 1.7; box-shadow: 0 6px 20px rgba(0,0,0,0.35); }
+.dyn-pet-board.farewell { border: 1px solid rgba(251,191,36,0.5); }
+.dyn-pet-board-head { display: flex; justify-content: space-between; align-items: center; font-weight: 700; margin-bottom: 4px; }
+.dyn-pet-board-x { background: transparent; border: none; color: #d6c7b2; cursor: pointer; font-size: 13px; padding: 0 2px; }
+.dyn-pet-board-row { white-space: normal; word-break: break-word; }
+.dyn-pet-entry { position: absolute; right: -8px; top: -6px; background: #fffbe8; border: 1px solid rgba(122,74,43,0.5); color: #7a4a2b; font-size: 12px; font-weight: 600; border-radius: 999px; padding: 3px 10px; cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,0.15); z-index: 3; }
 `;
 
 const STYLE_ID = "dyn-pet-styles";

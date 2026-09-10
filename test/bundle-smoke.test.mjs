@@ -20,6 +20,10 @@ const jsxRuntime = {
   jsxs(type, props, key) { return { type, props, key } },
   Fragment: React.Fragment,
 }
+// 宿主平台种子表提供 react-dom（validate §6 require 面）；smoke 环境只需 createPortal 形态（DialogHost 传送门）
+const ReactDOM = {
+  createPortal(children) { return children },
+}
 
 function runBundle() {
   const registered = {}
@@ -44,6 +48,7 @@ function runBundle() {
     require: (id) => {
       if (id === 'react') return React
       if (id === 'react/jsx-runtime') return jsxRuntime
+      if (id === 'react-dom') return ReactDOM
       throw new Error('unexpected require: ' + id)
     },
   }
@@ -69,6 +74,7 @@ describe('built client bundle (lib/client.js)', () => {
     const exports = registered['dsh-foxbell-pet'].factory((id) => {
       if (id === 'react') return React
       if (id === 'react/jsx-runtime') return jsxRuntime
+      if (id === 'react-dom') return ReactDOM
       throw new Error('unexpected require: ' + id)
     })
     expect(typeof exports.apply).toBe('function')
@@ -79,7 +85,7 @@ describe('built client bundle (lib/client.js)', () => {
   it('apply registers all three UI slots (overlay / sidebar toggle / settings card)', () => {
     const registered = runBundle()
     const exports = registered['dsh-foxbell-pet'].factory((id) =>
-      id === 'react' ? React : id === 'react/jsx-runtime' ? jsxRuntime : undefined,
+      id === 'react' ? React : id === 'react/jsx-runtime' ? jsxRuntime : id === 'react-dom' ? ReactDOM : undefined,
     )
     const slotNames = []
     const slots = {

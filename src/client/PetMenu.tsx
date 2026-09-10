@@ -1,16 +1,19 @@
 // PetMenu.tsx — 右键菜单（MAM PetMenu.tsx 结构基准 + 本插件五场景动作绑定与切换宠物子菜单）。
 // 主页：🔊出声 / 💬语音字幕 / 🧲物理坠落（无语音/无字幕宠物对应行禁用带提示）
 //       ─ 📏大小（三档缩放）─ 🖱️双击 / 🔴红灯 / 🟡黄灯 / 🟥深红灯 / 🟢绿灯 五场景动作绑定（实时预览）
-//       ─ 🔁切换宠物（当前项打勾，点击即热切换）─ 🦊隐藏桌宠 ─ ℹ️关于
+//       ─ 🔁切换宠物（当前项打勾，点击即热切换）
+//       ─ 🏷今日用量（手动迷你条）─ 📊查看最近总结（小黑板）─ 🗂会话一览（色点列表子页，Task 7）
+//       ─ 🦊隐藏桌宠 ─ ℹ️关于
 import React, { useEffect } from "react";
 import { CFG_ACTIONS, CFG_SCALES, type PetAction, type PetConfig, type PetScale } from "./config";
 import { cfgStore } from "./store";
 import type { PetAnimKey } from "./animations";
-import type { PetSummary } from "./api";
+import type { PetSummary, ProjectCard } from "./api";
+import { DOT_COLOR, DOT_HALO, lightOf } from "./statuscards";
 import { t } from "./i18n";
 import { openDialog } from "./dialogs/host";
 
-export type MenuPage = null | "Size" | "Dbl" | "Approval" | "Error" | "Done" | "Running" | "SwitchPet" | "About";
+export type MenuPage = null | "Size" | "Dbl" | "Approval" | "Error" | "Done" | "Running" | "SwitchPet" | "About" | "Sessions";
 
 const ACTION_PAGE: Record<"Dbl" | "Approval" | "Error" | "Done" | "Running", keyof PetConfig> = {
   Dbl: "dblAction",
@@ -20,7 +23,7 @@ const ACTION_PAGE: Record<"Dbl" | "Approval" | "Error" | "Done" | "Running", key
   Running: "runningAction",
 };
 
-export const PLUGIN_VERSION = "v2.0.0"; // validate 校验与 package.json 一致
+export const PLUGIN_VERSION = "v2.1.0"; // validate 校验与 package.json 一致
 
 export function PetMenu(props: {
   page: MenuPage;
@@ -35,6 +38,14 @@ export function PetMenu(props: {
   onPreview(action: PetAnimKey | null): void;
   onHide(): void;
   onSwitchPet(id: string): void;
+  /** 🏷 今日用量：关菜单 + 手动打开五口径迷你条（v1.4.0 miniOpen） */
+  onMiniUsage(): void;
+  /** 📊 查看最近总结：关菜单 + 开小黑板 manual（v1.4.0 boardOpen；Task 7） */
+  onBoardSummary(): void;
+  /** 🗂 会话一览点选：关菜单 + 跳会话（v1.4.0 SessionsPage onPick → onProjectClick；Task 7） */
+  onSessionPick(p: ProjectCard): void;
+  /** 会话一览列表（= 宿主 projects 全量快照，与源 list: projects 同口径；Task 7） */
+  sessions: ProjectCard[];
 }): React.ReactElement {
   const { page, setPage, cfg, onPreview, onClose } = props;
 
@@ -112,6 +123,28 @@ export function PetMenu(props: {
         </div>
       </>
     );
+  } else if (page === "Sessions") {
+    // 会话一览子页（源 client.js SessionsPage L949-957 移植）：色点 + 标题列表，点选跳会话，返回回主页。
+    // 色点沿用 v2 MAM 口径（DOT_COLOR/lightOf，与状态卡同源）——源 .dot-* CSS 类的 v2 等价内联实现
+    body = (
+      <>
+        <div className="dyn-pet-menu-item" onClick={() => setPage(null)}>{t("menu.back")}</div>
+        {props.sessions.length === 0 ? (
+          <div className="dyn-pet-menu-item" style={{ cursor: "default" }}>{t("dash.noSessions")}</div>
+        ) : props.sessions.map((p) => {
+          const light = lightOf(p);
+          return (
+            <div key={p.id} className="dyn-pet-menu-item" onClick={() => props.onSessionPick(p)}>
+              <span
+                className="dyn-pet-dot"
+                style={{ display: "inline-block", width: 8, height: 8, marginRight: 8, background: DOT_COLOR[light], boxShadow: `0 0 0 2px ${DOT_HALO[light]}` }}
+              />
+              {p.title || p.id}
+            </div>
+          );
+        })}
+      </>
+    );
   } else if (page && page in ACTION_PAGE) {
     const field = ACTION_PAGE[page as keyof typeof ACTION_PAGE];
     body = (
@@ -159,6 +192,10 @@ export function PetMenu(props: {
           value={props.pets.find((p) => p.id === props.activePetId)?.displayName ?? props.activePetId}
           onOpen={() => setPage("SwitchPet")}
         />
+        <div className="dyn-pet-menu-divider" />
+        <div className="dyn-pet-menu-item" onClick={props.onMiniUsage}>{t("dash.menuUsage")}</div>
+        <div className="dyn-pet-menu-item" onClick={props.onBoardSummary}>{t("dash.menuSummary")}</div>
+        <div className="dyn-pet-menu-item" onClick={() => setPage("Sessions")}>{t("dash.menuSessions")}</div>
         <div className="dyn-pet-menu-item" onClick={props.onHide}>{t("menu.hide")}</div>
         <div className="dyn-pet-menu-item" onClick={() => setPage("About")}>{t("menu.about")}</div>
       </>

@@ -109,6 +109,111 @@ export interface ProjectCard {
   lines: string[];
   status: "running" | "approval" | "error" | "done";
   unread: boolean;
+  /** v2.1 卡片年龄标注（ageLabel(距最后事件秒)，无事件时 ''；宿主 state.js list() 下发） */
+  age: string;
+}
+
+// ---- v2.1 效率看板契约（形状逐一镜像宿主 buildDashboard：src/host/state.js L210-288）----
+export type PaceTier = "intense" | "active" | "longrun" | "idle" | "loaf1" | "loaf2" | "loaf3" | "loaf4";
+
+/** derivePaceTier 结果（src/host/dashboard.js L27-43） */
+export interface PaceSnapshot {
+  tier: PaceTier;
+  /** 距最后事件静默毫秒数；无任何事件时为 null */
+  sinceMs: number | null;
+  label: string;
+}
+
+/** token 四分账桶（zeroUsage 同形状，src/host/dashboard.js L55-56） */
+export interface UsageBucket {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+}
+
+/** 最后活跃会话的今日分账（src/host/state.js L248 + L279-281 的 requestTotal 派生） */
+export interface SessionUsageSnapshot extends UsageBucket {
+  title: string;
+  requestTotal: number;
+}
+
+/** 今日用量聚合（src/host/state.js L273-283；models 为二期预留空桶） */
+export interface UsageSnapshot {
+  day: UsageBucket;
+  /** 请求输入口径：inputTokens + cacheReadTokens（2026-09-10 用户裁定） */
+  requestTotal: number;
+  /** 命中率 = 缓存命中 / 请求输入，分母 0 记 0（hitRate） */
+  cacheHitRate: number;
+  /** 用户输入启发式估算（今日，跨会话累加） */
+  userEst: number;
+  session: SessionUsageSnapshot | null;
+  grandTotal: number;
+  models: Record<string, unknown>;
+}
+
+/** 阈值警报（evaluateAlerts，src/host/dashboard.js L103-125） */
+export interface DashboardAlert {
+  id: string;
+  kind: "day-warn" | "day-hit" | "milestone";
+  text: string;
+}
+
+/** 未决审批（src/host/state.js L251） */
+export interface DashboardApproval {
+  id: string;
+  title: string;
+  waitMin: number;
+}
+
+/** 黑板结构化 token 字段（Task 7 增量；RAW 数值，格式化在客户端 fmtTokens/拼装） */
+export interface SummaryTokens {
+  /** 请求输入口径：inputTokens + cacheReadTokens（与 UsageSnapshot.requestTotal 同源同值） */
+  requestTotal: number;
+  /** 缓存命中（今日，跨会话累加） */
+  cacheRead: number;
+  /** 命中率百分数原值 = cacheRead/requestTotal*100（分母 0 记 0）；客户端 toFixed(1) 后与 tokensText 内百分数逐位一致 */
+  hitPct: number;
+  /** 产出（今日） */
+  output: number;
+  /** 用户输入启发式估算（今日） */
+  userEst: number;
+}
+
+/** 工具 Top3 行（与 toolsText 同序：次数降序截断；ms 为跨会话累计耗时，0 时客户端省略耗时段） */
+export interface SummaryToolRow {
+  name: string;
+  count: number;
+  ms: number;
+}
+
+/** 黑板汇总（summarize + Task 7 结构化增量，src/host/dashboard.js L141-208 / src/host/state.js buildDashboard）。
+ *  zh 字符串字段保留：滚动兜底展示 + test/dashboard.test.mjs 29 用例字节契约不动；
+ *  黑板行正文由客户端经结构化字段 t()+fmtTokens 双语拼装（src/client/boardrows.ts）。 */
+export interface DashboardSummary {
+  sessions: number;
+  turns: number;
+  errors: number;
+  /** zh token 汇总（保留字段：客户端仅在需要兜底文案时使用） */
+  tokensText: string;
+  /** zh 工具 Top3 汇总（保留字段，同上） */
+  toolsText: string;
+  /** zh 最长单 turn 汇总（保留字段，同上） */
+  longestText: string;
+  // ---- Task 7 结构化增量（黑板行双语拼装输入；RAW 数值）----
+  tokens: SummaryTokens;
+  toolRows: SummaryToolRow[];
+  /** 最长单 turn；无已计量 turn 时 null（客户端按「0 秒」桶展示，与 zh longestText 口径一致） */
+  longest: { ms: number } | null;
+}
+
+export interface DashboardSnapshot {
+  /** paceEnabled=false 时为 null（客户端据此清掉旧档位） */
+  pace: PaceSnapshot | null;
+  usage: UsageSnapshot;
+  alerts: DashboardAlert[];
+  approvals: DashboardApproval[];
+  summary: DashboardSummary;
 }
 
 export interface StateSnapshot {
@@ -116,6 +221,8 @@ export interface StateSnapshot {
   completions: { seq: number; at: number; agentId: string }[];
   runningSessions: number;
   projects: ProjectCard[];
+  /** v2.1 效率看板聚合；引擎首轮 compute 前为 null */
+  dashboard: DashboardSnapshot | null;
   voices: VoiceSnapshotEntry[];
   activePet: ActivePetSnapshot;
   pets: PetSummary[];
