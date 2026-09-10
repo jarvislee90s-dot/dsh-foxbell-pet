@@ -756,6 +756,7 @@ export function Pet(props: PetProps): React.ReactElement | null {
                 style={{ padding: `${px(5)}px ${px(10)}px`, borderRadius: px(10), gap: px(7), fontSize: px(12) }}
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={(e) => { e.stopPropagation(); onProjectClick(p); }}
+                onContextMenu={(e) => e.stopPropagation()} /* 右键响应范围仅宠物本体（spec 6.6 规则 8），状态卡右键无自定义行为 */
               >
                 <span
                   className="dyn-pet-dot"
