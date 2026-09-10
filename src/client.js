@@ -1019,7 +1019,7 @@ window.__ModuleLoader__.load({
       if (usageOn) {
         rows.push(React.createElement('div', { key: 'cal-req', className: 'dyn-pet-mini-row' }, '今日 请求输入 ' + fmt(reqTotal) + ' · 命中 ' + (hit * 100).toFixed(1) + '%'))
         rows.push(React.createElement('div', { key: 'cal-cache', className: 'dyn-pet-mini-row' }, '缓存命中 ' + fmt(day.cacheReadTokens || 0) + ' · 产出 ' + fmt(day.outputTokens || 0)))
-        rows.push(React.createElement('div', { key: 'cal-user', className: 'dyn-pet-mini-row dyn-pet-mini-dim' }, '你的输入 ~' + fmt(u.userEst || 0) + '(估)'))
+        rows.push(React.createElement('div', { key: 'cal-user', className: 'dyn-pet-mini-row dyn-pet-mini-dim' }, '你的输入 ~' + fmt(u.userEst || 0) + '(估) · 含子代理'))
       }
       rows.push(React.createElement('div', { key: 'counts', className: 'dyn-pet-mini-row' }, (counts.approval ? counts.approval + ' 等审批 · ' : '') + (counts.running ? counts.running + ' 运行 · ' : '') + (counts.done ? counts.done + ' 完成' : '') || '暂无进行中会话'))
       rows.push(usageOn && sess && sess.title ? React.createElement('div', { key: 'sess', className: 'dyn-pet-mini-row dyn-pet-mini-dim' }, '本会话 请求 ' + (sessReq !== null ? fmt(sessReq) : '—') + ' · ' + sess.title) : null)
@@ -1105,18 +1105,18 @@ window.__ModuleLoader__.load({
         .dyn-pet-settings-bad input { border: 1px solid #ef4444; border-radius: 4px; }
         .dyn-pet-settings-note { color: #999; font-size: 11px; line-height: 1.5; }
         .dyn-pet-mini-wrap { position: absolute; left: 100%; top: 12px; margin-left: 12px; z-index: 4; }
-        .dyn-pet-mini { width: 210px; background: rgba(255,252,248,0.97); border: 1px solid rgba(122,74,43,0.3); border-radius: 10px; padding: 8px 10px; font-size: 12px; color: #7a4a2b; line-height: 1.6; box-shadow: 0 2px 8px rgba(0,0,0,0.14); pointer-events: none; }
+        .dyn-pet-mini { width: 248px; background: rgba(255,252,248,0.97); border: 1px solid rgba(122,74,43,0.3); border-radius: 10px; padding: 8px 10px; font-size: 12px; color: #7a4a2b; line-height: 1.6; box-shadow: 0 2px 8px rgba(0,0,0,0.14); pointer-events: none; }
         .dyn-pet-mini-dial { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
         .dyn-pet-mini-bar { flex: 1; height: 6px; border-radius: 999px; background: rgba(122,74,43,0.15); overflow: hidden; }
         .dyn-pet-mini-bar i { display: block; height: 100%; background: linear-gradient(90deg,#f59e0b,#ef4444); border-radius: 999px; transition: width .4s ease; }
         .dyn-pet-mini-tier { font-weight: 700; white-space: nowrap; }
-        .dyn-pet-mini-row { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .dyn-pet-mini-row { white-space: normal; word-break: break-word; }
         .dyn-pet-mini-dim { color: #a07050; font-size: 11px; }
-        .dyn-pet-board { width: 260px; background: #2f2a26; color: #f3e9dc; border-radius: 12px; padding: 10px 12px; font-size: 12.5px; line-height: 1.7; box-shadow: 0 6px 20px rgba(0,0,0,0.35); }
+        .dyn-pet-board { width: 310px; background: #2f2a26; color: #f3e9dc; border-radius: 12px; padding: 10px 12px; font-size: 12.5px; line-height: 1.7; box-shadow: 0 6px 20px rgba(0,0,0,0.35); }
         .dyn-pet-board.farewell { border: 1px solid rgba(251,191,36,0.5); }
         .dyn-pet-board-head { display: flex; justify-content: space-between; align-items: center; font-weight: 700; margin-bottom: 4px; }
         .dyn-pet-board-x { background: transparent; border: none; color: #d6c7b2; cursor: pointer; font-size: 13px; padding: 0 2px; }
-        .dyn-pet-board-row { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .dyn-pet-board-row { white-space: normal; word-break: break-word; }
         .dyn-pet-entry { position: absolute; right: -8px; top: -6px; background: #fffbe8; border: 1px solid rgba(122,74,43,0.5); color: #7a4a2b; font-size: 12px; font-weight: 600; border-radius: 999px; padding: 3px 10px; cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,0.15); z-index: 3; }
       `
       document.head.appendChild(style)
