@@ -62,7 +62,8 @@ All of this adds **12 new config keys** (`paceEnabled` / `paceIntenseEvents` / `
 
 ## Requirements
 
-- DeepSeek Harness (DSH) with a Web profile (`dsh web`).
+- DeepSeek Harness (DSH) with a Web profile (`dsh web`), **dsh >= 0.1.2-rc.1** (settings service; the settings card registers via `ctx.settings.installSection`).
+- Older hosts (rc.7-era): the pet and dashboard keep working; the settings card is absent (config via right-click menu / local storage).
 - Assets are bundled in the package — nothing else to download.
 
 ## Install (one click)

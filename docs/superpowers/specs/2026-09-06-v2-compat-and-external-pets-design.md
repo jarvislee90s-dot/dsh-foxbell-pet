@@ -92,10 +92,14 @@ dsh-foxbell-pet 是 DeepSeek harness（dsh）的桌宠插件，当前 v1.3.0 面
 - 改造前：在 rc.1 上事件列表恒为空，宠物静默失去全部项目状态。
 - 改造后：rc.1 上状态卡片数据与 v1.3.0 在旧版 dsh 上的行为一致。
 
+> 注记（2026-09-10）：本条**最小子集已前移至效率看板 PR #5**（迁移 `ctx.settings.installSection` + 去除 dsh-settings 依赖）；v2.0.0 执行时只需复核验收，勿重复实现。
+
 **FR-2 设置卡注册方式迁移（修 B2）**
 - 做什么：设置节注册从导入辅助函数改为 `ctx.settings` 服务方法调用；依赖提升至 `@deepseek-ai/dsh-settings ^0.1.2-rc.1`。
 - 改造前：rc.1 上设置卡不出现在设置页，用户只能靠右键菜单改配置（部分配置项无入口）。
 - 改造后：设置卡恢复显示，配置经 settings 体系持久化，热更新生效。
+
+> 注记（2026-09-10）：本条**死项清理（移除 `@deepseek-ai/dsh-client-runtime`）已前移至效率看板 PR #5**；v2.0.0 保留「按实际依赖全量重列 inject/external」部分。
 
 **FR-3 客户端声明修正（修 B3）**
 - 做什么：`package.json` 的 `dsh.client` 声明移除已消亡的 `@deepseek-ai/dsh-client-runtime`，按客户端最终实际依赖重列 inject/external。

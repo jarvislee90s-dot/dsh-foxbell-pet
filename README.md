@@ -62,7 +62,8 @@ DeepSeek Harness（DSH）Web 网页右下角可拖拽的 **Foxbell 小狐狸桌�
 
 ## 环境要求
 
-- DeepSeek Harness（DSH）Web profile（`dsh web`）。
+- DeepSeek Harness（DSH）Web profile（`dsh web`），**dsh ≥ 0.1.2-rc.1**（settings 服务；设置卡经 `ctx.settings.installSection` 注册）。
+- 更老的宿主（rc.7 时代）：宠物与效率看板可用，设置卡缺失（配置走右键菜单/本地存储）。
 - 素材已随包自带，无需额外下载。
 
 ## 安装（一键）
