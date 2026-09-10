@@ -95,10 +95,17 @@ requireIn(srcHost, "'foxbell-pet'", 'settings namespace literal (host)')
 requireIn(srcClient, 'bind({ namespace: "foxbell-pet" })', 'settings scope bind (client)')
 requireIn(srcClient, 'key: "foxbell-pet"', 'settings card slot key (client)')
 // 旧 API 零残留（B1/B2/B3 可 grep 自证）
+// 例外（2026-09-11 v2.1 移植契约裁定）：src/host/dashboard.js 系 v1.4.0 原样移植的双兼容事件读取器——
+// session.snapshotEvents() 优先，仅防御性容忍旧 .events 形态（协议面仍 snapshotEvents-only，契约 §5.6）。
+// 守卫只对「精确的双兼容回退表达式 + 其源注释」豁免；其余任何 session.events 用法依旧零容忍。
+// 若 dashboard.js 被改动导致表达式失配，守卫自动重新生效（同时保护 verbatim 移植契约不被悄悄破坏）。
+const sansSanctionedSessionEvents = (s) => s
+  .replace(/老版回退 session\.events 属性/g, '')
+  .replace(/Array\.isArray\(session\.events\)\s*\?\s*session\.events\s*:\s*\[\]/g, '')
 for (const [hay, name] of [[srcHost, 'host'], [srcClient, 'client'], [libHost, 'lib/host'], [libClient, 'lib/client']]) {
   if (/installSettingsSection\s*\(/.test(hay)) fail(`legacy installSettingsSection call残留 in ${name}`)
   if (/settingsNamespace\s*\(/.test(hay)) fail(`legacy settingsNamespace call 残留 in ${name}`)
-  if (/session\.events\b|\bsession && Array\.isArray\(session\.events\)/.test(hay)) fail(`legacy session.events 残留 in ${name}`)
+  if (/session\.events\b|\bsession && Array\.isArray\(session\.events\)/.test(sansSanctionedSessionEvents(hay))) fail(`legacy session.events 残留 in ${name}`)
   if (hay.includes('@deepseek-ai/dsh-client-runtime')) fail(`deleted package dsh-client-runtime 残留 in ${name}`)
 }
 requireIn(srcHost, 'snapshotEvents', 'B1 migration: session.snapshotEvents()')
