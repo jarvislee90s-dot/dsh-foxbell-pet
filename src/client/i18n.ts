@@ -192,6 +192,8 @@ const ZH: Dict = {
   "dash.discard": "放弃",
   "dash.caliberNote": "用量均为纯 token 口径，不折算金额",
   "dash.noActive": "暂无进行中会话",
+  // 标题闪烁（Task 8；spec 6.3 页外召集：approvalFlickerMin>0 且页面不可见时 document.title 每秒轮换本键/原标题）
+  "dash.flickerTitle": "🦊 审批等待中…",
   // 表盘档位（zh 逐字节 = 宿主 PACE_LABELS，src/host/dashboard.js L18-21；客户端按 pace.tier 查表）
   "dash.tier.intense": "高强度",
   "dash.tier.active": "活跃",
@@ -468,6 +470,8 @@ const EN: Dict = {
   "dash.discard": "Discard",
   "dash.caliberNote": "Usage is token-only, never converted to money",
   "dash.noActive": "No active sessions",
+  // Title flicker (Task 8; out-of-page recall while approvalFlickerMin > 0 and page hidden)
+  "dash.flickerTitle": "🦊 Approval waiting…",
   // Dial tiers (zh byte-exact vs host PACE_LABELS; client looks up label by pace.tier)
   "dash.tier.intense": "Intense",
   "dash.tier.active": "Active",

@@ -424,7 +424,7 @@ describe("i18n 字典完整性", () => {
     expect(t("rpc.pet-exists", { name: "abc" })).toBe("Pet already exists: abc");
     setLang("zh");
   });
-  it("dash.* 效率看板键 zh/en 成对、46 键在位、五口径名词逐字（行为不变量）", () => {
+  it("dash.* 效率看板键 zh/en 成对、47 键在位、五口径名词逐字（行为不变量）", () => {
     const expectedDash = [
       "dash.today", "dash.requestInput", "dash.hit", "dash.cacheHit", "dash.output",
       "dash.yourInput", "dash.estimateSuffix", "dash.withSubagents", "dash.sessionReq",
@@ -439,6 +439,8 @@ describe("i18n 字典完整性", () => {
       "dash.boardSessions", "dash.boardTurns", "dash.boardErrors", "dash.boardTodayToken",
       "dash.boardHitPct", "dash.boardToolsTop", "dash.boardLongest", "dash.boardToolDur",
       "dash.toolTotal", "dash.durMin", "dash.durSec", "dash.durMs", "dash.noSessions",
+      // Task 8 标题闪烁：页外召集文本（spec 6.3；document.title 每秒轮换）
+      "dash.flickerTitle",
     ];
     const zhDash = dictKeys("zh").filter((k) => k.startsWith("dash.")).sort();
     expect(zhDash).toEqual([...expectedDash].sort());

@@ -505,6 +505,29 @@ export function Pet(props: PetProps): React.ReactElement | null {
     playVoiceRef.current("general", cfgRef.current.dblAction); // 双击说话 + dblAction
   };
 
+  // 滚轮穿透（spec 6.6 规则 7；源 client.js L808-830 原样移植）：宠物本体上滚动 → 暂时摘掉自身
+  // pointer-events，用 elementFromPoint 找到下方元素，把滚动量转给其最近可滚动祖先（无则落到页面
+  // 滚动元素）。黑板/菜单是独立 fixed 元素不经过此 handler（仅宠物根挂 onWheel），内部滚动天然正常
+  const scrollableAncestor = (el: Element): Element => {
+    let n: Element | null = el;
+    while (n && n !== document.body && n !== document.documentElement) {
+      const st = window.getComputedStyle(n);
+      if (n.scrollHeight > n.clientHeight + 1 && /auto|scroll|overlay/.test(st.overflowY)) return n;
+      n = n.parentElement;
+    }
+    return document.scrollingElement || document.body;
+  };
+  const onWheel = (e: React.WheelEvent<HTMLDivElement>) => {
+    const root = e.currentTarget;
+    const prev = root.style.pointerEvents;
+    root.style.pointerEvents = "none";
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    root.style.pointerEvents = prev || "auto";
+    if (!el) return;
+    const sc = scrollableAncestor(el);
+    if (sc) sc.scrollTop += e.deltaY;
+  };
+
   // ---- 右键菜单 ----
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [menuPage, setMenuPage] = useState<MenuPage>(null);
@@ -524,29 +547,29 @@ export function Pet(props: PetProps): React.ReactElement | null {
     }
   }, [playTransient, stopPreview]);
   const closeMenu = useCallback(() => { setMenu(null); setMenuPage(null); stopPreview(); }, [stopPreview]);
+  // 菜单「点外部关闭」独立收口（源 client.js L279-282 原样）；ESC 键路径随 Task 8 并入下方统一分层 effect
   useEffect(() => {
     if (menu === null || !visible) return;
     const onDown = (e: PointerEvent) => { if (menuRef.current && menuRef.current.contains(e.target as Node)) return; closeMenu(); };
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") closeMenu(); };
     window.addEventListener("pointerdown", onDown, true);
-    window.addEventListener("keydown", onKey);
-    return () => { window.removeEventListener("pointerdown", onDown, true); window.removeEventListener("keydown", onKey); };
+    return () => { window.removeEventListener("pointerdown", onDown, true); };
   }, [menu, visible, closeMenu]);
 
-  // 手动迷你条/黑板分层关闭（源 client.js L279-297 统一收口；黑板层随 Task 7 汇入）：
+  // 手动迷你条/黑板/菜单统一分层关闭（源 client.js L281-300 原样移植）：
   // 点外部（宠物本体/迷你条/黑板/菜单之外）关闭——手动迷你条与黑板可同时关（源两连 if 原样）；
-  // 黑板关闭必须走 closeBoard（同时取消 ttl 定时器）。ESC 分层：菜单开着先剥菜单（其自身 effect 负责），
-  // 再剥手动迷你条、再剥黑板；三路统一归一的 ESC 收口随 Task 8（本任务保持既有菜单优先序不变）。
+  // ESC 一次剥一层，源序：手动迷你条 → 黑板 → 菜单；黑板层必须走 closeBoard（同时取消 ttl 定时器）。
+  // 菜单层走 closeMenu（连带剥 menuPage + 停预览，v2 等价于源 setMenu(null) 的收尾语义）。
   // 迷你条 pointer-events:none（spec 6.6 纯读取），点击必落在其外，无需 contains 检查。
   useEffect(() => {
-    if ((miniMode !== "manual" && board === null)) return;
+    if (miniMode !== "manual" && board === null && menu === null) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
-      if (menu !== null) return; // 分层：菜单先关（其自身 effect 处理），下一轮 ESC 再到这
-      if (miniMode === "manual") setMiniMode(null);
-      else if (board !== null) closeBoard();
+      if (miniMode === "manual") { setMiniMode(null); return; }
+      if (board !== null) { closeBoard(); return; }
+      if (menu !== null) closeMenu();
     };
     const onDown = (e: PointerEvent) => {
+      if (miniMode !== "manual" && board === null) return; // 菜单点外部由其自身 effect 收口（源 L279-282 分立）
       const target = e.target as Node;
       // 宠物本体（含状态卡/举牌/迷你条/📖入口挂点）、菜单与黑板内部点击不关
       if (rootRef.current && rootRef.current.contains(target)) return;
@@ -558,7 +581,7 @@ export function Pet(props: PetProps): React.ReactElement | null {
     window.addEventListener("keydown", onKey);
     window.addEventListener("pointerdown", onDown, true);
     return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("pointerdown", onDown, true); };
-  }, [miniMode, board, menu]);
+  }, [miniMode, board, menu, closeMenu]);
 
   /** 切换宠物（菜单子项/切换对话框共用）：activate 校验 → 热切换写配置 */
   const switchTo = useCallback(async (id: string): Promise<ActivateResult | null> => {
@@ -617,6 +640,36 @@ export function Pet(props: PetProps): React.ReactElement | null {
   useEffect(() => {
     if (!visible && fallRaf.current) { cancelAnimationFrame(fallRaf.current); fallRaf.current = 0; busyRef.current = false; }
   }, [visible]);
+
+  // 标题闪烁（组件③页外召集，spec 6.3；源 client.js L644-667 原样移植）：页面不可见且存在
+  // waitMin ≥ approvalFlickerMin（0=关）的未决审批时，document.title 每秒轮换「🦊 审批等待中…」/
+  // 原标题；回到页面或审批 decided（不再满足）即恢复。全部走 ref/快照直读（cfgRef + appStore，
+  // 同 alerts 消费段的最新快照读取方式），挂载时捕获原标题，卸载/停止必恢复
+  useEffect(() => {
+    const base = document.title;
+    const flickerText = t("dash.flickerTitle");
+    let on = false, flip = false, flickIv: number | null = null;
+    const stop = () => {
+      if (flickIv !== null) { window.clearInterval(flickIv); flickIv = null; }
+      if (on) { document.title = base; on = false; }
+    };
+    const tick = () => {
+      const min = cfgRef.current.approvalFlickerMin;
+      const dash = appStore.getSnapshot()?.dashboard ?? null;
+      const hit = min > 0 && dash !== null && Array.isArray(dash.approvals)
+        && dash.approvals.some((a) => a && a.waitMin >= min)
+        && document.visibilityState !== "visible";
+      if (hit && !on) {
+        on = true;
+        flickIv = window.setInterval(() => { flip = !flip; document.title = flip ? flickerText : base; }, 1000);
+      } else if (!hit && on) stop();
+    };
+    tick();
+    const iv = window.setInterval(tick, 1500);
+    const onVis = () => tick();
+    document.addEventListener("visibilitychange", onVis);
+    return () => { window.clearInterval(iv); stop(); document.removeEventListener("visibilitychange", onVis); };
+  }, []);
 
   // ---- 卡片点击：跳会话 + 已读（语义不变）----
   const onProjectClick = (p: ProjectCard) => {
@@ -680,6 +733,7 @@ export function Pet(props: PetProps): React.ReactElement | null {
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
         onDoubleClick={onDoubleClick}
+        onWheel={onWheel}
         onContextMenu={(e) => {
           e.preventDefault();
           setMenu({
