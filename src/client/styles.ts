@@ -140,6 +140,16 @@ const CSS = `
 .dyn-pet-manage-actions { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
 .dyn-pet-delete-confirm { display:inline-flex; gap:8px; align-items:center; }
 .dyn-pet-import-done { color:#15803d; font-weight:600; }
+/* ---- v2.1 迷你条（v1.4.0 client.js L1110-1117 原样移植；7e16d62：行内换行不截断）----
+   CSS 留 scale=1 版式，实际字号/内边距/宽度由 MiniBar.tsx 内联 px() 缩放下发（与 Sign.tsx 同口径） */
+.dyn-pet-mini-wrap { position: absolute; left: 100%; top: 12px; margin-left: 12px; z-index: 4; }
+.dyn-pet-mini { width: 248px; background: rgba(255,252,248,0.97); border: 1px solid rgba(122,74,43,0.3); border-radius: 10px; padding: 8px 10px; font-size: 12px; color: #7a4a2b; line-height: 1.6; box-shadow: 0 2px 8px rgba(0,0,0,0.14); pointer-events: none; }
+.dyn-pet-mini-dial { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.dyn-pet-mini-bar { flex: 1; height: 6px; border-radius: 999px; background: rgba(122,74,43,0.15); overflow: hidden; }
+.dyn-pet-mini-bar i { display: block; height: 100%; background: linear-gradient(90deg,#f59e0b,#ef4444); border-radius: 999px; transition: width .4s ease; }
+.dyn-pet-mini-tier { font-weight: 700; white-space: nowrap; }
+.dyn-pet-mini-row { white-space: normal; word-break: break-word; }
+.dyn-pet-mini-dim { color: #a07050; font-size: 11px; }
 `;
 
 const STYLE_ID = "dyn-pet-styles";

@@ -16,8 +16,12 @@ import {
   CFG_DEFAULT, CFG_SCALES, NUM_KEYS, NUM_RANGE, sanitizeConfig, sanitizeValue, guardSignature, type PetConfig,
 } from "../src/client/config";
 import { dictKeys, t, setLang } from "../src/client/i18n";
+import { fmtTokens } from "../src/client/format";
 import { KNOWN_RPC_CODES, PetError, isPetRpcError } from "../src/client/errors";
 import { petErrMsg, type ProjectCard } from "../src/client/api";
+// 宿主 ESM 纯函数（allowJs:false 无声明；vitest 运行时直解）——用于客户端/宿主逐值恒等契约校验
+// @ts-expect-error 宿主 JS 模块无类型声明
+import { formatTokens as hostFormatTokens, PACE_LABELS as HOST_PACE_LABELS } from "../src/host/dashboard.js";
 
 describe("animations (MAM petAnimations 同表)", () => {
   it("frame table matches MAM exactly", () => {
@@ -419,13 +423,17 @@ describe("i18n 字典完整性", () => {
     expect(t("rpc.pet-exists", { name: "abc" })).toBe("Pet already exists: abc");
     setLang("zh");
   });
-  it("dash.* 效率看板键 zh/en 成对、22 键在位、五口径名词逐字（行为不变量）", () => {
+  it("dash.* 效率看板键 zh/en 成对、34 键在位、五口径名词逐字（行为不变量）", () => {
     const expectedDash = [
       "dash.today", "dash.requestInput", "dash.hit", "dash.cacheHit", "dash.output",
       "dash.yourInput", "dash.estimateSuffix", "dash.withSubagents", "dash.sessionReq",
       "dash.summaryTitle", "dash.farewellTitle", "dash.summaryEntry", "dash.menuUsage",
       "dash.menuSummary", "dash.menuSessions", "dash.unsaved", "dash.saved",
       "dash.invalidNums", "dash.save", "dash.discard", "dash.caliberNote", "dash.noActive",
+      // Task 6 迷你条：表盘档位（tier→label 客户端查表）+ 状态计数短词 + 本会话行「请求」
+      "dash.tier.intense", "dash.tier.active", "dash.tier.longrun", "dash.tier.idle",
+      "dash.tier.loaf1", "dash.tier.loaf2", "dash.tier.loaf3", "dash.tier.loaf4",
+      "dash.countApproval", "dash.countRunning", "dash.countDone", "dash.request",
     ];
     const zhDash = dictKeys("zh").filter((k) => k.startsWith("dash.")).sort();
     expect(zhDash).toEqual([...expectedDash].sort());
@@ -440,11 +448,66 @@ describe("i18n 字典完整性", () => {
     expect(t("dash.estimateSuffix")).toBe("(估)");
     expect(t("dash.withSubagents")).toBe("含子代理");
     expect(t("dash.invalidNums", { n: 2 })).toBe("2 个数值无效");
+    expect(t("dash.noActive")).toBe("暂无进行中会话");
+    expect(t("dash.countApproval")).toBe("等审批");
+    expect(t("dash.countRunning")).toBe("运行");
+    expect(t("dash.countDone")).toBe("完成");
+    expect(t("dash.request")).toBe("请求");
     setLang("en");
     expect(t("dash.requestInput")).toBe("Request input");
     expect(t("dash.withSubagents")).toBe("incl. subagents");
     expect(t("dash.invalidNums", { n: 2 })).toBe("2 invalid value(s)");
+    expect(t("dash.tier.intense")).toBe("Intense");
+    expect(t("dash.tier.loaf4")).toBe("Loafing·Dried fish");
     setLang("zh");
+  });
+  it("dash.tier.* zh 与宿主 PACE_LABELS 逐字节一致（表盘标签按 tier 客户端查表，宿主 label 仅兜底）", () => {
+    setLang("zh");
+    for (const tier of Object.keys(HOST_PACE_LABELS)) {
+      expect(t(`dash.tier.${tier}`), `tier ${tier}`).toBe(HOST_PACE_LABELS[tier as keyof typeof HOST_PACE_LABELS]);
+    }
+    setLang("en");
+    expect(t("dash.tier.idle")).toBe("Idle");
+    expect(t("dash.tier.active")).toBe("Active");
+    expect(t("dash.tier.longrun")).toBe("Long task");
+    setLang("zh");
+  });
+});
+
+describe("fmtTokens（万/亿 格式化，formatTokens 客户端移植）", () => {
+  it("小数值：四舍五入取整；0/负数/非有限安全归 0", () => {
+    expect(fmtTokens(0)).toBe("0");
+    expect(fmtTokens(0.4)).toBe("0");
+    expect(fmtTokens(999)).toBe("999");
+    expect(fmtTokens(1234)).toBe("1234");
+    expect(fmtTokens(9999)).toBe("9999"); // 9999 边界：不进万
+    expect(fmtTokens(-1)).toBe("0");
+    expect(fmtTokens(-99999)).toBe("0");
+    expect(fmtTokens(Number.NaN)).toBe("0");
+    expect(fmtTokens(Number.POSITIVE_INFINITY)).toBe("0");
+  });
+  it("万档：一位小数，尾零 .0 剥除", () => {
+    expect(fmtTokens(10000)).toBe("1万"); // 1.0 → 1万（剥 .0）
+    expect(fmtTokens(12345)).toBe("1.2万");
+    expect(fmtTokens(15000)).toBe("1.5万");
+    expect(fmtTokens(100000)).toBe("10万");
+    expect(fmtTokens(115000)).toBe("11.5万");
+    expect(fmtTokens(99999999)).toBe("10000万"); // 万档上界：分支在舍入前判定，不进亿（与宿主逐值恒等）
+  });
+  it("亿档：两位小数，尾零连同小数点剥除（.20→.2、.00→整）", () => {
+    expect(fmtTokens(100000000)).toBe("1亿"); // 1.00 → 1亿
+    expect(fmtTokens(105000000)).toBe("1.05亿"); // 中位零保留
+    expect(fmtTokens(120000000)).toBe("1.2亿"); // 1.20 → 1.2亿
+    expect(fmtTokens(123456789)).toBe("1.23亿");
+    expect(fmtTokens(9999999999)).toBe("100亿"); // 99.999…→toFixed(2)=100.00→剥零
+  });
+  it("与宿主 formatTokens 逐值恒等（契约：同一 token 数两端渲染同一字符串）", () => {
+    const corpus = [
+      0, 1, 7, 999, 1500, 9999, 10000, 10001, 12345, 50000, 99999, 100000, 105000, 115000,
+      999999, 1000000, 1234567, 9994999, 9995000, 9999999, 50000000, 99999999, 100000000,
+      100050000, 120000000, 123456789, 999999999, 3.7e9, 1e11, 1e12,
+    ];
+    for (const n of corpus) expect(fmtTokens(n), `n=${n}`).toBe(hostFormatTokens(n));
   });
 });
 

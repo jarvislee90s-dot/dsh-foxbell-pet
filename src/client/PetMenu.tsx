@@ -35,6 +35,8 @@ export function PetMenu(props: {
   onPreview(action: PetAnimKey | null): void;
   onHide(): void;
   onSwitchPet(id: string): void;
+  /** 🏷 今日用量：关菜单 + 手动打开五口径迷你条（v1.4.0 miniOpen；黑板/总结入口随 Task 7 接入） */
+  onMiniUsage(): void;
 }): React.ReactElement {
   const { page, setPage, cfg, onPreview, onClose } = props;
 
@@ -159,6 +161,8 @@ export function PetMenu(props: {
           value={props.pets.find((p) => p.id === props.activePetId)?.displayName ?? props.activePetId}
           onOpen={() => setPage("SwitchPet")}
         />
+        <div className="dyn-pet-menu-divider" />
+        <div className="dyn-pet-menu-item" onClick={props.onMiniUsage}>{t("dash.menuUsage")}</div>
         <div className="dyn-pet-menu-item" onClick={props.onHide}>{t("menu.hide")}</div>
         <div className="dyn-pet-menu-item" onClick={() => setPage("About")}>{t("menu.about")}</div>
       </>

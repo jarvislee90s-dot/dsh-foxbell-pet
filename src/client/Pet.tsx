@@ -21,6 +21,7 @@ import { DOT_COLOR, DOT_HALO, lightOf, taskPoseOf } from "./statuscards";
 import { t } from "./i18n";
 import { PetMenu, type MenuPage } from "./PetMenu";
 import { Sign } from "./Sign";
+import { MiniBar, type MiniMode } from "./MiniBar";
 import { openDialog } from "./dialogs/host";
 
 const BOTTOM_MARGIN = 76; // 精灵底边距视口底（v1 默认 bottom:76 落点，随 scale 缩放）
@@ -28,6 +29,7 @@ const LOOK_FRAME_MS = 250;
 const LOOK_IDLE_MS = 6000;
 const TRANSIENT_WAVE_MS = 1700;
 const APPROVAL_THROTTLE_MS = 10_000;
+const MINI_HOVER_MS = 500; // 悬停 0.5s 出迷你条（源 client.js L888 定时时长）
 
 interface PetProps {
   ctx: { get(name: string): unknown };
@@ -234,6 +236,16 @@ export function Pet(props: PetProps): React.ReactElement | null {
   const entryTimerRef = useRef<(() => void) | null>(null); // 入口 ttl 定时器：新完成事件先清旧定时器，防堆叠后最早到期误关
   const paceTierRef = useRef<PaceTier | null>(null); // 档位差分：档位变化重算动画（源 useEffect([pace]) 语义）
 
+  // ---- v2.1 迷你条（源 client.js L254-265 状态移植）：null | 'hover' | 'manual' ----
+  // hover：sprite 悬停 0.5s 定时进入、离开即退；manual：菜单「今日用量」进入（ESC/点外部退出）。
+  // 渲染守卫见 JSX 处 miniVisible 条件（拖拽强制隐藏 + 黑板优先挂钩点）。
+  const [miniMode, setMiniMode] = useState<MiniMode | null>(null);
+  const hoverTimerRef = useRef<(() => void) | null>(null);
+  const clearHoverTimer = () => {
+    if (hoverTimerRef.current) { const d = hoverTimerRef.current; hoverTimerRef.current = null; try { d(); } catch { /* ignore */ } }
+  };
+  const rootRef = useRef<HTMLDivElement | null>(null); // 手动迷你条「点外部关闭」的宠物本体 contains 判定
+
   // ---- 状态卡片差分（approval 10s 限流 / done / error）----
   const prevStatusRef = useRef<Record<string, string>>({});
   const lastApprovalAtRef = useRef(0);
@@ -352,6 +364,7 @@ export function Pet(props: PetProps): React.ReactElement | null {
   const busyRef = useRef(false); // 拖拽/坠落中 = 「宠物本体运行中」（守卫不弹对话）
 
   const onPointerDown = (e: React.PointerEvent) => {
+    clearHoverTimer(); if (miniMode !== "manual") setMiniMode(null); // 拖拽即隐藏（手动模式除外；手动层由渲染守卫强制隐藏）
     if (e.button !== 0) return; // 右键留给菜单
     if (fallRaf.current) { cancelAnimationFrame(fallRaf.current); fallRaf.current = 0; }
     e.preventDefault();
@@ -491,6 +504,28 @@ export function Pet(props: PetProps): React.ReactElement | null {
     return () => { window.removeEventListener("pointerdown", onDown, true); window.removeEventListener("keydown", onKey); };
   }, [menu, visible, closeMenu]);
 
+  // 手动迷你条分层关闭（源 client.js L284-303 统一收口的 mini 层；黑板层随 Task 7 汇入同一分层）：
+  // ESC 一次剥一层——菜单开着时先剥菜单（菜单自身 effect 负责），剥完再剥迷你条；
+  // 点外部（宠物本体之外）关闭。迷你条 pointer-events:none（spec 6.6 纯读取），点击必落在其外，无需 contains 检查。
+  useEffect(() => {
+    if (miniMode !== "manual" || !visible) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (menu !== null) return; // 分层：菜单先关（其自身 effect 处理），下一轮 ESC 再到这
+      setMiniMode(null);
+    };
+    const onDown = (e: PointerEvent) => {
+      const target = e.target as Node;
+      // 宠物本体（含状态卡/举牌/迷你条挂点）与菜单内部点击不关；黑板 contains 检查由 Task 7 汇入
+      if (rootRef.current && rootRef.current.contains(target)) return;
+      if (menuRef.current && menuRef.current.contains(target)) return;
+      setMiniMode(null);
+    };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("pointerdown", onDown, true);
+    return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("pointerdown", onDown, true); };
+  }, [miniMode, menu, visible]);
+
   /** 切换宠物（菜单子项/切换对话框共用）：activate 校验 → 热切换写配置 */
   const switchTo = useCallback(async (id: string): Promise<ActivateResult | null> => {
     try {
@@ -537,6 +572,7 @@ export function Pet(props: PetProps): React.ReactElement | null {
     return () => {
       cancelStep();
       stopLook();
+      clearHoverTimer(); // 迷你条 hover 定时器随卸载清掉（源 clearHoverTimer 卫生）
       genRef.current.look += 1; // 使在途 look 调度链失效
       stopPreview();
       if (fallRaf.current) { cancelAnimationFrame(fallRaf.current); fallRaf.current = 0; }
@@ -588,6 +624,7 @@ export function Pet(props: PetProps): React.ReactElement | null {
   return (
     <>
       <div
+        ref={rootRef}
         className="dyn-pet-root"
         style={rootStyle}
         onPointerDown={onPointerDown}
@@ -652,9 +689,27 @@ export function Pet(props: PetProps): React.ReactElement | null {
             {subtitle}
           </div>
         ) : null}
+        {/* 五口径迷你条（源 L882 挂载点：sprite 之前、miniMode !== null 时渲染）。
+            渲染守卫：拖拽激活（dragging 于 pointerdown 置位，覆盖按下→方向阈值窗口；stateRef.drag 为方向动画段）
+            强制隐藏——黑板优先挂钩点：Task 7 的 board 状态落地后在此追加 `&& board === null`。 */}
+        {miniMode !== null && !dragging && stateRef.current.drag === null ? (
+          <div className="dyn-pet-mini-wrap">
+            <MiniBar
+              dash={snap?.dashboard ?? null}
+              cards={cards}
+              mode={miniMode}
+              scale={scale}
+              usageOn={cfg.usageEnabled}
+            />
+          </div>
+        ) : null}
         <div
           ref={spriteRef}
           className={"dyn-pet-sprite " + (dragging ? "dragging" : "")}
+          onPointerEnter={() => { // 悬停 0.5s 出迷你条（源 L888；手动模式不重设定时器）
+            if (miniMode !== "manual") { clearHoverTimer(); hoverTimerRef.current = later(() => setMiniMode("hover"), MINI_HOVER_MS); }
+          }}
+          onPointerLeave={() => { clearHoverTimer(); if (miniMode === "hover") setMiniMode(null); }} // 源 L889
           style={{
             width: frameW, height: frameH,
             backgroundImage: runtime.spriteUrl ? `url('${runtime.spriteUrl}')` : undefined,
@@ -680,6 +735,7 @@ export function Pet(props: PetProps): React.ReactElement | null {
             onPreview={handlePreview}
             onHide={() => { closeMenu(); petStore.set(false); }}
             onSwitchPet={(id) => { closeMenu(); void switchTo(id); }}
+            onMiniUsage={() => { closeMenu(); setMiniMode("manual"); }} // 🏷 今日用量：手动迷你条（源 miniOpen）
           />
         </div>
       ) : null}
