@@ -10,7 +10,7 @@
 
 import {
   sessionEvents, PACE_LABELS, derivePaceTier, dateKeyOf, zeroUsage, foldUsage,
-  evaluateAlerts, summarize, estimateUserTokensByDay, hitRate,
+  evaluateAlerts, summarize, estimateUserTokensByDay, hitRate, ageLabel,
 } from './dashboard.js'
 
 /** 文本助手（与 v1.3.0 相同：词元感知截断，CJK 每字 1 词元） */
@@ -330,6 +330,8 @@ export function createStateEngine(deps) {
         title: (derived && derived.title) ? derived.title : ((prev && prev.title) ? prev.title : a.id),
         lines: derived ? derived.lines : [],
         vanishAt: null,
+        // 卡片年龄标注（v1.4.0 同款）：最后事件距今；无任何事件时 NaN → ageLabel 归 ''
+        age: ageLabel(info.metrics && info.metrics.lastEventTime != null ? Math.round((now - info.metrics.lastEventTime) / 1000) : NaN),
       })
       if (derived !== null && derived.status === 'done' && newCompletion) {
         queue.push({ seq: ++seq, at: now, agentId: a.id })
@@ -362,7 +364,7 @@ export function createStateEngine(deps) {
     const out = []
     for (const [id, p] of projects) {
       if (!p || !p.status) continue
-      out.push({ id, title: p.title || id, lines: p.lines || [], status: p.status, unread: !!p.unread })
+      out.push({ id, title: p.title || id, lines: p.lines || [], status: p.status, unread: !!p.unread, age: p.age || '' })
     }
     const rank = { error: 0, approval: 1, running: 2, done: 3 }
     out.sort((a, b) => (rank[a.status] - rank[b.status]) || String(a.title).localeCompare(String(b.title), 'zh'))

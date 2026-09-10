@@ -10,7 +10,8 @@ export interface VoiceEntry {
   url: string;
 }
 
-const GROUPS: VoiceGroup[] = ["general", "approval", "done", "error"];
+// v2.1：+usage（看板警报三优先级语音组；playable 全集见 validation.PLAY_GROUPS）
+const GROUPS: VoiceGroup[] = ["general", "approval", "done", "error", "usage"];
 
 /** 组内随机、不与上次连续重复（spec E3） */
 export function pickIndex(len: number, lastIndex: number): number {

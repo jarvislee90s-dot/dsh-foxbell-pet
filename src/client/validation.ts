@@ -2,7 +2,12 @@
 // id 实时校验 / 音频合法性 / 三档判定 / manifest×磁盘 diff（供修复对话本地预演）。
 
 export const GROUPS = ["general", "approval", "done", "error"] as const;
-export type VoiceGroup = (typeof GROUPS)[number];
+/** v2.1 可播放语音组全集 = 四固定组 + usage（效率看板警报三优先级语音组）。
+ *  usage 不入 GROUPS：声音档判定（四组全有或全无）、groupOfRel 路径校验与导入/管理 UI 的
+ *  必填组口径保持四组不变（宿主 manifest VOICE_GROUPS 也只认四组；usage 组语音属宠物包
+ *  可选扩展，经 /state voices 快照直发，见源 v1.4.0 pickVoice('usage')）。 */
+export const PLAY_GROUPS = [...GROUPS, "usage"] as const;
+export type VoiceGroup = (typeof PLAY_GROUPS)[number];
 export const AUDIO_EXTS = ["m4a", "mp3", "wav", "ogg", "opus", "flac", "aac"];
 export const MAX_AUDIO_BYTES = 10 * 1024 * 1024;
 export const MIN_DURATION_MS = 1000;

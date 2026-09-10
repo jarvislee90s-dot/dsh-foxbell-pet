@@ -224,7 +224,7 @@ describe("validation (与宿主同规则)", () => {
 
 describe("statuscards (MAM 色彩口径)", () => {
   const card = (status: "running" | "approval" | "error" | "done", unread = false): ProjectCard =>
-    ({ id: "x", title: "T", lines: [], status, unread });
+    ({ id: "x", title: "T", lines: [], status, unread, age: "" });
   it("红=待审批 黄=运行 绿=完成未读 深红=错误", () => {
     expect(lightOf(card("approval"))).toBe("approval-red");
     expect(lightOf(card("running"))).toBe("running-yellow");

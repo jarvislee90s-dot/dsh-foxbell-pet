@@ -16,10 +16,11 @@ import {
 import { MIN_SPEECH_MS } from "./voices";
 import type { VoiceGroup } from "./validation";
 import { appStore, ackProject, cfgStore, petStore, voicePlayer, type ActivePetRuntime } from "./store";
-import { apiPost, type ActivateResult, type GuardIssue, type ProjectCard } from "./api";
+import { apiPost, type ActivateResult, type GuardIssue, type PaceTier, type ProjectCard } from "./api";
 import { DOT_COLOR, DOT_HALO, lightOf, taskPoseOf } from "./statuscards";
 import { t } from "./i18n";
 import { PetMenu, type MenuPage } from "./PetMenu";
+import { Sign } from "./Sign";
 import { openDialog } from "./dialogs/host";
 
 const BOTTOM_MARGIN = 76; // 精灵底边距视口底（v1 默认 bottom:76 落点，随 scale 缩放）
@@ -131,9 +132,18 @@ export function Pet(props: PetProps): React.ReactElement | null {
     setFrame(0);
     stepLoop();
   };
+  // 档位动画（v2.1 移植）：仅任务态为 running 且档位 longrun 时切"看表"代用行；不变速。
+  // 档位从最新快照读（看板未下发 → 无档位 → 返回 null）
+  const tierAnim = (): PetAnimKey | null => {
+    if (stateRef.current.task === "running"
+      && appStore.getSnapshot()?.dashboard?.pace?.tier === "longrun") return "waiting"; // 长任务看表（代用行）
+    return null;
+  };
   const refreshAnim = () => {
     const s = stateRef.current;
-    applyAnim(s.drag ?? s.transient ?? s.task ?? (s.look ? "look" : "idle"));
+    // tierAnim 须排在 s.task 之前（v1.4.0 已验证修正）：它仅在 task==='running' 且档位 longrun 时
+    // 返回 'waiting'；放在 s.task 之后会被 ||/?? 短路成死代码。返回 null 时其余链路照旧。
+    applyAnim(s.drag ?? s.transient ?? tierAnim() ?? s.task ?? (s.look ? "look" : "idle"));
   };
   /** 瞬时动作（代数计数防过期覆盖，spec F4） */
   const playTransient = useRef((key: PetAnimKey, ms: number) => {
@@ -156,6 +166,10 @@ export function Pet(props: PetProps): React.ReactElement | null {
       if (genRef.current.look !== gen) return;
       if (rowsRef.current !== 11) { scheduleNextLook.current(); return; }
       const s = stateRef.current;
+      // 摸鱼档位（loaf1..4）：咸鱼不东张西望——抑制本轮环视，直接重排保持循环存活
+      // （源 startLook 处移植；档位读最新快照，看板未下发视为非摸鱼；不变速）
+      const tier = appStore.getSnapshot()?.dashboard?.pace?.tier;
+      if (typeof tier === "string" && tier.startsWith("loaf")) { scheduleNextLook.current(); return; }
       if (!s.drag && !s.transient && !s.task) {
         s.look = true;
         setLookFrame(0);
@@ -212,6 +226,14 @@ export function Pet(props: PetProps): React.ReactElement | null {
   const playVoiceRef = useRef(playVoice);
   useEffect(() => { playVoiceRef.current = playVoice; });
 
+  // ---- v2.1 效率看板接入（源 client.js L249-261 状态声明移植）----
+  const [sign, setSign] = useState<string | null>(null); // 举牌文本（数字类警报，牌面 ttl 4.2s）
+  const seenAlertsRef = useRef(new Set<string>()); // 警报按 id 去重（usageEnabled=false 时也记 seen；会话生命周期一次）
+  const [entry, setEntry] = useState(false); // 📖 限时总结入口（ttl summaryEntrySec）
+  // Task 7 挂接点：入口按钮的渲染（.dyn-pet-entry 样式）与点击 → 开黑板在 Task 7 落地，此处仅驱动状态与 ttl
+  const entryTimerRef = useRef<(() => void) | null>(null); // 入口 ttl 定时器：新完成事件先清旧定时器，防堆叠后最早到期误关
+  const paceTierRef = useRef<PaceTier | null>(null); // 档位差分：档位变化重算动画（源 useEffect([pace]) 语义）
+
   // ---- 状态卡片差分（approval 10s 限流 / done / error）----
   const prevStatusRef = useRef<Record<string, string>>({});
   const lastApprovalAtRef = useRef(0);
@@ -220,12 +242,58 @@ export function Pet(props: PetProps): React.ReactElement | null {
   useEffect(() => {
     if (!snap) return;
     const cards: ProjectCard[] = Array.isArray(snap.projects) ? snap.projects : [];
+    const dash = snap.dashboard;
     // 完成事件：宿主 completions 队列按 seq 差分（v1 同款）
     const since = sinceSeqRef.current;
     sinceSeqRef.current = snap.seq;
     if (since !== null && Array.isArray(snap.completions)) {
       const fresh = snap.completions.filter((c) => c && typeof c.seq === "number" && c.seq > since);
-      if (fresh.length > 0) playVoiceRef.current("done", cfgRef.current.doneAction);
+      if (fresh.length > 0) {
+        // 📖 限时总结入口：任何有效完成事件都触发（不依赖语音是否存在，spec 6.4）；
+        // 先清旧 ttl 定时器防堆叠（否则入口在首个事件的截止时刻提前消失）
+        if (cfgRef.current.summaryEnabled) {
+          if (entryTimerRef.current) { const d = entryTimerRef.current; entryTimerRef.current = null; try { d(); } catch { /* ignore */ } }
+          setEntry(true);
+          entryTimerRef.current = later(() => setEntry(false), (cfgRef.current.summaryEntrySec || 15) * 1000);
+        }
+        playVoiceRef.current("done", cfgRef.current.doneAction);
+      }
+    }
+    // ---- v2.1 警报举牌/气泡 + 语音三优先级（源 refresh 警报段原样移植）：
+    // usage 语音组 > TTS 兜底 > 静默；先按 id 去重（usageEnabled=false 时也记 seen，开启瞬间不补发旧警报）
+    if (dash && Array.isArray(dash.alerts)) {
+      for (const a of dash.alerts) {
+        if (!a || typeof a.id !== "string" || seenAlertsRef.current.has(a.id)) continue;
+        seenAlertsRef.current.add(a.id);
+        if (!cfgRef.current.usageEnabled) continue;
+        // 里程碑一句话走气泡容器（spec 6.2 表现面3；一句话→气泡），数字类警报仍举牌
+        if (a.kind === "milestone") showBubble(a.text, 4200);
+        else { setSign(a.text); later(() => setSign(null), 4200); }
+        playTransient("jumping", 1600);
+        if (cfgRef.current.muted) continue;
+        // 三优先级①：usage 组语音命中即播（pick 组空返回 null，语义同源 pickVoice('usage')）
+        const v = voicePlayer.pick("usage");
+        if (v) {
+          // 里程碑：气泡即容器，语音时长对齐刷新气泡；数字警报：举牌即容器，不叠加字幕气泡（spec 6.2 容器分工）
+          voicePlayer.play(v, {
+            muted: cfgRef.current.muted,
+            onSubtitle: a.kind === "milestone"
+              ? (name, ms) => {
+                  if (!cfgRef.current.muted && cfgRef.current.talkative && runtimeRef.current.hasSubtitle) showBubble(a.text || name, ms);
+                }
+              : undefined,
+          });
+          continue;
+        }
+        // 三优先级②：TTS 兜底（zh-CN）；③静默
+        if (cfgRef.current.ttsEnabled && typeof window !== "undefined" && window.speechSynthesis) {
+          try {
+            const u = new window.SpeechSynthesisUtterance(a.text);
+            u.lang = "zh-CN";
+            window.speechSynthesis.speak(u);
+          } catch { /* ignore */ }
+        }
+      }
     }
     // error / approval / running 差分
     const prev = prevStatusRef.current;
@@ -260,6 +328,13 @@ export function Pet(props: PetProps): React.ReactElement | null {
     const task = taskPoseOf(cards);
     if (stateRef.current.task !== task) {
       stateRef.current.task = task;
+      refreshAnim();
+    }
+    // 档位变化也要重算动画（源 useEffect(() => { refreshAnim() }, [pace]) 移植）：
+    // running 中档位变为 longrun 时刷新链才会切到看表代用行
+    const tier = dash && dash.pace ? dash.pace.tier : null;
+    if (paceTierRef.current !== tier) {
+      paceTierRef.current = tier;
       refreshAnim();
     }
     // 当前会话的 done/error 未读卡自动 ack（v1 已读即消失语义不变）
@@ -553,7 +628,11 @@ export function Pet(props: PetProps): React.ReactElement | null {
                     {light === "error-darkred" ? "⚠ " : ""}{p.title}
                   </div>
                   {Array.isArray(p.lines) ? p.lines.map((l, i) => (
-                    <div key={i} className="dyn-pet-proj-line" style={{ fontSize: px(11.5) }}>{l}</div>
+                    <div key={i} className="dyn-pet-proj-line" style={{ fontSize: px(11.5) }}>
+                      {l}
+                      {/* v2.1 卡片年龄标注（源 L874）：仅首行且 age 非空 */}
+                      {i === 0 && p.age ? <span className="dyn-pet-age" style={{ fontSize: px(10) }}>{" " + p.age}</span> : null}
+                    </div>
                   )) : null}
                 </div>
               </div>
@@ -563,6 +642,8 @@ export function Pet(props: PetProps): React.ReactElement | null {
             <div className="dyn-pet-proj-more" style={{ fontSize: px(11) }}>+{extra} {t("card.more")}</div>
           ) : null}
         </div>
+        {/* 警报举牌（源 L880：'🏷 ' + text；容器分工见 alerts 消费段） */}
+        {sign !== null ? <Sign text={sign} scale={scale} /> : null}
         {subtitle ? (
           <div
             className="dyn-pet-bubble"

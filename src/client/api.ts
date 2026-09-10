@@ -109,6 +109,8 @@ export interface ProjectCard {
   lines: string[];
   status: "running" | "approval" | "error" | "done";
   unread: boolean;
+  /** v2.1 卡片年龄标注（ageLabel(距最后事件秒)，无事件时 ''；宿主 state.js list() 下发） */
+  age: string;
 }
 
 // ---- v2.1 效率看板契约（形状逐一镜像宿主 buildDashboard：src/host/state.js L210-288）----

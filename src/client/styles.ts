@@ -20,12 +20,19 @@ const CSS = `
 .dyn-pet-proj-body { min-width: 0; }
 .dyn-pet-proj-title { font-weight: 700; color: #7a4a2b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dyn-pet-proj-line { color: #a07050; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dyn-pet-age { color: #c4a484; }
 .dyn-pet-proj-more { pointer-events: none; color: #a07050; background: rgba(255, 252, 248, 0.9); border-radius: 999px; padding: 2px 8px; }
 .dyn-pet-bubble {
   position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
   background: rgba(255, 255, 255, 0.96); color: #7a4a2b; border: 1px solid rgba(122, 74, 43, 0.35);
   line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18); pointer-events: none; z-index: 2;
+}
+/* 举牌（v1.4.0 .dyn-pet-sign 移植）：字号/内边距/圆角由 Sign.tsx 内联 px() 缩放下发 */
+.dyn-pet-sign {
+  position: absolute; bottom: 85%; left: 60%; transform: rotate(-4deg);
+  background: #fffbe8; border: 1px solid rgba(122, 74, 43, 0.45); color: #7a4a2b; font-weight: 600;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15); pointer-events: none; z-index: 3; white-space: nowrap;
 }
 .dyn-pet-toggle {
   display: inline-flex; align-items: center; gap: 4px; background: transparent; border: none;
