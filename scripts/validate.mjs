@@ -46,8 +46,9 @@ const srcClient = readFileSync(path.join(root, 'src/client.js'), 'utf8')
 const requireBoth = (file, name, needle, label) => {
   if (!file.includes(needle)) { console.error(`missing ${label} in ${name}`); ok = false }
 }
-requireBoth(srcIndex, 'src/index.js', "settingsNamespace('foxbell-pet')", 'settings namespace key')
-requireBoth(srcIndex, 'src/index.js', 'installSettingsSection', 'host settings registration')
+requireBoth(srcIndex, 'src/index.js', "FOXBELL_PET_NS = 'foxbell-pet'", 'settings namespace key (host)')
+requireBoth(srcIndex, 'src/index.js', 'settings.installSection', 'host settings registration (settings service)')
+requireBoth(srcClient, 'src/client.js', "namespace: 'foxbell-pet'", 'settings namespace key (client pairing)')
 requireBoth(srcClient, 'src/client.js', 'doneAction', 'config field doneAction')
 requireBoth(srcClient, 'src/client.js', 'dblAction', 'config field dblAction')
 requireBoth(srcClient, 'src/client.js', 'approvalAction', 'config field approvalAction')
