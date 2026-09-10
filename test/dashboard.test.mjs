@@ -226,7 +226,7 @@ test('summarize tokensText uses five-caliber terminology', () => {
   assert.ok(s.tokensText.includes('缓存命中 531.5万'))
   assert.ok(s.tokensText.includes('85.7%'))
   assert.ok(s.tokensText.includes('产出 7.8万'))
-  assert.ok(s.tokensText.includes('你的输入 ~9300(估)'))
+  assert.ok(s.tokensText.includes('你的输入 ~9300(估) · 含子代理'))
   const zero = summarize([], null, 0)
   assert.ok(zero.tokensText.includes('请求输入 0'))
   assert.ok(zero.tokensText.includes('（缓存命中 0 · 0.0%）'))
