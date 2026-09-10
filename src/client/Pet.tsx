@@ -22,6 +22,7 @@ import { t } from "./i18n";
 import { PetMenu, type MenuPage } from "./PetMenu";
 import { Sign } from "./Sign";
 import { MiniBar, type MiniMode } from "./MiniBar";
+import { Board, type BoardMode } from "./Board";
 import { openDialog } from "./dialogs/host";
 
 const BOTTOM_MARGIN = 76; // 精灵底边距视口底（v1 默认 bottom:76 落点，随 scale 缩放）
@@ -49,7 +50,16 @@ export function Pet(props: PetProps): React.ReactElement | null {
   useEffect(() => { cfgRef.current = cfg; }, [cfg]);
 
   const [visible, setVisible] = useState(petStore.visible);
-  useEffect(() => petStore.subscribe(() => setVisible(petStore.visible)), []);
+  // 关宠分发（源 client.js L196-200 客户端聚合）：隐藏桌宠时若 summaryEnabled 且最近总结在 → farewell 黑板
+  // （黑板在宠物隐藏后仍渲染，ttl 到点自动消失）。effect 首挂载后才执行，捕获首渲染绑定
+  // （openBoard/cfgRef 稳定：openBoard 只触 refs/setState——同源 openBoard 声明在本 effect 之后的 const 惯例）
+  useEffect(() => petStore.subscribe(() => {
+    setVisible(petStore.visible);
+    if (petStore.visible === false && cfgRef.current.summaryEnabled) {
+      const dash = appStore.getSnapshot()?.dashboard ?? null;
+      if (dash && dash.summary) openBoardRef.current("farewell");
+    }
+  }), []);
 
   const [snap, setSnap] = useState(appStore.getSnapshot());
   const [runtime, setRuntime] = useState<ActivePetRuntime>(appStore.getRuntime());
@@ -245,6 +255,25 @@ export function Pet(props: PetProps): React.ReactElement | null {
     if (hoverTimerRef.current) { const d = hoverTimerRef.current; hoverTimerRef.current = null; try { d(); } catch { /* ignore */ } }
   };
   const rootRef = useRef<HTMLDivElement | null>(null); // 手动迷你条「点外部关闭」的宠物本体 contains 判定
+
+  // ---- v2.1 小黑板（源 client.js L266-283 状态簇移植）：null 关闭 / manual 菜单或📖入口 / farewell 关宠分发 ----
+  // 黑板开着不渲染迷你条（黑板优先，渲染守卫见 JSX 处 board === null 条件）
+  const [board, setBoard] = useState<{ mode: BoardMode } | null>(null);
+  const boardTimerRef = useRef<(() => void) | null>(null); // 黑板 ttl 定时器：所有打开路径统一走 openBoard，防跨模式泄漏/堆叠
+  const boardRef = useRef<HTMLDivElement | null>(null); // 「点外部关闭」的黑板 contains 判定
+  const openBoardRef = useRef<(mode: BoardMode) => void>(() => {}); // 关宠 effect（声明在本组件更早处）的稳定调用口
+  // 开黑板（spec ④：黑板出现→停留 boardTtlSec→自动消失，manual/farewell 一视同仁）：先清旧 ttl 再按当前配置重设
+  const openBoard = (mode: BoardMode) => {
+    if (boardTimerRef.current) { const d = boardTimerRef.current; boardTimerRef.current = null; try { d(); } catch { /* ignore */ } }
+    setBoard({ mode });
+    boardTimerRef.current = later(() => { boardTimerRef.current = null; setBoard(null); }, (cfgRef.current.boardTtlSec || 15) * 1000);
+  };
+  useEffect(() => { openBoardRef.current = openBoard; }); // 每渲染同步（闭包只触 refs/setState，稳定）
+  // 关黑板（✕/点外部/ESC 三路等价收口）：同时取消 ttl 定时器（源 closeBoard 原样语义）
+  const closeBoard = () => {
+    if (boardTimerRef.current) { const d = boardTimerRef.current; boardTimerRef.current = null; try { d(); } catch { /* ignore */ } }
+    setBoard(null);
+  };
 
   // ---- 状态卡片差分（approval 10s 限流 / done / error）----
   const prevStatusRef = useRef<Record<string, string>>({});
@@ -504,27 +533,32 @@ export function Pet(props: PetProps): React.ReactElement | null {
     return () => { window.removeEventListener("pointerdown", onDown, true); window.removeEventListener("keydown", onKey); };
   }, [menu, visible, closeMenu]);
 
-  // 手动迷你条分层关闭（源 client.js L284-303 统一收口的 mini 层；黑板层随 Task 7 汇入同一分层）：
-  // ESC 一次剥一层——菜单开着时先剥菜单（菜单自身 effect 负责），剥完再剥迷你条；
-  // 点外部（宠物本体之外）关闭。迷你条 pointer-events:none（spec 6.6 纯读取），点击必落在其外，无需 contains 检查。
+  // 手动迷你条/黑板分层关闭（源 client.js L279-297 统一收口；黑板层随 Task 7 汇入）：
+  // 点外部（宠物本体/迷你条/黑板/菜单之外）关闭——手动迷你条与黑板可同时关（源两连 if 原样）；
+  // 黑板关闭必须走 closeBoard（同时取消 ttl 定时器）。ESC 分层：菜单开着先剥菜单（其自身 effect 负责），
+  // 再剥手动迷你条、再剥黑板；三路统一归一的 ESC 收口随 Task 8（本任务保持既有菜单优先序不变）。
+  // 迷你条 pointer-events:none（spec 6.6 纯读取），点击必落在其外，无需 contains 检查。
   useEffect(() => {
-    if (miniMode !== "manual" || !visible) return;
+    if ((miniMode !== "manual" && board === null)) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       if (menu !== null) return; // 分层：菜单先关（其自身 effect 处理），下一轮 ESC 再到这
-      setMiniMode(null);
+      if (miniMode === "manual") setMiniMode(null);
+      else if (board !== null) closeBoard();
     };
     const onDown = (e: PointerEvent) => {
       const target = e.target as Node;
-      // 宠物本体（含状态卡/举牌/迷你条挂点）与菜单内部点击不关；黑板 contains 检查由 Task 7 汇入
+      // 宠物本体（含状态卡/举牌/迷你条/📖入口挂点）、菜单与黑板内部点击不关
       if (rootRef.current && rootRef.current.contains(target)) return;
       if (menuRef.current && menuRef.current.contains(target)) return;
-      setMiniMode(null);
+      if (boardRef.current && boardRef.current.contains(target)) return;
+      if (miniMode === "manual") setMiniMode(null);
+      if (board !== null) closeBoard();
     };
     window.addEventListener("keydown", onKey);
     window.addEventListener("pointerdown", onDown, true);
     return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("pointerdown", onDown, true); };
-  }, [miniMode, menu, visible]);
+  }, [miniMode, board, menu]);
 
   /** 切换宠物（菜单子项/切换对话框共用）：activate 校验 → 热切换写配置 */
   const switchTo = useCallback(async (id: string): Promise<ActivateResult | null> => {
@@ -573,6 +607,7 @@ export function Pet(props: PetProps): React.ReactElement | null {
       cancelStep();
       stopLook();
       clearHoverTimer(); // 迷你条 hover 定时器随卸载清掉（源 clearHoverTimer 卫生）
+      if (boardTimerRef.current) { const d = boardTimerRef.current; boardTimerRef.current = null; try { d(); } catch { /* ignore */ } } // 黑板 ttl 随卸载清掉
       genRef.current.look += 1; // 使在途 look 调度链失效
       stopPreview();
       if (fallRaf.current) { cancelAnimationFrame(fallRaf.current); fallRaf.current = 0; }
@@ -608,7 +643,20 @@ export function Pet(props: PetProps): React.ReactElement | null {
     });
   }, [snap]);
 
-  if (!visible) return null;
+  // 小黑板：fragment 层渲染（源 L924-926：farewell 要在宠物隐藏后仍显示；无 summary 时 Board 自身返回 null）。
+  // 定位/层级与源一致：fixed 右下（bottom 与宠物默认落点同 76）、zIndex 与宠物 root 同层
+  const boardLayer = board !== null ? (
+    <div ref={boardRef} style={{ position: "fixed", right: 24, bottom: BOTTOM_MARGIN, zIndex: 2147483000 }}>
+      <Board
+        dash={snap?.dashboard ?? null}
+        mode={board.mode}
+        ttlSec={cfg.boardTtlSec}
+        onClose={closeBoard}
+      />
+    </div>
+  ) : null;
+
+  if (!visible) return boardLayer; // 关宠后黑板仍在（ttl 到点自动消失；✕/点外部/ESC 可关）
 
   const cards = (snap?.projects ?? []).filter((p) => !(p.status === "done" && localAcked.has(p.id)));
   const shown = cards.slice(0, 6);
@@ -691,8 +739,8 @@ export function Pet(props: PetProps): React.ReactElement | null {
         ) : null}
         {/* 五口径迷你条（源 L882 挂载点：sprite 之前、miniMode !== null 时渲染）。
             渲染守卫：拖拽激活（dragging 于 pointerdown 置位，覆盖按下→方向阈值窗口；stateRef.drag 为方向动画段）
-            强制隐藏——黑板优先挂钩点：Task 7 的 board 状态落地后在此追加 `&& board === null`。 */}
-        {miniMode !== null && !dragging && stateRef.current.drag === null ? (
+            强制隐藏 + 黑板优先（board !== null 时不渲染迷你条——源 L884 miniMode !== null && board === null 原样）。 */}
+        {miniMode !== null && board === null && !dragging && stateRef.current.drag === null ? (
           <div className="dyn-pet-mini-wrap">
             <MiniBar
               dash={snap?.dashboard ?? null}
@@ -719,6 +767,18 @@ export function Pet(props: PetProps): React.ReactElement | null {
             cursor: dragging ? "grabbing" : "grab",
           }}
         />
+        {/* 📖 限时总结入口（源 L891-896 移植）：挂主 root 内 sprite 右上（.dyn-pet-entry 的 absolute
+            偏移以 192×208 root 为锚，spec 6.0/6.4 宠物旁限时出现）；点击展开黑板并自毁 */}
+        {entry ? (
+          <div
+            className="dyn-pet-entry"
+            onPointerDown={(e) => e.stopPropagation()} // 入口只点按：不触发 root 拖拽/单击挥手（与项目卡片同模式）
+            onContextMenu={(e) => e.stopPropagation()} // 右键响应范围仅宠物本体（spec 6.6 规则 8），浮层右键无自定义行为
+            onClick={(e) => { e.stopPropagation(); setEntry(false); openBoard("manual"); }}
+          >
+            {t("dash.summaryEntry")}
+          </div>
+        ) : null}
       </div>
       {menu !== null ? (
         <div ref={menuRef} className="dyn-pet-menu-wrap" style={{ left: menu.x, top: menu.y, zIndex: 2147483001 }}>
@@ -736,9 +796,13 @@ export function Pet(props: PetProps): React.ReactElement | null {
             onHide={() => { closeMenu(); petStore.set(false); }}
             onSwitchPet={(id) => { closeMenu(); void switchTo(id); }}
             onMiniUsage={() => { closeMenu(); setMiniMode("manual"); }} // 🏷 今日用量：手动迷你条（源 miniOpen）
+            onBoardSummary={() => { closeMenu(); openBoard("manual"); }} // 📊 查看最近总结：关菜单 + 开黑板（源 boardOpen）
+            onSessionPick={(p) => { closeMenu(); onProjectClick(p); }} // 🗂 会话一览点选：关菜单 + 跳会话（源 SessionsPage onPick）
+            sessions={snap?.projects ?? []}
           />
         </div>
       ) : null}
+      {boardLayer}
     </>
   );
 }

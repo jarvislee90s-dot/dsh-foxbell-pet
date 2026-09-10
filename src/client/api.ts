@@ -166,14 +166,45 @@ export interface DashboardApproval {
   waitMin: number;
 }
 
-/** 黑板汇总（summarize，src/host/dashboard.js L160-170；Task 7 将重构为结构化数值字段） */
+/** 黑板结构化 token 字段（Task 7 增量；RAW 数值，格式化在客户端 fmtTokens/拼装） */
+export interface SummaryTokens {
+  /** 请求输入口径：inputTokens + cacheReadTokens（与 UsageSnapshot.requestTotal 同源同值） */
+  requestTotal: number;
+  /** 缓存命中（今日，跨会话累加） */
+  cacheRead: number;
+  /** 命中率百分数原值 = cacheRead/requestTotal*100（分母 0 记 0）；客户端 toFixed(1) 后与 tokensText 内百分数逐位一致 */
+  hitPct: number;
+  /** 产出（今日） */
+  output: number;
+  /** 用户输入启发式估算（今日） */
+  userEst: number;
+}
+
+/** 工具 Top3 行（与 toolsText 同序：次数降序截断；ms 为跨会话累计耗时，0 时客户端省略耗时段） */
+export interface SummaryToolRow {
+  name: string;
+  count: number;
+  ms: number;
+}
+
+/** 黑板汇总（summarize + Task 7 结构化增量，src/host/dashboard.js L141-208 / src/host/state.js buildDashboard）。
+ *  zh 字符串字段保留：滚动兜底展示 + test/dashboard.test.mjs 29 用例字节契约不动；
+ *  黑板行正文由客户端经结构化字段 t()+fmtTokens 双语拼装（src/client/boardrows.ts）。 */
 export interface DashboardSummary {
   sessions: number;
   turns: number;
   errors: number;
+  /** zh token 汇总（保留字段：客户端仅在需要兜底文案时使用） */
   tokensText: string;
+  /** zh 工具 Top3 汇总（保留字段，同上） */
   toolsText: string;
+  /** zh 最长单 turn 汇总（保留字段，同上） */
   longestText: string;
+  // ---- Task 7 结构化增量（黑板行双语拼装输入；RAW 数值）----
+  tokens: SummaryTokens;
+  toolRows: SummaryToolRow[];
+  /** 最长单 turn；无已计量 turn 时 null（客户端按「0 秒」桶展示，与 zh longestText 口径一致） */
+  longest: { ms: number } | null;
 }
 
 export interface DashboardSnapshot {

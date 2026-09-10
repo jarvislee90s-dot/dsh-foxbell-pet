@@ -3,7 +3,7 @@
 // 移植源：git show 886b303:src/index.js 的 scanSession metrics 段与 computeProjects 聚合段。
 import { describe, it, expect } from 'vitest'
 import { buildDashboard, scanSession, createStateEngine } from '../src/host/state.js'
-import { dateKeyOf, PACE_LABELS } from '../src/host/dashboard.js'
+import { dateKeyOf, PACE_LABELS, formatTokens } from '../src/host/dashboard.js'
 
 const NOW = new Date(2026, 8, 11, 12, 0, 0, 0).getTime() // 本地 2026-09-11 12:00
 const DAY = dateKeyOf(NOW) // '2026-09-11'
@@ -93,6 +93,48 @@ describe('buildDashboard（4 会话假事件直喂）', () => {
   it('userEst：今日用户输入启发式估算跨会话累加（CJK 逐字 + ASCII 按词）', () => {
     const dash = buildDashboard(fourSessions(), {}, NOW)
     expect(dash.usage.userEst).toBe(10) // 8 个中文字 + "hi world" 2 词
+  })
+
+  // Task 7 增量：summary 结构化字段（RAW 数值），客户端按其拼装的黑板行必须与 zh 字符串同源一致。
+  // 拼装镜像 src/client/boardrows.ts 的 zh 路径——本断言钉住「结构化字段 ↔ zh 文案」不漂移。
+  it('summary 结构化增量：tokens/toolRows/longest 与 tokensText/toolsText/longestText 同源一致', () => {
+    const dash = buildDashboard(fourSessions(), {}, NOW)
+    const s = dash.summary
+    expect(s.tokens).toEqual({
+      requestTotal: 5600, cacheRead: 4000, hitPct: 4000 / 5600 * 100, output: 1050, userEst: 10,
+    })
+    expect(s.toolRows).toEqual([{ name: 'Bash', count: 1, ms: 5000 }])
+    expect(s.longest).toEqual({ ms: 120000 })
+    // token 行 zh 拼装（客户端 boardrows 同构）：逐字节 == tokensText（宿主 `）` 后直接接 `·`，无空格）
+    const tokensLine = '请求输入 ' + formatTokens(s.tokens.requestTotal)
+      + '（缓存命中 ' + formatTokens(s.tokens.cacheRead) + ' · ' + s.tokens.hitPct.toFixed(1) + '%）· 产出 '
+      + formatTokens(s.tokens.output)
+      + ' · 你的输入 ~' + formatTokens(s.tokens.userEst) + '(估) · 含子代理'
+    expect(tokensLine).toBe(s.tokensText)
+    // 工具行（formatDur 镜像）与最长回合（longestText 镜像）逐字节一致
+    const dur = (ms) => ms >= 60000 ? (ms / 60000).toFixed(1) + ' 分钟' : ms >= 1000 ? (ms / 1000).toFixed(1) + ' 秒' : Math.round(ms) + ' 毫秒'
+    expect(s.toolRows.map((r) => r.ms > 0 ? r.name + '×' + r.count + '（共 ' + dur(r.ms) + '）' : r.name + '×' + r.count).join(' · ')).toBe(s.toolsText)
+    const lg = s.longest ? s.longest.ms : 0
+    expect(lg >= 60000 ? (lg / 60000).toFixed(1) + ' 分钟' : Math.round(lg / 1000) + ' 秒').toBe(s.longestText)
+  })
+
+  it('summary.toolRows：按次数降序 Top3 截断，ms 为跨会话累计耗时', () => {
+    const events = []
+    const tools = [['Read', 5, 4000], ['Bash', 3, 60000], ['Grep', 2, 500], ['Edit', 1, 100]] // 单次耗时均为整数毫秒
+    let seq = 1
+    for (const [name, count, totalMs] of tools) {
+      for (let i = 0; i < count; i++) {
+        const at = NOW - 10 * MIN + i * 1000
+        events.push(ev('tool/call', seq++, at, { name, callId: name + i }))
+        events.push(ev('tool/result', seq++, at + totalMs / count, { message: { source: { callId: name + i }, content: [] } }))
+      }
+    }
+    const dash = buildDashboard([{ id: 't', title: 'tools', events }], {}, NOW)
+    expect(dash.summary.toolRows).toEqual([
+      { name: 'Read', count: 5, ms: 4000 },
+      { name: 'Bash', count: 3, ms: 60000 },
+      { name: 'Grep', count: 2, ms: 500 },
+    ]) // Edit×1 排第 4，被 Top3 截断
   })
 
   it('alerts：跨阈值判定带 day key（day-warn:<date>），传入上一轮基线后不重复', () => {

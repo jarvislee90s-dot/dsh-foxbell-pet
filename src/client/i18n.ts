@@ -206,6 +206,22 @@ const ZH: Dict = {
   "dash.countRunning": "运行",
   "dash.countDone": "完成",
   "dash.request": "请求",
+  // ---- 小黑板行拼装（Task 7；zh 拼装结果与宿主 summarize zh 字符串逐字节一致，见 boardrows.ts）----
+  "dash.boardSessions": "会话",
+  "dash.boardTurns": "turn",
+  "dash.boardErrors": "报错",
+  "dash.boardTodayToken": "今日 token",
+  // 命中段含右括号与其后的「·」分隔：宿主 tokensText 为 `%）· 产出`（全角括号后无空格），故把分隔符并入本键
+  "dash.boardHitPct": "（{inner}）·",
+  "dash.boardToolsTop": "工具 Top3",
+  "dash.boardLongest": "最长单 turn",
+  // 工具耗时段括号（条目末尾，无尾随分隔；条目间 join(" · ")）
+  "dash.boardToolDur": "（{inner}）",
+  "dash.toolTotal": "共",
+  "dash.durMin": "分钟",
+  "dash.durSec": "秒",
+  "dash.durMs": "毫秒",
+  "dash.noSessions": "暂无会话",
   // ---- 通用 ----
   "common.close": "关闭",
   "common.cancel": "取消",
@@ -466,6 +482,22 @@ const EN: Dict = {
   "dash.countRunning": "running",
   "dash.countDone": "done",
   "dash.request": "Requests",
+  // ---- Board rows (Task 7; client-side composition from structured summary fields) ----
+  "dash.boardSessions": "Sessions",
+  "dash.boardTurns": "turns",
+  "dash.boardErrors": "errors",
+  "dash.boardTodayToken": "Today's tokens",
+  // Hit segment includes the closing paren and the following "·" separator (zh mirrors host tokensText byte-exact)
+  "dash.boardHitPct": " ({inner}) ·",
+  "dash.boardToolsTop": "Top 3 tools",
+  "dash.boardLongest": "Longest turn",
+  // Tool duration paren (entry-final, entries joined by " · ")
+  "dash.boardToolDur": " ({inner})",
+  "dash.toolTotal": "total",
+  "dash.durMin": "min",
+  "dash.durSec": "s",
+  "dash.durMs": "ms",
+  "dash.noSessions": "No sessions",
   "common.close": "Close",
   "common.cancel": "Cancel",
   "common.ok": "OK",

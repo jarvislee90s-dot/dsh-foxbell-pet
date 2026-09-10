@@ -10,7 +10,7 @@
 
 import {
   sessionEvents, PACE_LABELS, derivePaceTier, dateKeyOf, zeroUsage, foldUsage,
-  evaluateAlerts, summarize, estimateUserTokensByDay, hitRate, ageLabel,
+  evaluateAlerts, summarize, summarizeStructured, estimateUserTokensByDay, hitRate, ageLabel,
 } from './dashboard.js'
 
 /** 文本助手（与 v1.3.0 相同：词元感知截断，CJK 每字 1 词元） */
@@ -267,6 +267,9 @@ export function buildDashboard(sessionsData, cfg, now, alertPrev) {
     : []
   // 黑板汇总每轮重算覆盖（v1.4.0 summaryState 语义：无跨轮粘滞）
   const summaryState = summarize(perSessionMetrics, dayUsage, userEstToday)
+  // Task 7 增量（黑板行双语结构化）：在 zh 字符串之外追加 RAW 数值字段（tokens/toolRows/longest），
+  // 客户端 t()+fmtTokens 拼装——zh 拼装与上方 zh 字符串逐字节一致（test/state-dashboard 同源断言钉住）
+  const summaryStructured = summarizeStructured(perSessionMetrics, dayUsage, userEstToday)
   return {
     pace: cfgB('paceEnabled') ? paceState : null, // 关闭时不下发档位：客户端据此清掉旧档位（关闭语义）
     // 二期预留（issue #4 F05）：按模型分布空桶——事件暂无 model 字段（spec 附录 A），结构先立
@@ -283,7 +286,8 @@ export function buildDashboard(sessionsData, cfg, now, alertPrev) {
     },
     alerts: newAlerts,
     approvals: cfgN('approvalFlickerMin') > 0 ? approvals.filter((x) => x.waitMin >= 0) : [],
-    summary: summaryState,
+    // summary：zh 字符串（tokensText/toolsText/longestText，29 用例字节契约）+ Task 7 结构化增量字段
+    summary: { ...summaryState, ...summaryStructured },
   }
 }
 

@@ -170,6 +170,41 @@ export function summarize(perSession, dayUsage, userEst) {
   }
 }
 
+// Task 7 新增（纯增量，summarize 原样保留——test/dashboard.test.mjs 29 用例对 zh 字符串字节锁定）：
+// 与 summarize 完全同口径聚合的结构化投影（RAW 数值，不做 zh 文案格式化），供客户端黑板行
+// t()+fmtTokens 双语拼装。数值一致性由 test/state-dashboard.test.mjs 对 tokensText/toolsText/
+// longestText 的同源断言钉住：hitPct 为 命中/请求输入*100 原始浮点（分母 0 记 0），客户端
+// toFixed(1) 后与 zh 字符串内百分数逐位一致；toolRows 与 toolsText 同序（次数降序 Top3）。
+export function summarizeStructured(perSession, dayUsage, userEst) {
+  const list = Array.isArray(perSession) ? perSession : []
+  let longest = 0
+  const tools = {}
+  const dur = {}
+  for (const s of list) {
+    if (s.longestTurnMs > longest) longest = s.longestTurnMs
+    const durMs = s.toolDurMs || {}
+    for (const [n, c] of Object.entries(s.toolCalls || {})) {
+      tools[n] = (tools[n] || 0) + c
+      dur[n] = (dur[n] || 0) + (durMs[n] || 0)
+    }
+  }
+  const toolRows = Object.entries(tools).sort((a, b) => b[1] - a[1]).slice(0, 3)
+    .map(([name, count]) => ({ name, count, ms: dur[name] || 0 }))
+  const t = dayUsage || zeroUsage()
+  const requestTotal = t.inputTokens + t.cacheReadTokens
+  return {
+    tokens: {
+      requestTotal, // 请求输入口径 = inputTokens + cacheReadTokens（与 usage.requestTotal 同源）
+      cacheRead: t.cacheReadTokens,
+      hitPct: requestTotal > 0 ? t.cacheReadTokens / requestTotal * 100 : 0,
+      output: t.outputTokens,
+      userEst: userEst || 0,
+    },
+    toolRows,
+    longest: longest > 0 ? { ms: longest } : null, // 无已计量 turn 时 null（客户端按 '0 秒' 桶展示，与 zh 口径一致）
+  }
+}
+
 
 // ---------- 五口径补充：用户输入估算（①口径）与命中率（⑤口径） ----------
 // provider 不单独上报用户侧输入；对 user/message 文本做启发式计数（CJK 逐字 + ASCII 按词），

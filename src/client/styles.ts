@@ -150,6 +150,14 @@ const CSS = `
 .dyn-pet-mini-tier { font-weight: 700; white-space: nowrap; }
 .dyn-pet-mini-row { white-space: normal; word-break: break-word; }
 .dyn-pet-mini-dim { color: #a07050; font-size: 11px; }
+/* ---- v2.1 小黑板 + 📖 限时入口（v1.4.0 client.js L1118-1123 原样移植；行 normal 换行 per 7e16d62）----
+   黑板为 310px 固定版式（fixed 右下挂点由 Pet.tsx 内联下发），不随 scale 缩放 */
+.dyn-pet-board { width: 310px; background: #2f2a26; color: #f3e9dc; border-radius: 12px; padding: 10px 12px; font-size: 12.5px; line-height: 1.7; box-shadow: 0 6px 20px rgba(0,0,0,0.35); }
+.dyn-pet-board.farewell { border: 1px solid rgba(251,191,36,0.5); }
+.dyn-pet-board-head { display: flex; justify-content: space-between; align-items: center; font-weight: 700; margin-bottom: 4px; }
+.dyn-pet-board-x { background: transparent; border: none; color: #d6c7b2; cursor: pointer; font-size: 13px; padding: 0 2px; }
+.dyn-pet-board-row { white-space: normal; word-break: break-word; }
+.dyn-pet-entry { position: absolute; right: -8px; top: -6px; background: #fffbe8; border: 1px solid rgba(122,74,43,0.5); color: #7a4a2b; font-size: 12px; font-weight: 600; border-radius: 999px; padding: 3px 10px; cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,0.15); z-index: 3; }
 `;
 
 const STYLE_ID = "dyn-pet-styles";
