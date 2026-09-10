@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { sessionEvents } from '../src/dashboard.js'
+import { sessionEvents, estimateTokens, estimateUserTokensByDay, hitRate, blocksTextOf } from '../src/dashboard.js'
 
 test('sessionEvents prefers snapshotEvents() when available', () => {
   const fake = [{ type: 'turn/start', seq: 1, time: 1000, data: { turn: 0 } }]
@@ -163,7 +163,10 @@ test('summarize folds per-session metrics into board fields', () => {
   assert.equal(s.longestText, '1.5 分钟')
   assert.ok(s.toolsText.includes('bash×5'))
   assert.ok(s.toolsText.includes('18.0 秒')) // 工具耗时合并：15000+3000=18000ms（次数+耗时，spec 6.4/F31）
-  assert.ok(s.tokensText.includes('12.2万'))
+  // 五口径（2026-09-10）：请求输入=90000+20000=11万；命中 2万/11万=18.2%；不再展示四桶总和
+  assert.ok(s.tokensText.includes('请求输入 11万'))
+  assert.ok(s.tokensText.includes('缓存命中 2万'))
+  assert.ok(s.tokensText.includes('18.2%'))
 })
 
 test('summarize tolerates empty input', () => {
@@ -185,4 +188,46 @@ test('foldUsage skips samples without finite time (no NaN day bucket)', () => {
   const r = foldUsage([{ type: 'assistant/message', data: { turn: 0, step: 0, usage: { inputTokens: 50, outputTokens: 5 } } }])
   assert.equal(r.grand.inputTokens, 0)
   assert.deepEqual(r.byDay, {})
+})
+
+// ---------- 五口径（2026-09-10 用户裁定） ----------
+
+test('estimateTokens counts CJK per char and ascii per word', () => {
+  assert.equal(estimateTokens('你好'), 2)
+  assert.equal(estimateTokens('hello world'), 2)
+  assert.equal(estimateTokens('你好 hello'), 3)
+  assert.equal(estimateTokens(''), 0)
+})
+
+test('estimateUserTokensByDay buckets user messages by day', () => {
+  const t = new Date(2026, 8, 10, 9).getTime()
+  const ev = [
+    { type: 'user/message', time: t, data: { content: [{ type: 'text', text: '你好世界' }] } },
+    { type: 'user/message', time: t + 1000, data: { content: [{ type: 'text', text: 'three words here' }] } },
+    { type: 'assistant/message', time: t, data: { usage: {} } },
+    { type: 'user/message', time: new Date(2026, 8, 9).getTime(), data: { content: [{ type: 'text', text: '昨天的' }] } },
+    null,
+  ]
+  const r = estimateUserTokensByDay(ev)
+  assert.equal(r['2026-09-10'], 4 + 3)
+  assert.equal(r['2026-09-09'], 3)
+})
+
+test('hitRate: full, partial, and zero denominator', () => {
+  assert.equal(hitRate({ inputTokens: 0, cacheReadTokens: 100 }), 1)
+  assert.ok(Math.abs(hitRate({ inputTokens: 100, cacheReadTokens: 300 }) - 0.75) < 1e-9)
+  assert.equal(hitRate({}), 0)
+  assert.equal(hitRate(null), 0)
+})
+
+test('summarize tokensText uses five-caliber terminology', () => {
+  const s = summarize([], { inputTokens: 884130, outputTokens: 77608, cacheReadTokens: 5315328, cacheWriteTokens: 0 }, 9300)
+  assert.ok(s.tokensText.includes('请求输入 619.9万'))
+  assert.ok(s.tokensText.includes('缓存命中 531.5万'))
+  assert.ok(s.tokensText.includes('85.7%'))
+  assert.ok(s.tokensText.includes('产出 7.8万'))
+  assert.ok(s.tokensText.includes('你的输入 ~9300(估)'))
+  const zero = summarize([], null, 0)
+  assert.ok(zero.tokensText.includes('请求输入 0'))
+  assert.ok(zero.tokensText.includes('（缓存命中 0 · 0.0%）'))
 })

@@ -6,7 +6,7 @@
 
 import { fileURLToPath } from 'node:url'
 import z from '@deepseek-ai/schemastery'
-import { sessionEvents, derivePaceTier, PACE_LABELS, foldUsage, dateKeyOf, evaluateAlerts, summarize, ageLabel, zeroUsage } from './dashboard.js'
+import { sessionEvents, derivePaceTier, PACE_LABELS, foldUsage, dateKeyOf, evaluateAlerts, summarize, ageLabel, zeroUsage, estimateUserTokensByDay, hitRate } from './dashboard.js'
 
 export const name = 'dsh-foxbell-pet'
 
@@ -295,6 +295,7 @@ export async function apply(ctx, config) {
     const dayKey = dateKeyOf(now)
     let aggTurnOpen = false, aggLastEvent = null, agg5m = 0
     let dayUsage = zeroUsage(), grandTotal = 0, latestSession = null, latestTime = -1
+    let userEstToday = 0
     const approvals = []
     const perSessionMetrics = []
     for (const a of roots) {
@@ -321,6 +322,7 @@ export async function apply(ctx, config) {
           || (info.latestTurnStartSeq !== null && info.lastEnd === null)
         if (hasOpenTurn) aggTurnOpen = true
         const usage = sessionEvts ? foldUsage(sessionEvts) : { byDay: {}, grand: zeroUsage() }
+        if (sessionEvts) userEstToday += estimateUserTokensByDay(sessionEvts)[dayKey] || 0
         const dayB = usage.byDay[dayKey] || null
         if (dayB) for (const k of USAGE_KEYS) dayUsage[k] += dayB[k]
         grandTotal += usage.grand.inputTokens + usage.grand.outputTokens + usage.grand.cacheReadTokens + usage.grand.cacheWriteTokens
@@ -374,11 +376,21 @@ export async function apply(ctx, config) {
       ? evaluateAlerts(alertPrev, { dayTotal, grandTotal }, { dayLimitTokens: cfgN('dayLimitTokens'), milestoneUnit: cfgN('milestoneUnit') }, dayKey)
       : []
     alertPrev = { dayTotal, grandTotal } // 无论开关都推进基线，避免稍后开启时补发旧警报
-    summaryState = summarize(perSessionMetrics, dayUsage)
+    summaryState = summarize(perSessionMetrics, dayUsage, userEstToday)
     dashState = {
       pace: cfgB('paceEnabled') ? paceState : null, // 关闭时不下发档位：客户端据此清掉旧档位（关闭语义）
       // 二期预留（issue #4 F05）：按模型分布空桶——harness 事件暂无 model 字段（spec 附录 A），结构先立
-      usage: { day: dayUsage, session: latestSession, grandTotal, models: {} },
+      usage: {
+        day: dayUsage,
+        // 五口径派生（2026-09-10 用户裁定）：请求输入=全文累计；命中率=命中/请求输入；用户输入为启发式估算
+        requestTotal: dayUsage.inputTokens + dayUsage.cacheReadTokens,
+        cacheHitRate: hitRate(dayUsage),
+        userEst: userEstToday,
+        session: latestSession === null ? null : Object.assign({}, latestSession, {
+          requestTotal: latestSession.inputTokens + latestSession.cacheReadTokens,
+        }),
+        grandTotal, models: {},
+      },
       alerts: newAlerts,
       approvals: cfgN('approvalFlickerMin') > 0 ? approvals.filter((x) => x.waitMin >= 0) : [],
       summary: summaryState,
