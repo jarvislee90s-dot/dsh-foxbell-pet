@@ -1080,6 +1080,14 @@ window.__ModuleLoader__.load({
         .dyn-pet-settings { padding: 8px 12px; font-size: 13px; color: #333; display: flex; flex-direction: column; gap: 6px; min-width: 220px; }
         .dyn-pet-settings-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
         .dyn-pet-settings-row select { max-width: 140px; }
+        .dyn-pet-settings-note { color: #a0947f; font-size: 11.5px; margin-top: 2px; }
+        .dyn-pet-settings-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 6px; }
+        .dyn-pet-settings-dirty { color: #b45309; font-size: 12px; margin-right: auto; }
+        .dyn-pet-settings-saved { color: #16a34a; font-size: 12px; margin-right: auto; }
+        .dyn-pet-settings-discard { background: transparent; color: #8b7355; border: 1px solid #d6c7b2; border-radius: 8px; padding: 4px 12px; font-size: 12px; cursor: pointer; }
+        .dyn-pet-settings-save { background: #16a34a; color: #fff; border: none; border-radius: 8px; padding: 5px 18px; font-size: 13px; cursor: pointer; }
+        .dyn-pet-settings-save:disabled { background: #c9bdae; cursor: default; }
+        .dyn-pet-settings-bad input { border: 1px solid #ef4444; border-radius: 4px; }
         .dyn-pet-settings-note { color: #999; font-size: 11px; line-height: 1.5; }
         .dyn-pet-mini-wrap { position: absolute; left: 100%; top: 12px; margin-left: 12px; z-index: 4; }
         .dyn-pet-mini { width: 210px; background: rgba(255,252,248,0.97); border: 1px solid rgba(122,74,43,0.3); border-radius: 10px; padding: 8px 10px; font-size: 12px; color: #7a4a2b; line-height: 1.6; box-shadow: 0 2px 8px rgba(0,0,0,0.14); pointer-events: none; }
@@ -1101,9 +1109,23 @@ window.__ModuleLoader__.load({
 
     // 设置卡片组件（rc.7+ settings.plugin.item）——读写与右键菜单同一个 cfgStore，双向同步
     function SettingsCard(props) {
+      // 草稿 + 统一保存（对齐宿主原生设置卡的 save/discard/unsaved/invalidNumber 模式）：
+      // 控件只改草稿；「保存」一次性提交全部键，数字在提交前转 Number——
+      // 修复根因：e.target.value 是字符串，字符串写入 settings 会被 z.number() 拒绝而静默丢失。
       const [cfg, setCfg] = React.useState(cfgStore.getSnapshot())
-      React.useEffect(() => cfgStore.subscribe(() => setCfg(cfgStore.getSnapshot())), [])
-      const toggle = (k, v) => cfgStore.set({ [k]: v })
+      const [draft, setDraft] = React.useState(cfgStore.getSnapshot())
+      const [savedFlash, setSavedFlash] = React.useState(false)
+      const dirtyRef = React.useRef(false)
+      React.useEffect(() => cfgStore.subscribe(() => {
+        const next = cfgStore.getSnapshot()
+        setCfg(next)
+        if (!dirtyRef.current) setDraft(next) // 外部变更（右键菜单）仅在无未保存修改时跟随
+      }), [])
+      React.useEffect(() => {
+        if (!savedFlash) return
+        const t = setTimeout(() => setSavedFlash(false), 1600)
+        return () => clearTimeout(t)
+      }, [savedFlash])
       const rows = [
         { k: 'muted', label: '声音', invert: true }, // invert: 勾选=有声（muted=false）
         { k: 'talkative', label: '语音字幕' },
@@ -1131,31 +1153,55 @@ window.__ModuleLoader__.load({
         { k: 'summaryEntrySec', label: '总结入口时长(秒)' },
         { k: 'boardTtlSec', label: '黑板停留(秒)' },
       ]
+      const allKeys = [...rows, ...actionRows, ...boolRows2, ...numRows].map((r) => r.k)
+      const isBadNum = (r) => draft[r.k] === '' || draft[r.k] === null || !Number.isFinite(Number(draft[r.k]))
+      const badCount = numRows.filter(isBadNum).length
+      const dirty = allKeys.some((k) => String(draft[k]) !== String(cfg[k]))
+      const setDraftKey = (k, v) => { dirtyRef.current = true; setDraft((d) => Object.assign({}, d, { [k]: v })) }
+      const save = () => {
+        if (!dirty || badCount > 0) return
+        const patch = {}
+        for (const k of allKeys) {
+          if (String(draft[k]) === String(cfg[k])) continue
+          patch[k] = NUM_KEYS.includes(k) ? clampNum(k, Number(draft[k])) : draft[k] // 数字提交前转 Number（根因修复）
+        }
+        cfgStore.set(patch)
+        dirtyRef.current = false
+        setSavedFlash(true)
+      }
+      const discard = () => { dirtyRef.current = false; setDraft(cfg) }
       return React.createElement('div', { className: 'dyn-pet-settings' },
         rows.map((r) => React.createElement('label', { key: r.k, className: 'dyn-pet-settings-row' },
           React.createElement('span', null, r.label),
           React.createElement('input', {
             type: 'checkbox',
-            checked: r.invert ? !cfg[r.k] : !!cfg[r.k],
-            onChange: (e) => toggle(r.k, r.invert ? !e.target.checked : e.target.checked),
+            checked: r.invert ? !draft[r.k] : !!draft[r.k],
+            onChange: (e) => setDraftKey(r.k, r.invert ? !e.target.checked : e.target.checked),
           }),
         )),
         actionRows.map((r) => React.createElement('div', { key: r.k, className: 'dyn-pet-settings-row' },
           React.createElement('span', null, r.label),
-          React.createElement('select', { value: cfg[r.k], onChange: (e) => toggle(r.k, e.target.value) },
+          React.createElement('select', { value: draft[r.k], onChange: (e) => setDraftKey(r.k, e.target.value) },
             CFG_ACTIONS.map((a) => React.createElement('option', { key: a, value: a }, ACTION_LABEL[a] || a)),
           ),
         )),
         boolRows2.map((r) => React.createElement('label', { key: r.k, className: 'dyn-pet-settings-row' },
           React.createElement('span', null, r.label),
-          React.createElement('input', { type: 'checkbox', checked: !!cfg[r.k], onChange: (e) => toggle(r.k, e.target.checked) }),
+          React.createElement('input', { type: 'checkbox', checked: !!draft[r.k], onChange: (e) => setDraftKey(r.k, e.target.checked) }),
         )),
-        numRows.map((r) => React.createElement('label', { key: r.k, className: 'dyn-pet-settings-row' },
+        numRows.map((r) => React.createElement('label', { key: r.k, className: 'dyn-pet-settings-row' + (isBadNum(r) ? ' dyn-pet-settings-bad' : '') },
           React.createElement('span', null, r.label),
-          React.createElement('input', { type: 'number', value: cfg[r.k], onChange: (e) => toggle(r.k, e.target.value) }),
+          React.createElement('input', { type: 'number', value: draft[r.k], onChange: (e) => setDraftKey(r.k, e.target.value) }),
         )),
         // 纯 token 口径说明（spec 7.3 纪律/F71 诚实标注）：静态提示行，不可交互
         React.createElement('div', { key: 'caliber-note', className: 'dyn-pet-settings-note' }, '用量均为纯 token 口径，不折算金额'),
+        React.createElement('div', { className: 'dyn-pet-settings-actions' },
+          badCount > 0 ? React.createElement('span', { className: 'dyn-pet-settings-dirty' }, badCount + ' 个数值无效')
+            : dirty ? React.createElement('span', { className: 'dyn-pet-settings-dirty' }, '有未保存更改')
+            : savedFlash ? React.createElement('span', { className: 'dyn-pet-settings-saved' }, '已保存 ✓') : null,
+          React.createElement('button', { className: 'dyn-pet-settings-discard', onClick: discard }, '放弃'),
+          React.createElement('button', { className: 'dyn-pet-settings-save', disabled: !dirty || badCount > 0, onClick: save }, '保存'),
+        ),
       )
     }
 
