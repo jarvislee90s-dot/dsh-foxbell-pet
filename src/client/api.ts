@@ -111,11 +111,85 @@ export interface ProjectCard {
   unread: boolean;
 }
 
+// ---- v2.1 效率看板契约（形状逐一镜像宿主 buildDashboard：src/host/state.js L210-288）----
+export type PaceTier = "intense" | "active" | "longrun" | "idle" | "loaf1" | "loaf2" | "loaf3" | "loaf4";
+
+/** derivePaceTier 结果（src/host/dashboard.js L27-43） */
+export interface PaceSnapshot {
+  tier: PaceTier;
+  /** 距最后事件静默毫秒数；无任何事件时为 null */
+  sinceMs: number | null;
+  label: string;
+}
+
+/** token 四分账桶（zeroUsage 同形状，src/host/dashboard.js L55-56） */
+export interface UsageBucket {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+}
+
+/** 最后活跃会话的今日分账（src/host/state.js L248 + L279-281 的 requestTotal 派生） */
+export interface SessionUsageSnapshot extends UsageBucket {
+  title: string;
+  requestTotal: number;
+}
+
+/** 今日用量聚合（src/host/state.js L273-283；models 为二期预留空桶） */
+export interface UsageSnapshot {
+  day: UsageBucket;
+  /** 请求输入口径：inputTokens + cacheReadTokens（2026-09-10 用户裁定） */
+  requestTotal: number;
+  /** 命中率 = 缓存命中 / 请求输入，分母 0 记 0（hitRate） */
+  cacheHitRate: number;
+  /** 用户输入启发式估算（今日，跨会话累加） */
+  userEst: number;
+  session: SessionUsageSnapshot | null;
+  grandTotal: number;
+  models: Record<string, unknown>;
+}
+
+/** 阈值警报（evaluateAlerts，src/host/dashboard.js L103-125） */
+export interface DashboardAlert {
+  id: string;
+  kind: "day-warn" | "day-hit" | "milestone";
+  text: string;
+}
+
+/** 未决审批（src/host/state.js L251） */
+export interface DashboardApproval {
+  id: string;
+  title: string;
+  waitMin: number;
+}
+
+/** 黑板汇总（summarize，src/host/dashboard.js L160-170；Task 7 将重构为结构化数值字段） */
+export interface DashboardSummary {
+  sessions: number;
+  turns: number;
+  errors: number;
+  tokensText: string;
+  toolsText: string;
+  longestText: string;
+}
+
+export interface DashboardSnapshot {
+  /** paceEnabled=false 时为 null（客户端据此清掉旧档位） */
+  pace: PaceSnapshot | null;
+  usage: UsageSnapshot;
+  alerts: DashboardAlert[];
+  approvals: DashboardApproval[];
+  summary: DashboardSummary;
+}
+
 export interface StateSnapshot {
   seq: number;
   completions: { seq: number; at: number; agentId: string }[];
   runningSessions: number;
   projects: ProjectCard[];
+  /** v2.1 效率看板聚合；引擎首轮 compute 前为 null */
+  dashboard: DashboardSnapshot | null;
   voices: VoiceSnapshotEntry[];
   activePet: ActivePetSnapshot;
   pets: PetSummary[];

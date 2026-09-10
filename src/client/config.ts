@@ -17,6 +17,19 @@ export interface PetConfig {
   gravity: boolean;
   scale: PetScale;
   activePetId: string;
+  // ---- v2.1 效率看板 12 键（键名/默认值逐字对齐 v1.4.0 Config 契约与宿主 src/host/index.js Config schema）----
+  paceEnabled: boolean;
+  paceIntenseEvents: number;
+  paceLongrunMin: number;
+  paceLoafStartMin: number;
+  usageEnabled: boolean;
+  dayLimitTokens: number;
+  milestoneUnit: number;
+  approvalFlickerMin: number;
+  summaryEnabled: boolean;
+  summaryEntrySec: number;
+  boardTtlSec: number;
+  ttsEnabled: boolean;
 }
 
 export const STORE_KEY = "dyn-pet-foxbell-visible";
@@ -44,6 +57,43 @@ export const CFG_DEFAULT: PetConfig = {
   gravity: true,
   scale: 1,
   activePetId: "foxbell",
+  // v2.1 看板 12 键默认（前 8 项为看板引擎门/阈值；后 4 项为客户端门）
+  paceEnabled: true,
+  paceIntenseEvents: 12,
+  paceLongrunMin: 3,
+  paceLoafStartMin: 15,
+  usageEnabled: true,
+  dayLimitTokens: 0,
+  milestoneUnit: 1000000,
+  approvalFlickerMin: 5,
+  summaryEnabled: true,
+  summaryEntrySec: 15,
+  boardTtlSec: 15,
+  ttsEnabled: false,
+};
+
+// ---- v2.1 看板数值键钳制表（v1.4.0 client.js NUM_KEYS/NUM_RANGE/clampNum 原样移植）----
+export const NUM_KEYS = [
+  "paceIntenseEvents", "paceLongrunMin", "paceLoafStartMin", "dayLimitTokens",
+  "milestoneUnit", "approvalFlickerMin", "summaryEntrySec", "boardTtlSec",
+] as const;
+export type NumKey = (typeof NUM_KEYS)[number];
+export const NUM_RANGE: Record<NumKey, [number, number]> = {
+  paceIntenseEvents: [1, 1000],
+  paceLongrunMin: [1, 120],
+  paceLoafStartMin: [1, 240],
+  dayLimitTokens: [0, 1e9],
+  milestoneUnit: [0, 1e9],
+  approvalFlickerMin: [0, 120],
+  summaryEntrySec: [5, 60],
+  boardTtlSec: [5, 120],
+};
+
+const clampNum = (k: NumKey, v: unknown): number => {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return CFG_DEFAULT[k];
+  const [lo, hi] = NUM_RANGE[k];
+  return Math.min(hi, Math.max(lo, Math.round(n)));
 };
 
 const isAction = (v: unknown): v is PetAction => CFG_ACTIONS.includes(v as PetAction);
@@ -53,9 +103,10 @@ const isPetIdStr = (v: unknown): v is string =>
 
 export function sanitizeValue(k: keyof PetConfig, v: unknown): PetConfig[keyof PetConfig] {
   if ((ACTION_KEYS as readonly string[]).includes(k)) return isAction(v) ? v : CFG_DEFAULT[k as typeof ACTION_KEYS[number]];
+  if ((NUM_KEYS as readonly string[]).includes(k)) return clampNum(k as NumKey, v);
   if (k === "scale") return isScale(v) ? v : 1;
   if (k === "activePetId") return isPetIdStr(v) ? v : "foxbell";
-  return !!v; // booleans
+  return !!v; // booleans（含 paceEnabled/usageEnabled/summaryEnabled/ttsEnabled——v2 以直落布尔真值化代替 v1.4.0 的 BOOL_KEYS 表）
 }
 
 export function sanitizeConfig(raw: unknown): PetConfig {

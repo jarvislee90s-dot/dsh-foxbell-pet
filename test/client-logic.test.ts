@@ -13,7 +13,7 @@ import {
 } from "../src/client/validation";
 import { DOT_COLOR, lightOf, taskPoseOf, truncate } from "../src/client/statuscards";
 import {
-  CFG_DEFAULT, CFG_SCALES, sanitizeConfig, sanitizeValue, guardSignature, type PetConfig,
+  CFG_DEFAULT, CFG_SCALES, NUM_KEYS, NUM_RANGE, sanitizeConfig, sanitizeValue, guardSignature, type PetConfig,
 } from "../src/client/config";
 import { dictKeys, t, setLang } from "../src/client/i18n";
 import { KNOWN_RPC_CODES, PetError, isPetRpcError } from "../src/client/errors";
@@ -276,6 +276,54 @@ describe("config (旧配置兼容 + sanitize)", () => {
     expect(sanitizeValue("doneAction", "flying")).toBe("jumping");
     expect(sanitizeValue("muted", 1)).toBe(true);
   });
+  it("CFG_DEFAULT 含看板 12 键（键名/默认值逐字契约，对齐宿主 Config schema 与 v1.4.0）", () => {
+    expect(CFG_DEFAULT).toMatchObject({
+      paceEnabled: true, paceIntenseEvents: 12, paceLongrunMin: 3, paceLoafStartMin: 15,
+      usageEnabled: true, dayLimitTokens: 0, milestoneUnit: 1000000, approvalFlickerMin: 5,
+      summaryEnabled: true, summaryEntrySec: 15, boardTtlSec: 15, ttsEnabled: false,
+    });
+    expect(NUM_KEYS).toEqual([
+      "paceIntenseEvents", "paceLongrunMin", "paceLoafStartMin", "dayLimitTokens",
+      "milestoneUnit", "approvalFlickerMin", "summaryEntrySec", "boardTtlSec",
+    ]);
+    expect(NUM_RANGE).toEqual({
+      paceIntenseEvents: [1, 1000], paceLongrunMin: [1, 120], paceLoafStartMin: [1, 240],
+      dayLimitTokens: [0, 1e9], milestoneUnit: [0, 1e9], approvalFlickerMin: [0, 120],
+      summaryEntrySec: [5, 60], boardTtlSec: [5, 120],
+    });
+  });
+  it("看板数值键钳制：越界夹紧、非有限回退默认、Number 转换 + 四舍五入（v1.4.0 clampNum 语义）", () => {
+    expect(sanitizeValue("paceIntenseEvents", 0)).toBe(1); // 下夹紧
+    expect(sanitizeValue("paceIntenseEvents", 5000)).toBe(1000); // 上夹紧
+    expect(sanitizeValue("paceIntenseEvents", "12")).toBe(12); // Number() 转换
+    expect(sanitizeValue("paceIntenseEvents", Number.NaN)).toBe(12); // 非有限 → 默认
+    expect(sanitizeValue("paceIntenseEvents", Infinity)).toBe(12);
+    expect(sanitizeValue("paceIntenseEvents", 12.4)).toBe(12); // round
+    expect(sanitizeValue("paceIntenseEvents", 12.5)).toBe(13);
+    expect(sanitizeValue("paceLongrunMin", 0)).toBe(1);
+    expect(sanitizeValue("paceLoafStartMin", 241)).toBe(240);
+    expect(sanitizeValue("dayLimitTokens", -1)).toBe(0);
+    expect(sanitizeValue("dayLimitTokens", 5e9)).toBe(1e9);
+    expect(sanitizeValue("milestoneUnit", 1e12)).toBe(1e9);
+    expect(sanitizeValue("approvalFlickerMin", 121)).toBe(120);
+    expect(sanitizeValue("summaryEntrySec", 4)).toBe(5);
+    expect(sanitizeValue("summaryEntrySec", 61)).toBe(60);
+    expect(sanitizeValue("boardTtlSec", 1)).toBe(5);
+    expect(sanitizeValue("boardTtlSec", 999)).toBe(120);
+  });
+  it("看板布尔键经布尔真值化（v2 直落风格，无 BOOL_KEYS 表）；12 键配置回环保真", () => {
+    expect(sanitizeValue("paceEnabled", 1)).toBe(true);
+    expect(sanitizeValue("ttsEnabled", 0)).toBe(false);
+    expect(sanitizeValue("usageEnabled", "yes")).toBe(true);
+    expect(sanitizeValue("summaryEnabled", undefined)).toBe(false);
+    const edited = sanitizeConfig(
+      { ...CFG_DEFAULT, paceIntenseEvents: 99999, ttsEnabled: true, dayLimitTokens: 123456 } as PetConfig,
+    );
+    const round2 = sanitizeConfig(JSON.parse(JSON.stringify(edited)) as PetConfig);
+    expect(round2.paceIntenseEvents).toBe(1000); // 存档越界值被钳回
+    expect(round2.ttsEnabled).toBe(true);
+    expect(round2.dayLimitTokens).toBe(123456);
+  });
   it("guardSignature stable under issue reordering", () => {
     const a = guardSignature("p", [{ kind: "voice-missing", detail: "x" }, { kind: "voice-extra", detail: "y" }]);
     const b = guardSignature("p", [{ kind: "voice-extra", detail: "y" }, { kind: "voice-missing", detail: "x" }]);
@@ -369,6 +417,33 @@ describe("i18n 字典完整性", () => {
     expect(t("no.such.key")).toBe("no.such.key");
     setLang("en");
     expect(t("rpc.pet-exists", { name: "abc" })).toBe("Pet already exists: abc");
+    setLang("zh");
+  });
+  it("dash.* 效率看板键 zh/en 成对、22 键在位、五口径名词逐字（行为不变量）", () => {
+    const expectedDash = [
+      "dash.today", "dash.requestInput", "dash.hit", "dash.cacheHit", "dash.output",
+      "dash.yourInput", "dash.estimateSuffix", "dash.withSubagents", "dash.sessionReq",
+      "dash.summaryTitle", "dash.farewellTitle", "dash.summaryEntry", "dash.menuUsage",
+      "dash.menuSummary", "dash.menuSessions", "dash.unsaved", "dash.saved",
+      "dash.invalidNums", "dash.save", "dash.discard", "dash.caliberNote", "dash.noActive",
+    ];
+    const zhDash = dictKeys("zh").filter((k) => k.startsWith("dash.")).sort();
+    expect(zhDash).toEqual([...expectedDash].sort());
+    const en = new Set(dictKeys("en"));
+    for (const k of expectedDash) expect(en.has(k), `en missing ${k}`).toBe(true);
+    setLang("zh");
+    expect(t("dash.requestInput")).toBe("请求输入");
+    expect(t("dash.cacheHit")).toBe("缓存命中");
+    expect(t("dash.hit")).toBe("命中");
+    expect(t("dash.output")).toBe("产出");
+    expect(t("dash.yourInput")).toBe("你的输入");
+    expect(t("dash.estimateSuffix")).toBe("(估)");
+    expect(t("dash.withSubagents")).toBe("含子代理");
+    expect(t("dash.invalidNums", { n: 2 })).toBe("2 个数值无效");
+    setLang("en");
+    expect(t("dash.requestInput")).toBe("Request input");
+    expect(t("dash.withSubagents")).toBe("incl. subagents");
+    expect(t("dash.invalidNums", { n: 2 })).toBe("2 invalid value(s)");
     setLang("zh");
   });
 });
