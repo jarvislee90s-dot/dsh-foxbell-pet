@@ -69,6 +69,15 @@ const CSS = `
 .dyn-pet-settings-section { font-weight: 700; margin-top: 4px; padding-bottom: 2px; border-bottom: 1px solid rgba(122,74,43,.18); color:#7a4a2b; }
 .dyn-pet-settings-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .dyn-pet-settings-row select { max-width: 140px; }
+/* ---- v2.1 设置卡草稿态（v1.4.0 client.js L1098-1109 移植：头部状态字/口径注/保存条/无效数字红框）---- */
+.dyn-pet-settings-dirty { flex: none; color: #b45309; font-size: 12px; }
+.dyn-pet-settings-saved { flex: none; color: #16a34a; font-size: 12px; }
+.dyn-pet-settings-note { color: #999; font-size: 11px; line-height: 1.5; }
+.dyn-pet-settings-savebar { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 6px; }
+.dyn-pet-settings-discard { background: transparent; color: #8b7355; border: 1px solid #d6c7b2; border-radius: 8px; padding: 4px 12px; font-size: 12px; cursor: pointer; }
+.dyn-pet-settings-save { background: #16a34a; color: #fff; border: none; border-radius: 8px; padding: 5px 18px; font-size: 13px; cursor: pointer; }
+.dyn-pet-settings-save:disabled { background: #c9bdae; cursor: default; }
+.dyn-pet-settings-row.bad input { border: 1px solid #ef4444; border-radius: 4px; }
 .dyn-pet-settings-actions { justify-content: flex-start; flex-wrap: wrap; }
 .dyn-pet-scale-group { display: inline-flex; gap: 4px; }
 .dyn-pet-scale-btn { border:1px solid rgba(122,74,43,.35); background:#fff; color:#7a4a2b; border-radius:8px; font-size:12px; padding:2px 10px; cursor:pointer; }

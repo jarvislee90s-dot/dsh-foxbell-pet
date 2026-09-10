@@ -16,6 +16,10 @@ import {
   CFG_DEFAULT, CFG_SCALES, NUM_KEYS, NUM_RANGE, sanitizeConfig, sanitizeValue, guardSignature, type PetConfig,
 } from "../src/client/config";
 import { dictKeys, t, setLang } from "../src/client/i18n";
+import {
+  DASH_BOOL_KEYS, DASH_NUM_ROWS, SETTINGS_ALL_KEYS,
+  buildSavePatch, isBadNumValue, isDraftDirty, type DraftConfig,
+} from "../src/client/settingsdraft";
 import { fmtTokens } from "../src/client/format";
 import { boardRows, fmtDur, fmtLongest } from "../src/client/boardrows";
 import { KNOWN_RPC_CODES, PetError, isPetRpcError } from "../src/client/errors";
@@ -337,6 +341,69 @@ describe("config (旧配置兼容 + sanitize)", () => {
   });
 });
 
+describe("settingsDraft（设置卡草稿层，Task 9；v1.4.0 886b303 L1130-1235 移植）", () => {
+  // 键集契约：3 基础开关 + 4 看板开关 + 8 看板数字 + 5 动作下拉 + 缩放 = 21 键，无重复
+  it("SETTINGS_ALL_KEYS = 21 键全覆盖且无重复；DASH_NUM_ROWS 键集 = NUM_KEYS", () => {
+    expect(SETTINGS_ALL_KEYS).toHaveLength(21);
+    expect(new Set(SETTINGS_ALL_KEYS).size).toBe(21);
+    expect([...SETTINGS_ALL_KEYS]).toEqual([
+      "muted", "talkative", "gravity",
+      "paceEnabled", "usageEnabled", "summaryEnabled", "ttsEnabled",
+      "dayLimitTokens", "milestoneUnit", "paceIntenseEvents", "paceLongrunMin",
+      "paceLoafStartMin", "approvalFlickerMin", "summaryEntrySec", "boardTtlSec",
+      "dblAction", "approvalAction", "runningAction", "errorAction", "doneAction",
+      "scale",
+    ]);
+    expect(DASH_BOOL_KEYS).toHaveLength(4);
+    expect(DASH_NUM_ROWS).toHaveLength(8);
+    for (const k of DASH_NUM_ROWS) expect(NUM_KEYS).toContain(k); // 显示顺序独立于钳制表，键集必须一致
+  });
+  it("isBadNumValue：空串/非法串/null 为无效（Number('')=0 是有限数，空串必须先判）", () => {
+    expect(isBadNumValue("")).toBe(true);
+    expect(isBadNumValue("abc")).toBe(true);
+    expect(isBadNumValue(null)).toBe(true);
+    expect(isBadNumValue(undefined)).toBe(true); // Number(undefined)=NaN 兜底
+    expect(isBadNumValue("12")).toBe(false);
+    expect(isBadNumValue("0")).toBe(false); // 0=关 是合法值
+    expect(isBadNumValue(0)).toBe(false);
+    expect(isBadNumValue(12.5)).toBe(false);
+  });
+  it("buildSavePatch 根因修复：数字草稿（字符串）提交为 Number，不再被 z.number() 静默丢配", () => {
+    const draft = { ...CFG_DEFAULT, boardTtlSec: "30", dayLimitTokens: "5000" } as DraftConfig;
+    const patch = buildSavePatch(draft, CFG_DEFAULT);
+    expect(patch.boardTtlSec).toBe(30);
+    expect(patch.dayLimitTokens).toBe(5000);
+    expect(typeof patch.boardTtlSec).toBe("number"); // v1.4.0 根因：字符串直写被宿主 schema 拒绝
+    expect(Object.keys(patch).sort()).toEqual(["boardTtlSec", "dayLimitTokens"]); // 仅变更键入 patch
+  });
+  it("buildSavePatch：NUM_RANGE 钳制 + 非数字键透传；布尔/动作/缩放走原值", () => {
+    const draft = {
+      ...CFG_DEFAULT,
+      paceIntenseEvents: "99999", // 越界 → 钳到 1000
+      summaryEntrySec: "3", // 下越界 → 钳到 5
+      talkative: false,
+      muted: true,
+      gravity: false,
+      doneAction: "review",
+      scale: 1.25,
+    } as DraftConfig;
+    const patch = buildSavePatch(draft, CFG_DEFAULT);
+    expect(patch.paceIntenseEvents).toBe(1000);
+    expect(patch.summaryEntrySec).toBe(5);
+    expect(patch.talkative).toBe(false);
+    expect(patch.muted).toBe(true);
+    expect(patch.doneAction).toBe("review");
+    expect(patch.scale).toBe(1.25);
+  });
+  it("isDraftDirty：String 口径比对——草稿 '12' vs 已存 12 不算脏；真实差异才算", () => {
+    expect(isDraftDirty({ ...CFG_DEFAULT }, CFG_DEFAULT)).toBe(false);
+    expect(isDraftDirty({ ...CFG_DEFAULT, paceLongrunMin: "3" } as DraftConfig, CFG_DEFAULT)).toBe(false);
+    expect(isDraftDirty({ ...CFG_DEFAULT, paceLongrunMin: "4" } as DraftConfig, CFG_DEFAULT)).toBe(true);
+    expect(isDraftDirty({ ...CFG_DEFAULT, ttsEnabled: true } as DraftConfig, CFG_DEFAULT)).toBe(true);
+    expect(isDraftDirty({ ...CFG_DEFAULT, scale: 0.75 } as DraftConfig, CFG_DEFAULT)).toBe(true);
+  });
+});
+
 describe("configStore × settings scope（写后回读 + 冲突重试）", () => {
   it("scope.set 冲突吞写后，verifyWrite 用真实 describe + HTTP 直写兜底", async () => {
     const { createConfigStore } = await import("../src/client/config");
@@ -424,7 +491,7 @@ describe("i18n 字典完整性", () => {
     expect(t("rpc.pet-exists", { name: "abc" })).toBe("Pet already exists: abc");
     setLang("zh");
   });
-  it("dash.* 效率看板键 zh/en 成对、47 键在位、五口径名词逐字（行为不变量）", () => {
+  it("dash.* 效率看板键 zh/en 成对、60 键在位、五口径名词逐字（行为不变量）", () => {
     const expectedDash = [
       "dash.today", "dash.requestInput", "dash.hit", "dash.cacheHit", "dash.output",
       "dash.yourInput", "dash.estimateSuffix", "dash.withSubagents", "dash.sessionReq",
@@ -441,7 +508,13 @@ describe("i18n 字典完整性", () => {
       "dash.toolTotal", "dash.durMin", "dash.durSec", "dash.durMs", "dash.noSessions",
       // Task 8 标题闪烁：页外召集文本（spec 6.3；document.title 每秒轮换）
       "dash.flickerTitle",
+      // Task 9 设置卡 12 键标签（草稿行）
+      "dash.cfg.paceEnabled", "dash.cfg.usageEnabled", "dash.cfg.summaryEnabled", "dash.cfg.ttsEnabled",
+      "dash.cfg.dayLimitTokens", "dash.cfg.milestoneUnit", "dash.cfg.paceIntenseEvents",
+      "dash.cfg.paceLongrunMin", "dash.cfg.paceLoafStartMin", "dash.cfg.approvalFlickerMin",
+      "dash.cfg.summaryEntrySec", "dash.cfg.boardTtlSec",
     ];
+    expect(expectedDash).toHaveLength(60); // 标题计数防再次失真（原 47 系陈旧值）
     const zhDash = dictKeys("zh").filter((k) => k.startsWith("dash.")).sort();
     expect(zhDash).toEqual([...expectedDash].sort());
     const en = new Set(dictKeys("en"));
@@ -460,12 +533,19 @@ describe("i18n 字典完整性", () => {
     expect(t("dash.countRunning")).toBe("运行");
     expect(t("dash.countDone")).toBe("完成");
     expect(t("dash.request")).toBe("请求");
+    expect(t("dash.unsaved")).toBe("有未保存更改");
+    expect(t("dash.saved")).toBe("已保存 ✓");
+    expect(t("dash.cfg.paceEnabled")).toBe("节奏档位");
+    expect(t("dash.cfg.dayLimitTokens")).toBe("日 token 阈值(0=关)");
+    expect(t("dash.cfg.approvalFlickerMin")).toBe("审批闪烁(分,0=关)");
     setLang("en");
     expect(t("dash.requestInput")).toBe("Request input");
     expect(t("dash.withSubagents")).toBe("incl. subagents");
     expect(t("dash.invalidNums", { n: 2 })).toBe("2 invalid value(s)");
     expect(t("dash.tier.intense")).toBe("Intense");
     expect(t("dash.tier.loaf4")).toBe("Loafing·Dried fish");
+    expect(t("dash.cfg.ttsEnabled")).toBe("TTS speech");
+    expect(t("dash.cfg.boardTtlSec")).toBe("Board stay (sec)");
     setLang("zh");
   });
   it("dash.tier.* zh 与宿主 PACE_LABELS 逐字节一致（表盘标签按 tier 客户端查表，宿主 label 仅兜底）", () => {
