@@ -1,5 +1,7 @@
 // TrendChart.tsx — v2.2 共用趋势图（spec R5 复刻 Codex++ 形态：三横网格线+蓝紫渐变折线/面积+数据点）。
-// 基础版无交互（Board sparkline 行）；Interactive 版带 hover tooltip（L3 大看板专用，Task 12 内联实现，不预建）。
+// 基础版无交互（Board sparkline 行）；hover tooltip 由 L3 大看板（Task 12 DashboardPanel.TooltipLayer）外叠实现。
+// idPrefix（Task 12 评审裁定）：渐变 id 曾为静态 `dyn-pet-trend-g`——document 级 url(#id) 在两图同挂时
+// 全部解析到首个实例。可选 idPrefix 逐实例去重（默认值保持 Board 用法逐字节不变）；几何零改动。
 import type { ReactElement } from "react";
 
 const LINE_GRAD = ["#3BA7FF", "#8D6BFF"];
@@ -27,7 +29,7 @@ function pathOf(pts: { x: number; y: number }[], smooth: boolean): string {
   return d;
 }
 
-export function TrendChart(props: { points: { label: string; value: number }[]; width: number; height: number; showLabels?: boolean }): ReactElement | null {
+export function TrendChart(props: { points: { label: string; value: number }[]; width: number; height: number; showLabels?: boolean; idPrefix?: string }): ReactElement | null {
   const { points, width, height } = props;
   if (!points || points.length < 2) return null;
   const padL = 6, padR = 6, padT = 8, padB = props.showLabels ? 16 : 6;
@@ -40,7 +42,7 @@ export function TrendChart(props: { points: { label: string; value: number }[]; 
   const line = pathOf(pts, true);
   const baseline = (padT + innerH).toFixed(1);
   const area = `${line} L ${pts[pts.length - 1].x.toFixed(1)} ${baseline} L ${pts[0].x.toFixed(1)} ${baseline} Z`;
-  const gid = "dyn-pet-trend-g";
+  const gid = props.idPrefix ?? "dyn-pet-trend-g";
   return (
     <svg viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", height: "auto", display: "block" }} role="img">
       <defs>

@@ -20,7 +20,8 @@ import {
   DASH_BOOL_KEYS, DASH_NUM_ROWS, SETTINGS_ALL_KEYS,
   buildSavePatch, isBadNumValue, isDraftDirty, type DraftConfig,
 } from "../src/client/settingsdraft";
-import { fmtTokens, shortModel } from "../src/client/format";
+import { fmtPct, fmtTokens, shortModel } from "../src/client/format";
+import { hitDeltaText, hourPoints, toolsMetrics, viewWindow, weekHit } from "../src/client/DashboardPanel";
 import { lastN } from "../src/client/TrendChart";
 import { boardRows, fmtDur, fmtLongest } from "../src/client/boardrows";
 import { KNOWN_RPC_CODES, PetError, isPetRpcError } from "../src/client/errors";
@@ -521,8 +522,15 @@ describe("i18n 字典完整性", () => {
       "dash.detail",
       // Task 11 黑板加料（R4/R10）：sparkline 标签 / 模型行 / 等余量 / 完整看板入口行
       "dash.trend7", "dash.models", "dash.moreN", "dash.openPanel",
+      // Task 12 L3 大看板（R5/R9）：标题/四选项卡/hero/周命中/趋势卡/工具卡/空态/区间钳制
+      "dash.panelTitle", "dash.tab.5h", "dash.tab.7d", "dash.tab.30d", "dash.tab.custom",
+      "dash.heroTotal", "dash.weekHit", "dash.trendTitle", "dash.loading", "dash.peak",
+      "dash.tools", "dash.noData", "dash.rangeClamp",
+      // Task 12 五口径网格 + 2×2 工具格标签（R5 名词序：用户输入/产出/请求输入(全文累计)/缓存命中/命中率/请求次数/数据截止）
+      "dash.g.userEst", "dash.g.output", "dash.g.requestTotal", "dash.g.cacheRead", "dash.g.hitPct",
+      "dash.g.requests", "dash.g.asOf", "dash.g.toolCalls", "dash.g.toolAvg", "dash.g.toolTopCount", "dash.g.toolTopDur",
     ];
-    expect(expectedDash).toHaveLength(68); // 标题计数防再次失真（原 47 系陈旧值；Task9 警报三键 +3；Task10 钻取按钮 +1；Task11 黑板加料四键 +4）
+    expect(expectedDash).toHaveLength(92); // 标题计数防再次失真（原 47 系陈旧值；Task9 警报三键 +3；Task10 钻取按钮 +1；Task11 黑板加料四键 +4；Task12 大看板 24 键 +24）
     const zhDash = dictKeys("zh").filter((k) => k.startsWith("dash.")).sort();
     expect(zhDash).toEqual([...expectedDash].sort());
     const en = new Set(dictKeys("en"));
@@ -881,6 +889,123 @@ describe("v2.2 board extra rows i18n (Task11)", () => {
     expect(t("dash.models")).toBe("Models");
     expect(t("dash.moreN", { n: 2 })).toBe("+2");
     expect(t("dash.openPanel")).toBe("Open full dashboard");
+    setLang("zh");
+  });
+});
+
+// ---- Task 12：L3 大看板纯函数（R5/R9）。TDD：本组测试先于实现写入并确认失败 ----
+// 数据注（Task 12 预裁定）：2026-09-11 为周五（锚点日）。周界裁定 = 周一为一周之始的日历周，
+// 锚点取快照内最新一天（数据驱动，纯函数不读时钟）：
+//   本周(0) = 2026-09-07(一)…2026-09-11(五)；上周(1) = 2026-08-31(一)…2026-09-06(日)。
+describe("v2.2 viewWindow (Task12 选项卡→窗口)", () => {
+  it("maps tabs to hour/day windows", () => {
+    expect(viewWindow("5h")).toEqual({ kind: "hours", n: 5 });
+    expect(viewWindow("7d")).toEqual({ kind: "days", n: 7 });
+    expect(viewWindow("30d")).toEqual({ kind: "days", n: 30 });
+    expect(viewWindow("custom")).toEqual({ kind: "days", n: 30 }); // custom 实际区间由 apiGetRange(from,to) 决定，此处仅兜底口径
+  });
+});
+
+describe("v2.2 fmtPct (Task12 (x*100).toFixed(1)+'%'，入参为 0-1 分数)", () => {
+  it("formats fraction to percent with 1 decimal", () => {
+    expect(fmtPct(0.71428)).toBe("71.4%");
+    expect(fmtPct(0)).toBe("0.0%");
+    expect(fmtPct(1)).toBe("100.0%");
+  });
+});
+
+describe("v2.2 weekHit/hitDeltaText (Task12 周一始日历周，锚=快照最新日；返回 0-1 分数供 fmtPct)", () => {
+  // [key, requestTotal(请求输入口径), cacheRead]；宿主 hitRate 为 0-1 分数（分母 0 记 0）
+  const trend = {
+    days: [
+      { key: "2026-08-31", requestTotal: 100, cacheRead: 50 }, // 上周一
+      { key: "2026-09-01", requestTotal: 100, cacheRead: 25 }, // 上周二
+      { key: "2026-09-07", requestTotal: 200, cacheRead: 200 }, // 本周一
+      { key: "2026-09-08", requestTotal: 0, cacheRead: 0 }, // 本周二：分母 0，不影响聚合
+      { key: "2026-09-10", requestTotal: 100, cacheRead: 50 }, // 本周四
+      { key: "2026-09-11", requestTotal: 100, cacheRead: 75 }, // 锚点日（本周五）
+    ],
+  };
+  it("aggregates ΣcacheRead/ΣrequestTotal within Mon-start calendar weeks", () => {
+    expect(weekHit(trend as never, 0)).toBeCloseTo(325 / 400, 6); // 本周 9/07+9/10+9/11（9/08 分母 0 不计分子权重）
+    expect(weekHit(trend as never, 1)).toBeCloseTo(75 / 200, 6); // 上周 8/31+9/01
+  });
+  it("hitDeltaText formats ±pt（百分点差）", () => {
+    expect(hitDeltaText(trend as never)).toBe("+43.8pt"); // (0.8125-0.375)*100
+  });
+  it("null/空快照 → 0 / ±0.0pt；缺 hitPct 字段不参与（聚合只用原始分账）", () => {
+    expect(weekHit(null, 0)).toBe(0);
+    expect(weekHit({ days: [] } as never, 1)).toBe(0);
+    expect(hitDeltaText(null)).toBe("±0.0pt");
+  });
+});
+
+describe("v2.2 hourPoints (Task12 5h=最近 5 个「完整」整点桶，排除进行中小时)", () => {
+  const hours = Array.from({ length: 24 }, (_, h) => ({
+    key: `2026-09-11T${String(h).padStart(2, "0")}`,
+    dayTotal: h * 10,
+    requestTotal: 0,
+    requestCount: 0,
+  }));
+  it("5 buckets ending at last complete hour, wraps past midnight", () => {
+    const pts = hourPoints(hours as never, 3); // 当前 03 点（进行中）→ 完整桶 22,23,0,1,2
+    expect(pts.map((p) => p.label)).toEqual(["22:00", "23:00", "00:00", "01:00", "02:00"]);
+    expect(pts.map((p) => p.value)).toEqual([220, 230, 0, 10, 20]);
+  });
+  it("hour buckets carry no hitPct（小时桶无命中率，tooltip 省略该段）", () => {
+    expect(hourPoints(hours as never, 12).every((p) => p.hitPct === undefined)).toBe(true);
+  });
+  it("null/缺桶 → 0 值容错且仍出 5 点", () => {
+    expect(hourPoints(null, 5)).toHaveLength(5);
+    expect(hourPoints(null, 5)[0]).toMatchObject({ label: "00:00", value: 0 });
+    expect(hourPoints(hours as never, 0)[0]).toMatchObject({ label: "19:00", value: 190 }); // 跨午夜回绕
+  });
+});
+
+describe("v2.2 toolsMetrics (Task12 2×2 工具格：调用总数/平均耗时/Top 工具次数/Top 工具总耗时)", () => {
+  it("sums calls, avg=dur/calls, top = max-count tool (并列取先)", () => {
+    const m = toolsMetrics([{ name: "Bash", count: 3, durMs: 90000 }, { name: "Read", count: 5, durMs: 4000 }]);
+    expect(m).toEqual({ calls: 8, avgMs: 94000 / 8, topCount: 5, topDurMs: 4000 });
+    const tie = toolsMetrics([{ name: "A", count: 2, durMs: 10 }, { name: "B", count: 2, durMs: 20 }]);
+    expect(tie.topDurMs).toBe(10); // 并列保序取首个
+  });
+  it("zero calls → avg 0；null/非数组容错", () => {
+    expect(toolsMetrics([])).toEqual({ calls: 0, avgMs: 0, topCount: 0, topDurMs: 0 });
+    expect(toolsMetrics(null)).toEqual({ calls: 0, avgMs: 0, topCount: 0, topDurMs: 0 });
+  });
+});
+
+// ---- Task 12：大看板 i18n 键（R5/R9；tab.* 动态查表 `dash.tab.${x}`）----
+describe("v2.2 dashboard panel i18n (Task12)", () => {
+  it("tabs/hero/grid/weekHit/rangeClamp zh/en 成对且插值正确", () => {
+    setLang("zh");
+    expect(t("dash.panelTitle")).toBe("用量看板");
+    expect(t("dash.tab.5h")).toBe("5小时");
+    expect(t("dash.tab.7d")).toBe("7日");
+    expect(t("dash.tab.30d")).toBe("30日");
+    expect(t("dash.tab.custom")).toBe("自定义");
+    expect(t("dash.heroTotal", { range: "7日" })).toBe("7日 Token 合计");
+    expect(t("dash.g.userEst")).toBe("用户输入");
+    expect(t("dash.g.requestTotal")).toBe("请求输入(全文累计)");
+    expect(t("dash.g.hitPct")).toBe("命中率");
+    expect(t("dash.g.asOf")).toBe("数据截止");
+    expect(t("dash.g.toolCalls")).toBe("调用总数");
+    expect(t("dash.g.toolAvg")).toBe("平均耗时");
+    expect(t("dash.g.toolTopCount")).toBe("Top 工具次数");
+    expect(t("dash.g.toolTopDur")).toBe("Top 工具总耗时");
+    expect(t("dash.trendTitle")).toBe("用量趋势");
+    expect(t("dash.peak", { v: "1.2万" })).toBe("峰值 1.2万");
+    expect(t("dash.weekHit", { a: "81.3%", b: "37.5%", d: "+43.8pt" })).toBe("本周命中 81.3%（上周 37.5% · +43.8pt）");
+    expect(t("dash.rangeClamp")).toBe("已截断为最近 31 天");
+    expect(t("dash.tools")).toBe("工具");
+    expect(t("dash.noData")).toBe("暂无数据");
+    setLang("en");
+    expect(t("dash.panelTitle")).toBe("Usage dashboard");
+    expect(t("dash.tab.custom")).toBe("Custom");
+    expect(t("dash.heroTotal", { range: "7d" })).toBe("7d token total");
+    expect(t("dash.g.requestTotal")).toBe("Request input (cumulative)");
+    expect(t("dash.rangeClamp")).toBe("Clamped to last 31 days");
+    expect(t("dash.tools")).toBe("Tools");
     setLang("zh");
   });
 });
