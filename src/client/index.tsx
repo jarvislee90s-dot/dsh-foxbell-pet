@@ -7,7 +7,7 @@ import { Pet } from "./Pet";
 import { PetToggle } from "./PetToggle";
 import { SettingsCard } from "./SettingsCard";
 import { DialogHost } from "./dialogs/DialogHost";
-import { appStore, petStore, reportVisible } from "./store";
+import { appStore, petStore, reportVisible, schedulePoll } from "./store";
 import { adoptStyles } from "./styles";
 
 interface SlotsLike {
@@ -68,6 +68,10 @@ export function apply(ctx: ClientCtx): void {
   adoptStyles();
   reportVisible(petStore.visible);
   appStore.start();
+  // P4：页签显隐切换立刻重排轮询节奏（可见回 1.5s / 隐藏降 5s）；无 document 环境（TUI/测试）守卫
+  if (typeof document !== "undefined") {
+    document.addEventListener("visibilitychange", schedulePoll);
+  }
 
   // settingsScope（rc.1 仍在）：配置双后端接线；不在场时纯 localStorage（v1.3.0 语义）
   const settingsScope = ctx.get("settingsScope") as

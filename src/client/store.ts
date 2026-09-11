@@ -1,5 +1,5 @@
-// store.ts — 客户端全局单例：宿主 /state 轮询（1.5s 维持）、petStore 显隐、cfgStore、
-// 对话框开关、激活宠物运行时（VoicePlayer 热替换）。
+// store.ts — 客户端全局单例：宿主 /state 轮询（P3 since 短路；可见 1.5s / 隐藏 5s 降频 P4）、
+// petStore 显隐、cfgStore、对话框开关、激活宠物运行时（VoicePlayer 热替换）。
 // 轮询与显隐解耦：隐藏宠物时仍轮询（v1.3.0 语义），但语音线整条不生效（playVoice 闸门）。
 import { createConfigStore, loadVisible, saveVisible, type ConfigStore, type PetConfig } from "./config";
 import { apiGet, ROUTE_PREFIX, type StateSnapshot, type VoiceSnapshotEntry } from "./api";
@@ -11,6 +11,8 @@ export const STATE_URL = `${ROUTE_PREFIX}/state`;
 export const ACK_URL = `${ROUTE_PREFIX}/ack`;
 export const DIAG_URL = `${ROUTE_PREFIX}/client-diag`;
 export const POLL_INTERVAL_MS = 1500;
+/** P4 页面不可见时轮询降频间隔（visibilitychange 由 index.tsx 注册重排） */
+export const POLL_INTERVAL_HIDDEN_MS = 5000;
 
 export const reportVisible = (v: boolean): void => {
   try { fetch(`${DIAG_URL}?visible=${v ? "1" : "0"}`).catch(() => {}); } catch { /* ignore */ }
@@ -71,9 +73,30 @@ interface AppState {
 
 const listeners = new Set<() => void>();
 const state: AppState = { snapshot: null, runtime: { ...FOXBELL_RUNTIME } };
-let pollTimer: ReturnType<typeof setInterval> | null = null;
+let pollTimer: ReturnType<typeof setTimeout> | null = null;
 let lastSeq: number | null = null;
+let lastRev: string | null = null; // P3：上轮全量快照修订号；仅全量路径更新，unchanged 响应不改写
 let loadedKey = ""; // `${id}#${rev}` — 激活宠物或清单修订变化才重建 VoicePlayer
+
+/** P3：unchanged 响应仅合并 ages（行序与全量 projects 一致），其余沿用旧快照。导出供测试。 */
+export function mergeUnchanged(cur: StateSnapshot, res: { rev: string; unchanged: true; ages: string[]; seq: number }): StateSnapshot {
+  const projects = (cur.projects || []).map((p, i) => ({ ...p, age: (res.ages && res.ages[i]) || p.age }));
+  return { ...cur, seq: res.seq, rev: res.rev, projects };
+}
+
+/** P4 可变间隔调度：立即拉一次，其后每轮按当轮页面可见性选间隔（可见 1.5s / 隐藏 5s）。
+ *  visibilitychange 时由 index.tsx 重入以立刻切换节奏（node 测试环境无 document，读取处全程守卫）。 */
+export const schedulePoll = (): void => {
+  if (pollTimer !== null) { clearTimeout(pollTimer); pollTimer = null; }
+  void pollOnce();
+  const hidden = typeof document !== "undefined" && document.hidden;
+  pollTimer = setTimeout(function tick() {
+    void pollOnce().finally(() => {
+      const h = typeof document !== "undefined" && document.hidden;
+      pollTimer = setTimeout(tick, h ? POLL_INTERVAL_HIDDEN_MS : POLL_INTERVAL_MS);
+    });
+  }, hidden ? POLL_INTERVAL_HIDDEN_MS : POLL_INTERVAL_MS);
+};
 
 export const appStore = {
   getSnapshot: () => state.snapshot,
@@ -86,12 +109,10 @@ export const appStore = {
   /** 手动触发一次拉取（对话框落盘操作后即时刷新） */
   refresh() { void pollOnce(); },
   start() {
-    if (pollTimer !== null) return;
-    void pollOnce();
-    pollTimer = setInterval(() => { void pollOnce(); }, POLL_INTERVAL_MS);
+    schedulePoll();
   },
   stop() {
-    if (pollTimer !== null) { clearInterval(pollTimer); pollTimer = null; }
+    if (pollTimer !== null) { clearTimeout(pollTimer); pollTimer = null; }
   },
   /** 设置 scope 接线（settingsScope 不在场时静默，纯 localStorage 后端） */
   attachSettings(scope: SettingsScopeLike | null) {
@@ -127,17 +148,25 @@ function entriesFromSnapshot(voices: VoiceSnapshotEntry[]): VoiceEntry[] {
   }));
 }
 
-/** 单次轮询（导出供测试驱动；生产由 start() 的 1.5s 定时器调用） */
+/** 单次轮询（导出供测试驱动；生产由 schedulePoll 的可变间隔定时器调用） */
 export async function pollOnce(): Promise<void> {
   let snap: StateSnapshot;
   try {
     // ?pet= 仅为宿主无 settings 服务时的降级提示（宿主白名单校验；settings 在场时被忽略）
     const hint = cfgStore.getSnapshot().activePetId;
-    snap = await apiGet<StateSnapshot>(`/state?pet=${encodeURIComponent(hint)}`);
+    // P3 since 短路：携带上轮全量 rev，宿主未变时仅回 ages，省全量快照序列化
+    const since = lastRev !== null ? `&since=${encodeURIComponent(lastRev)}` : "";
+    snap = await apiGet<StateSnapshot>(`/state?pet=${encodeURIComponent(hint)}${since}`);
   } catch {
     return; // 宿主不在场/网络抖动：静默，下一轮再试
   }
   if (!snap || typeof snap.seq !== "number") return;
+  if ((snap as { unchanged?: boolean }).unchanged === true) {
+    state.snapshot = mergeUnchanged(state.snapshot!, snap as never);
+    appStore.emit();
+    return;
+  }
+  lastRev = typeof snap.rev === "string" ? snap.rev : null;
   state.snapshot = snap;
 
   // 激活宠物热替换：id 或清单修订变化才重建（防每轮轮询重载音频）

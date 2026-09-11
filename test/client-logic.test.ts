@@ -24,6 +24,7 @@ import { fmtTokens } from "../src/client/format";
 import { boardRows, fmtDur, fmtLongest } from "../src/client/boardrows";
 import { KNOWN_RPC_CODES, PetError, isPetRpcError } from "../src/client/errors";
 import { petErrMsg, type DashboardSummary, type ProjectCard } from "../src/client/api";
+import { mergeUnchanged, POLL_INTERVAL_HIDDEN_MS, POLL_INTERVAL_MS } from "../src/client/store";
 // 宿主 ESM 纯函数（allowJs:false 无声明；vitest 运行时直解）——用于客户端/宿主逐值恒等契约校验
 // @ts-expect-error 宿主 JS 模块无类型声明
 import { formatTokens as hostFormatTokens, PACE_LABELS as HOST_PACE_LABELS, summarize as hostSummarize } from "../src/host/dashboard.js";
@@ -715,5 +716,33 @@ describe("旧配置迁移完整回环（R2 边界自查 3e）", () => {
     expect(junk.scale).toBe(1);
     expect(junk.activePetId).toBe("foxbell");
     expect(junk.doneAction).toBe("jumping");
+  });
+});
+
+describe("v2.2 P3 unchanged merge", () => {
+  it("merges ages into current snapshot and keeps rest", () => {
+    const snap = { seq: 5, rev: "R1", projects: [{ id: "a", age: "1s" }, { id: "b", age: "2s" }] } as any;
+    const out = mergeUnchanged(snap, { rev: "R1", unchanged: true, ages: ["9s", "8s"], seq: 5 });
+    expect(out.projects[0].age).toBe("9s");
+    expect(out.projects[1].age).toBe("8s");
+    expect(out.rev).toBe("R1");
+  });
+  it("ages 短于 projects 时缺位回落原 age；seq/rev 随响应刷新，其余字段原样保留", () => {
+    const snap = {
+      seq: 5, rev: "R1", runningSessions: 2, dashboard: { tier: "active" },
+      projects: [{ id: "a", age: "1s" }, { id: "b", age: "2s" }, { id: "c", age: "3s" }],
+    } as any;
+    const out = mergeUnchanged(snap, { rev: "R2", unchanged: true, ages: ["7s"], seq: 6 });
+    expect(out.projects[0].age).toBe("7s");
+    expect(out.projects[1].age).toBe("2s"); // ages 缺位 → 原值兜底
+    expect(out.projects[2].age).toBe("3s");
+    expect(out.seq).toBe(6);
+    expect(out.rev).toBe("R2");
+    expect(out.runningSessions).toBe(2); // 非 ages 字段沿用旧快照
+    expect(out.dashboard).toEqual({ tier: "active" });
+  });
+  it("轮询间隔常量：可见 1.5s / 不可见 5s（P4 降频）", () => {
+    expect(POLL_INTERVAL_MS).toBe(1500);
+    expect(POLL_INTERVAL_HIDDEN_MS).toBe(5000);
   });
 });
