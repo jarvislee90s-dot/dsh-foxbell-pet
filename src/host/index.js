@@ -70,22 +70,44 @@ export const Config = z.object({
 export const inject = ['webServer', 'fs', 'agents', 'sessions', 'sessionTitle']
 
 // ---- v2.2 P2：宠物目录/清单 mtime 指纹缓存（spec R1，/state 1.5s 轮询降 IO）----
-// petsDirCache：root 目录 mtime 指纹 → listPets 重扫仅在根目录条目增删后发生；
-// manifestCache：per-dir manifest.json mtime 指纹 → 重读仅在清单被改写后发生。
-// 失效语义（无需路由侧显式失效）：导入 finalize/删除/改名均 rename PETS_ROOT 子目录
-// （父目录 mtime 变）→ listPetsCached 下轮自动重扫；manifest 编辑路由原子重写
-// manifest.json（tmp+rename，mtime 变）→ loadManifestCached 下轮自动重载。
+// petsDirCache：root 目录 mtime 指纹 + 逐宠物 manifest.json mtime 指纹 → 每轮成本仅为
+// 1 次目录 stat + N 次 manifest stat（纯元数据），免去 readdir + N 次 readFileSync+parse。
+// 失效语义（无需路由侧显式失效）：
+//   - 导入 finalize/删除/改名均 rename PETS_ROOT 子目录（父目录 mtime 变）→ 下轮全量重扫；
+//   - manifest 编辑路由在 <PETS_ROOT>/<petId>/ 内 tmp+rename 原子重写 manifest.json —— 只动
+//     manifest 与宠物子目录的 mtime，PETS_ROOT 的 mtime 不变；而 listPets 会把 manifest 派生
+//     字段（displayName/description/…）烤进每个条目（scan.js），故 root 指纹命中时仍逐宠物
+//     复验 manifest.json mtime（含有无状态翻转），任一失配 → 全量重扫，清单编辑即时刷新。
 // 被删宠物的 manifestCache 残留行不可达且自愈（stat 失败 → mtime=-1 必失配 → 重载 null）。
-const petsDirCache = { root: null, mtimeMs: -1, pets: [] }
+const petsDirCache = { root: null, rootMtimeMs: -1, pets: [], manifestMtimes: new Map() }
+const manifestMtimeOf = (root, id) => {
+  try { return fs.statSync(path.join(root, id, MANIFEST_FILE)).mtimeMs } catch { return -1 }
+}
+const rescanPets = (root, rootMtimeMs) => {
+  const pets = listPets(root) // 先扫后记账：listPets 半途抛错时旧缓存保持原样（下轮重试）
+  const manifestMtimes = new Map()
+  for (const p of pets) manifestMtimes.set(p.id, manifestMtimeOf(root, p.id))
+  petsDirCache.rootMtimeMs = rootMtimeMs
+  petsDirCache.pets = pets
+  petsDirCache.manifestMtimes = manifestMtimes
+}
 const listPetsCached = (root) => {
-  if (petsDirCache.root !== root) { petsDirCache.root = root; petsDirCache.mtimeMs = -1 }
-  let mtime = -1
-  try { mtime = fs.statSync(root).mtimeMs } catch { return petsDirCache.mtimeMs === -1 ? [] : petsDirCache.pets }
-  if (mtime !== petsDirCache.mtimeMs) {
-    const pets = listPets(root) // 先扫后记账：listPets 半途抛错时旧缓存保持原样（下轮重试）
-    petsDirCache.mtimeMs = mtime
-    petsDirCache.pets = pets
+  if (petsDirCache.root !== root) {
+    petsDirCache.root = root
+    petsDirCache.rootMtimeMs = -1
+    petsDirCache.pets = []
+    petsDirCache.manifestMtimes = new Map()
   }
+  let rootMtime = -1
+  try { rootMtime = fs.statSync(root).mtimeMs } catch { return petsDirCache.rootMtimeMs === -1 ? [] : petsDirCache.pets }
+  let stale = rootMtime !== petsDirCache.rootMtimeMs
+  if (!stale) {
+    // root 指纹命中：清单编辑不移动 PETS_ROOT 的 mtime → 逐宠物复验 manifest.json
+    for (const p of petsDirCache.pets) {
+      if (manifestMtimeOf(root, p.id) !== petsDirCache.manifestMtimes.get(p.id)) { stale = true; break }
+    }
+  }
+  if (stale) rescanPets(root, rootMtime)
   return petsDirCache.pets
 }
 const manifestCache = new Map() // dir → { mtimeMs, manifest }
