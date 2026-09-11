@@ -55,24 +55,77 @@ export function dateKeyOf(ms) {
 const USAGE_KEYS = ['inputTokens', 'outputTokens', 'cacheReadTokens', 'cacheWriteTokens']
 export const zeroUsage = () => ({ inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 })
 
+/** 事件消息源路由（v2.2 R2）：assistant/message.data.message.source.{provider,model}；
+ *  缺失/非字符串 → null（记账归「未知」桶）。 */
+export function routeSource(ev) {
+  const src = ev && ev.data && ev.data.message && ev.data.message.source
+  if (!src || typeof src !== 'object') return null
+  const p = typeof src.provider === 'string' ? src.provider.trim() : ''
+  const m = typeof src.model === 'string' ? src.model.trim() : ''
+  return p && m ? { provider: p, model: m } : null
+}
+
+/** 整点桶键（本地时区）：YYYY-MM-DDTHH（与 dateKeyOf 同款 pad 拼接）。 */
+export function hourKeyOf(ms) {
+  const d = new Date(ms)
+  return dateKeyOf(ms) + 'T' + String(d.getHours()).padStart(2, '0')
+}
+
+const UNKNOWN_ROUTE = '未知'
+const routeBuckets = () => ({ inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, requestCount: 0 })
+
 export function foldUsage(evts) {
   const byDay = {}
+  const byHour = {}
+  const byRoute = {}
+  const byDayRoute = {}
   const grand = zeroUsage()
+  let requestCount = 0
   let lastKey = null
   let lastBuckets = null
   let lastDay = null
-  const apply = (b, day, sign) => {
+  let lastHour = null
+  let lastRoute = null
+  // 冲回后全零的壳桶就地摘除：同 (turn,step) 替换不留 0 值残桶（否则旧路由/小时/日以 0 壳污染切片）
+  const pruneIfEmpty = (parent, key) => {
+    const t = parent && parent[key]
+    if (!t) return
+    if (USAGE_KEYS.every((k) => !t[k]) && !t.requestCount) delete parent[key]
+  }
+  const apply = (b, day, hour, route, sign) => {
+    const d = byDay[day] || (byDay[day] = zeroUsage())
+    const h = byHour[hour] || (byHour[hour] = zeroUsage())
+    const r = byRoute[route] || (byRoute[route] = routeBuckets())
+    const dr = byDayRoute[day] || (byDayRoute[day] = {})
+    const rd = dr[route] || (dr[route] = routeBuckets())
     for (const k of USAGE_KEYS) {
       const v = (b[k] || 0) * sign
       grand[k] += v
-      const d = byDay[day] || (byDay[day] = zeroUsage())
       d[k] += v
+      h[k] += v
+      r[k] += v
+      rd[k] += v
+    }
+    r.requestCount += sign
+    rd.requestCount += sign
+    d.requestCount = (d.requestCount || 0) + sign
+    h.requestCount = (h.requestCount || 0) + sign
+    requestCount += sign
+    if (sign < 0) {
+      pruneIfEmpty(byRoute, route)
+      pruneIfEmpty(byDayRoute[day], route)
+      if (byDayRoute[day] && !Object.keys(byDayRoute[day]).length) delete byDayRoute[day]
+      pruneIfEmpty(byDay, day)
+      pruneIfEmpty(byHour, hour)
     }
   }
   for (const ev of Array.isArray(evts) ? evts : []) {
     const d = ev && ev.data
     if (!d) continue
-    if (ev.type === 'llm/retry-started') { lastKey = null; lastBuckets = null; continue }
+    if (ev.type === 'llm/retry-started') {
+      lastKey = null; lastBuckets = null; lastDay = null; lastHour = null; lastRoute = null
+      continue
+    }
     if (ev.type !== 'assistant/message' || !d.usage || typeof d.usage !== 'object') continue
     if (typeof ev.time !== 'number' || !Number.isFinite(ev.time)) continue // 无时间戳的样本无法归日，跳过（防 NaN 桶）
     const u = d.usage
@@ -80,11 +133,14 @@ export function foldUsage(evts) {
     for (const k of USAGE_KEYS) b[k] = typeof u[k] === 'number' && Number.isFinite(u[k]) && u[k] > 0 ? u[k] : 0
     const key = d.turn + ':' + d.step
     const day = dateKeyOf(ev.time)
-    if (key === lastKey && lastBuckets && lastDay) apply(lastBuckets, lastDay, -1)
-    apply(b, day, 1)
-    lastKey = key; lastBuckets = b; lastDay = day
+    const hour = hourKeyOf(ev.time)
+    const src = routeSource(ev)
+    const route = src ? src.provider + '/' + src.model : UNKNOWN_ROUTE
+    if (key === lastKey && lastBuckets && lastDay) apply(lastBuckets, lastDay, lastHour, lastRoute, -1)
+    apply(b, day, hour, route, 1)
+    lastKey = key; lastBuckets = b; lastDay = day; lastHour = hour; lastRoute = route
   }
-  return { byDay, grand }
+  return { byDay, byHour, byRoute, byDayRoute, grand, requestCount }
 }
 
 // ---------- 组件②：阈值阶梯与里程碑（跨阈值判定，天然一次性） ----------

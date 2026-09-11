@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { sessionEvents, estimateTokens, estimateUserTokensByDay, hitRate, blocksTextOf } from '../src/host/dashboard.js'
 import { derivePaceTier, DEFAULT_PACE, PACE_LABELS } from '../src/host/dashboard.js'
-import { foldUsage, dateKeyOf } from '../src/host/dashboard.js'
+import { foldUsage, dateKeyOf, hourKeyOf } from '../src/host/dashboard.js'
 import { evaluateAlerts, formatTokens } from '../src/host/dashboard.js'
 import { ageLabel, summarize } from '../src/host/dashboard.js'
 
@@ -226,5 +226,66 @@ describe('dashboard', () => {
     const zero = summarize([], null, 0)
     expect(zero.tokensText.includes('请求输入 0')).toBeTruthy()
     expect(zero.tokensText.includes('（缓存命中 0 · 0.0%）')).toBeTruthy()
+  })
+
+  // ---- v2.2 Task 1：byRoute / requestCount / byHour ----
+  const mkMsg = (turn, step, time, usage, source) => ({
+    type: 'assistant/message', time, data: { turn, step, usage, message: source ? { source } : undefined },
+  })
+  const U = (i, o, c) => ({ inputTokens: i, outputTokens: o, cacheReadTokens: c })
+
+  it('foldUsage routes usage by provider/model and counts settled samples', () => {
+    const evts = [
+      mkMsg(0, 0, 1000, U(100, 10, 0), { provider: 'p1', model: 'm1' }),
+      mkMsg(0, 1, 2000, U(50, 5, 20), { provider: 'p2', model: 'm2' }),
+    ]
+    const f = foldUsage(evts)
+    expect(f.requestCount).toBe(2)
+    expect(f.byRoute['p1/m1'].inputTokens).toBe(100)
+    expect(f.byRoute['p2/m2'].cacheReadTokens).toBe(20)
+    expect(f.byRoute['p1/m1'].requestCount).toBe(1)
+  })
+
+  it('foldUsage replacement moves usage between routes and decrements requestCount', () => {
+    const evts = [
+      mkMsg(0, 0, 1000, U(100, 10, 0), { provider: 'p1', model: 'm1' }),
+      mkMsg(0, 0, 3000, U(70, 7, 0), { provider: 'p2', model: 'm2' }), // 同 (turn,step) 替换
+    ]
+    const f = foldUsage(evts)
+    expect(f.requestCount).toBe(1)
+    expect(f.byRoute['p1/m1']).toBeUndefined()           // 旧路由账全部冲回
+    expect(f.byRoute['p2/m2'].inputTokens).toBe(70)
+    expect(f.byRoute['p2/m2'].requestCount).toBe(1)
+  })
+
+  it('foldUsage missing source goes to 未知 bucket', () => {
+    const f = foldUsage([mkMsg(0, 0, 1000, U(10, 1, 0), undefined)])
+    expect(f.byRoute['未知'].inputTokens).toBe(10)
+  })
+
+  it('foldUsage byHour buckets by calendar hour key', () => {
+    const t = new Date(2026, 8, 11, 14, 30, 0).getTime()
+    const f = foldUsage([mkMsg(0, 0, t, U(10, 1, 0), { provider: 'p', model: 'm' })])
+    expect(f.byHour['2026-09-11T14'].inputTokens).toBe(10)
+    expect(hourKeyOf(t)).toBe('2026-09-11T14')
+  })
+
+  it('foldUsage carries requestCount on day/hour buckets and byDayRoute cross-dimension', () => {
+    const t = new Date(2026, 8, 11, 14, 30, 0).getTime()
+    const f = foldUsage([
+      mkMsg(0, 0, t, U(10, 1, 0), { provider: 'p', model: 'm' }),
+      mkMsg(0, 1, t + 1000, U(20, 2, 0), { provider: 'q', model: 'n' }),
+    ])
+    expect(f.byDay['2026-09-11'].requestCount).toBe(2)
+    expect(f.byDayRoute['2026-09-11']['p/m'].inputTokens).toBe(10)
+    expect(f.byDayRoute['2026-09-11']['q/n'].inputTokens).toBe(20)
+    // 同 (turn,step) 替换：byDayRoute 同步冲回旧路由
+    const g = foldUsage([
+      mkMsg(0, 0, t, U(10, 1, 0), { provider: 'p', model: 'm' }),
+      mkMsg(0, 0, t + 1000, U(5, 1, 0), { provider: 'q', model: 'n' }),
+    ])
+    expect(g.byDayRoute['2026-09-11']['p/m']).toBeUndefined()
+    expect(g.byDayRoute['2026-09-11']['q/n'].inputTokens).toBe(5)
+    expect(g.byDay['2026-09-11'].requestCount).toBe(1)
   })
 })
