@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { sessionEvents, estimateTokens, estimateUserTokensByDay, hitRate, blocksTextOf } from '../src/host/dashboard.js'
 import { derivePaceTier, DEFAULT_PACE, PACE_LABELS } from '../src/host/dashboard.js'
-import { foldUsage, dateKeyOf, hourKeyOf } from '../src/host/dashboard.js'
+import { foldUsage, dateKeyOf, hourKeyOf, buildTrend, summarizeRange, foldToolsByDay } from '../src/host/dashboard.js'
 import { evaluateAlerts, formatTokens } from '../src/host/dashboard.js'
 import { ageLabel, summarize } from '../src/host/dashboard.js'
 
@@ -287,5 +287,55 @@ describe('dashboard', () => {
     expect(g.byDayRoute['2026-09-11']['p/m']).toBeUndefined()
     expect(g.byDayRoute['2026-09-11']['q/n'].inputTokens).toBe(5)
     expect(g.byDay['2026-09-11'].requestCount).toBe(1)
+  })
+
+  // ---- v2.2 Task 2：buildTrend / summarizeRange / foldToolsByDay ----
+  const fold1 = () => foldUsage([
+    mkMsg(0, 0, new Date(2026, 8, 11, 10, 0).getTime(), U(100, 40, 60), { provider: 'p', model: 'm1' }),
+  ])
+
+  it('buildTrend returns 14 ascending day buckets with zero-fill and derived fields', () => {
+    const now = new Date(2026, 8, 11, 15, 0).getTime()
+    const t = buildTrend([fold1()], now)
+    expect(t.days).toHaveLength(14)
+    expect(t.days[13].key).toBe('2026-09-11')
+    expect(t.days[13].dayTotal).toBe(200)
+    expect(t.days[13].requestTotal).toBe(160)
+    expect(t.days[13].hitPct).toBeCloseTo(0.375, 5) // 60/160
+    expect(t.days[13].requestCount).toBe(1)
+    expect(t.days[0].key).toBe('2026-08-29')
+    expect(t.days[0].dayTotal).toBe(0)
+  })
+
+  it('buildTrend returns 24 hour buckets for today only', () => {
+    const now = new Date(2026, 8, 11, 15, 0).getTime()
+    const t = buildTrend([fold1()], now)
+    expect(t.hours).toHaveLength(24)
+    expect(t.hours[10].requestTotal).toBe(160)
+    expect(t.hours[0].key).toBe('2026-09-11T00')
+    expect(t.hours[23].key).toBe('2026-09-11T23')
+  })
+
+  it('summarizeRange aggregates days/models/tools/userEst within [from, to]', () => {
+    const now = new Date(2026, 8, 11, 15, 0).getTime()
+    const f = fold1()
+    const tools = { byDay: { '2026-09-11': { bash: { count: 3, durMs: 1200 } } } }
+    const userEst = { '2026-09-11': 55 }
+    const r = summarizeRange([f], [tools], [userEst], '2026-09-10', '2026-09-11')
+    expect(r.days.map((d) => d.key)).toEqual(['2026-09-10', '2026-09-11'])
+    expect(r.totals.requestTotal).toBe(160)
+    expect(r.totals.userEst).toBe(55)
+    expect(r.models[0]).toMatchObject({ route: 'p/m1', provider: 'p', model: 'm1', requestTotal: 160 })
+    expect(r.tools[0]).toEqual({ name: 'bash', count: 3, durMs: 1200 })
+  })
+
+  it('foldToolsByDay counts tool calls and durations defensively', () => {
+    const evts = [
+      { type: 'tool/call', time: new Date(2026, 8, 11, 9).getTime(), data: { name: 'bash' } },
+      { type: 'tool/result', time: new Date(2026, 8, 11, 9).getTime() + 500, data: { name: 'bash', durationMs: 500 } },
+      { type: 'tool/call', time: new Date(2026, 8, 11, 9).getTime() + 600, data: {} }, // 无名 → 忽略
+    ]
+    const t = foldToolsByDay(evts)
+    expect(t.byDay['2026-09-11'].bash).toEqual({ count: 2, durMs: 500 })
   })
 })
