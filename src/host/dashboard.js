@@ -164,17 +164,17 @@ export function evaluateAlerts(prev, next, cfg, dateKey) {
   if (limit > 0) {
     const warn = limit * 0.8
     if (prev.dayTotal < warn && next.dayTotal >= warn) {
-      out.push({ id: 'day-warn' + day, kind: 'day-warn', text: '今日 token 已用 80% · ' + formatTokens(next.dayTotal) })
+      out.push({ id: 'day-warn' + day, kind: 'day-warn', reached: next.dayTotal, text: '今日 token 已用 80% · ' + formatTokens(next.dayTotal) })
     }
     if (prev.dayTotal < limit && next.dayTotal >= limit) {
-      out.push({ id: 'day-hit' + day, kind: 'day-hit', text: '今日 token 已达阈值 · ' + formatTokens(next.dayTotal) })
+      out.push({ id: 'day-hit' + day, kind: 'day-hit', reached: next.dayTotal, text: '今日 token 已达阈值 · ' + formatTokens(next.dayTotal) })
     }
   }
   const unit = cfg && cfg.milestoneUnit > 0 ? cfg.milestoneUnit : 0
   if (unit > 0) {
     const k = Math.floor(next.grandTotal / unit)
     if (k > 0 && Math.floor(prev.grandTotal / unit) < k) {
-      out.push({ id: 'milestone:' + k, kind: 'milestone', text: '里程碑：累计 ' + formatTokens(k * unit) + ' token' })
+      out.push({ id: 'milestone:' + k, kind: 'milestone', reached: k * unit, text: '里程碑：累计 ' + formatTokens(k * unit) + ' token' })
     }
   }
   return out

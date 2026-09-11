@@ -345,4 +345,11 @@ describe('dashboard', () => {
     const t = foldToolsByDay(evts)
     expect(t.byDay['2026-09-11'].bash).toEqual({ count: 1, durMs: 600 })
   })
+
+  it('evaluateAlerts emits structured reached for i18n assembly', () => {
+    const out = evaluateAlerts({ dayTotal: 0, grandTotal: 0 }, { dayTotal: 900, grandTotal: 0 }, { dayLimitTokens: 1000, milestoneUnit: 0 }, '2026-09-11')
+    expect(out[0]).toMatchObject({ kind: 'day-warn', reached: 900 })
+    const ms = evaluateAlerts({ dayTotal: 0, grandTotal: 0 }, { dayTotal: 0, grandTotal: 2_500_000 }, { dayLimitTokens: 0, milestoneUnit: 1_000_000 }, '2026-09-11')
+    expect(ms[0]).toMatchObject({ kind: 'milestone', reached: 2_000_000 })
+  })
 })
