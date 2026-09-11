@@ -2,7 +2,8 @@
 // 主页：🔊出声 / 💬语音字幕 / 🧲物理坠落（无语音/无字幕宠物对应行禁用带提示）
 //       ─ 📏大小（三档缩放）─ 🖱️双击 / 🔴红灯 / 🟡黄灯 / 🟥深红灯 / 🟢绿灯 五场景动作绑定（实时预览）
 //       ─ 🔁切换宠物（当前项打勾，点击即热切换）
-//       ─ 🏷今日用量（手动迷你条）─ 📊查看最近总结（小黑板）─ 🗂会话一览（色点列表子页，Task 7）
+//       ─ 🏷今日用量（手动迷你条）─ 📊查看最近总结（小黑板）─ 📈用量看板（L3 大看板，Task 13）
+//       ─ 🗂会话一览（色点列表子页，Task 7）
 //       ─ 🦊隐藏桌宠 ─ ℹ️关于
 import React, { useEffect } from "react";
 import { CFG_ACTIONS, CFG_SCALES, type PetAction, type PetConfig, type PetScale } from "./config";
@@ -42,6 +43,9 @@ export function PetMenu(props: {
   onMiniUsage(): void;
   /** 📊 查看最近总结：关菜单 + 开小黑板 manual（v1.4.0 boardOpen；Task 7） */
   onBoardSummary(): void;
+  /** 📈 用量看板：关菜单 + 打开 L3 大看板（v2.2 R6 钻取链 L1；layout 缺席时 openDashboardPanel
+   *  返回 false 静默降级——store.ts 闸门统一收口；Task 13） */
+  onOpenDashboard(): void;
   /** 🗂 会话一览点选：关菜单 + 跳会话（v1.4.0 SessionsPage onPick → onProjectClick；Task 7） */
   onSessionPick(p: ProjectCard): void;
   /** 会话一览列表（= 宿主 projects 全量快照，与源 list: projects 同口径；Task 7） */
@@ -195,6 +199,8 @@ export function PetMenu(props: {
         <div className="dyn-pet-menu-divider" />
         <div className="dyn-pet-menu-item" onClick={props.onMiniUsage}>{t("dash.menuUsage")}</div>
         <div className="dyn-pet-menu-item" onClick={props.onBoardSummary}>{t("dash.menuSummary")}</div>
+        {/* 📈 用量看板（Task 13 R6）：文案复用 dash.panelTitle（92 键 dash.* 精确集不扩容；图标行内拼装） */}
+        <div className="dyn-pet-menu-item" onClick={props.onOpenDashboard}>{"📈 " + t("dash.panelTitle")}</div>
         <div className="dyn-pet-menu-item" onClick={() => setPage("Sessions")}>{t("dash.menuSessions")}</div>
         <div className="dyn-pet-menu-item" onClick={props.onHide}>{t("menu.hide")}</div>
         <div className="dyn-pet-menu-item" onClick={() => setPage("About")}>{t("menu.about")}</div>

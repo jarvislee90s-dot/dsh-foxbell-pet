@@ -1,13 +1,17 @@
 // index.tsx — 客户端半入口（__ModuleLoader__ bundle，esbuild cjs + banner/footer 包装）。
 // 槽位：shell.overlay（宠物本体 + 对话框宿主）/ sidebar.footer.action（🦊 开关）/
-//       settings.plugin.item key='foxbell-pet'（设置卡，与宿主 installSection ns 配对）。
-// 防御式注入：slots/settingsScope/sessions 任一不在场时静默降级，不抛错、不影响宿主。
+//       settings.plugin.item key='foxbell-pet'（设置卡，与宿主 installSection ns 配对）/
+//       main key='foxbell-dashboard'（L3 用量大看板，Task 13）/
+//       sidebar.panellist id='foxbell-dashboard'（📊 入口，dashboardSidebarEntry 门控）。
+// 防御式注入：slots/settingsScope/layout 任一不在场时静默降级，不抛错、不影响宿主。
 import React from "react";
 import { Pet } from "./Pet";
 import { PetToggle } from "./PetToggle";
 import { SettingsCard } from "./SettingsCard";
 import { DialogHost } from "./dialogs/DialogHost";
-import { appStore, petStore, reportVisible, schedulePoll } from "./store";
+import { DashboardPanel } from "./DashboardPanel";
+import { appStore, cfgStore, PANEL_ID, petStore, reportVisible, schedulePoll, setPanelSwitcher } from "./store";
+import { t } from "./i18n";
 import { adoptStyles } from "./styles";
 
 interface SlotsLike {
@@ -106,6 +110,52 @@ export function apply(ctx: ClientCtx): void {
       () => React.createElement(SettingsCard),
     ),
   );
+
+  // ---- v2.2 R6（Task 13）：L3 大看板注册 + 钻取开关闸 + 侧栏入口门控 ----
+  // layout 服务（rc.2 api-catalog：ctx.layout.selectPanel(panelId)）：防御式获取（与 slots/settingsScope
+  // 同款 ctx.get ?? 属性直取双路）；缺席时不注入 switcher，openDashboardPanel 恒 false（调用方静默降级）。
+  const layout = (ctx.get("layout") ?? (ctx as unknown as { layout?: { selectPanel(id: string): void } }).layout) as
+    | { selectPanel(id: string): void }
+    | undefined;
+  if (layout && typeof layout.selectPanel === "function") {
+    setPanelSwitcher((id) => layout.selectPanel(id));
+  }
+
+  // main 是按 key（面板 id）派发的主列槽：宿主 layout.selectPanel('foxbell-dashboard') 时挂载 DashboardPanel
+  slots.inject("main", () =>
+    slots.register(
+      { name: "main", key: PANEL_ID },
+      () => React.createElement(DashboardPanel),
+    ),
+  );
+
+  // sidebar.panellist 入口受 dashboardSidebarEntry 门控（宿主 settings 同名键，默认关）：
+  // true 才注册、false 反注册；cfg 变化（scope 首次 ready/用户翻转）经既有 cfgStore 订阅重挂。
+  let sidebarEntryOff: (() => void) | null = null;
+  const syncSidebarEntry = () => {
+    const on = !!cfgStore.getSnapshot().dashboardSidebarEntry;
+    if (on && sidebarEntryOff === null) {
+      sidebarEntryOff = slots.inject("sidebar.panellist", () =>
+        slots.register(
+          { name: "sidebar.panellist", id: PANEL_ID, order: 200, label: t("dash.panelTitle") },
+          () => React.createElement("div", { className: "dyn-pet-sideicon", title: t("dash.panelTitle") }, "📊"),
+        ),
+      );
+    } else if (!on && sidebarEntryOff !== null) {
+      sidebarEntryOff();
+      sidebarEntryOff = null;
+    }
+  };
+  syncSidebarEntry();
+  const offCfg = cfgStore.subscribe(syncSidebarEntry);
+  // 清理：ctx.effect 在场则挂到模块生命周期（与 settingsScope attach 同款守卫）；
+  // 缺席时模块级常驻（Task 8 先例：visibilitychange 监听同样不反注册）
+  if (typeof ctx.effect === "function") {
+    ctx.effect(() => {
+      offCfg();
+      if (sidebarEntryOff !== null) { sidebarEntryOff(); sidebarEntryOff = null; }
+    });
+  }
 }
 
 // 模块级服务 inject：仅硬依赖 slots；timer/sessions/settingsScope 全部防御式 ctx.get

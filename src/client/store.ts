@@ -226,3 +226,15 @@ export function playDefaultAlertSound(): void {
 }
 
 export type { PetConfig };
+
+// ---- v2.2 R6：面板切换器（Task 13）——钻取链 L1(迷你条/菜单/黑板) → L3 大看板的统一开关闸。
+// index.tsx 在 apply() 时探测 ctx.layout.selectPanel 并注入；宿主 runner 缺 layout 服务时
+// openDashboardPanel 恒 false，调用方（PetMenu/Pet.tsx）静默降级为无操作。
+export const PANEL_ID = "foxbell-dashboard";
+let panelSwitcher: ((id: string) => void) | null = null;
+export function setPanelSwitcher(fn: ((id: string) => void) | null): void { panelSwitcher = fn; }
+export function openDashboardPanel(): boolean {
+  if (!panelSwitcher) { console.warn("[foxbell-pet] panel switcher unavailable"); return false; }
+  panelSwitcher(PANEL_ID);
+  return true;
+}

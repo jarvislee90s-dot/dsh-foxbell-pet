@@ -26,7 +26,10 @@ import { lastN } from "../src/client/TrendChart";
 import { boardRows, fmtDur, fmtLongest } from "../src/client/boardrows";
 import { KNOWN_RPC_CODES, PetError, isPetRpcError } from "../src/client/errors";
 import { petErrMsg, type DashboardSummary, type ProjectCard } from "../src/client/api";
-import { appStore, mergeUnchanged, POLL_INTERVAL_HIDDEN_MS, POLL_INTERVAL_MS, schedulePoll } from "../src/client/store";
+import {
+  appStore, mergeUnchanged, openDashboardPanel, PANEL_ID, POLL_INTERVAL_HIDDEN_MS, POLL_INTERVAL_MS,
+  schedulePoll, setPanelSwitcher,
+} from "../src/client/store";
 // 宿主 ESM 纯函数（allowJs:false 无声明；vitest 运行时直解）——用于客户端/宿主逐值恒等契约校验
 // @ts-expect-error 宿主 JS 模块无类型声明
 import { formatTokens as hostFormatTokens, PACE_LABELS as HOST_PACE_LABELS, summarize as hostSummarize } from "../src/host/dashboard.js";
@@ -1024,5 +1027,19 @@ describe("v2.2 clampRangeFrom (Task12 评审修复：31 天前端钳制决策)",
     // 8/12-8/31 共 20 天 + 9/1-9/11 共 11 天 = 恰 31 天
     expect(clampRangeFrom("2026-08-12", "2026-09-11")).toEqual({ from: "2026-08-12", clamped: false });
     expect(clampRangeFrom("2026-08-11", "2026-09-11")).toEqual({ from: "2026-08-12", clamped: true }); // 32 天
+  });
+});
+
+// ---- Task 13：panelSwitcher 纯逻辑（R6 钻取链闭合的开关闸）----
+// 无注入 → openDashboardPanel() 返回 false（调用方静默降级，console.warn）；
+// setPanelSwitcher 注入后 → true 且以 PANEL_ID 调用（index.tsx 注入 ctx.layout.selectPanel）。
+describe("v2.2 panel switcher (Task13)", () => {
+  it("returns false without switcher, true and calls after set", () => {
+    expect(PANEL_ID).toBe("foxbell-dashboard");
+    expect(openDashboardPanel()).toBe(false);
+    let called = "";
+    setPanelSwitcher((id) => { called = id; });
+    expect(openDashboardPanel()).toBe(true);
+    expect(called).toBe("foxbell-dashboard");
   });
 });

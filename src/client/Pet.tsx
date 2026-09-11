@@ -15,7 +15,7 @@ import {
 } from "./config";
 import { MIN_SPEECH_MS } from "./voices";
 import type { VoiceGroup } from "./validation";
-import { appStore, ackProject, cfgStore, petStore, playDefaultAlertSound, voicePlayer, type ActivePetRuntime } from "./store";
+import { appStore, ackProject, cfgStore, openDashboardPanel, petStore, playDefaultAlertSound, voicePlayer, type ActivePetRuntime } from "./store";
 import { apiPost, type ActivateResult, type GuardIssue, type PaceTier, type ProjectCard } from "./api";
 import { DOT_COLOR, DOT_HALO, lightOf, taskPoseOf } from "./statuscards";
 import { t, alertText, getLang } from "./i18n";
@@ -720,7 +720,7 @@ export function Pet(props: PetProps): React.ReactElement | null {
           mode={board.mode}
           ttlSec={cfg.boardTtlSec}
           onClose={closeBoard}
-          onOpenPanel={() => {}} // v2.2 R4 入口行占位（L3 大看板开板回调在 Task 13 落地时替换为真切换）
+          onOpenPanel={() => { closeBoard(); openDashboardPanel(); }} // v2.2 R6 入口行：关黑板 + 开 L3 大看板（钻取链 L2→L3；Task 13 落地真切换，layout 缺席时静默降级）
         />
       </div>
     );
@@ -871,6 +871,7 @@ export function Pet(props: PetProps): React.ReactElement | null {
             onSwitchPet={(id) => { closeMenu(); void switchTo(id); }}
             onMiniUsage={() => { closeMenu(); setMiniMode("manual"); }} // 🏷 今日用量：手动迷你条（源 miniOpen）
             onBoardSummary={() => { closeMenu(); openBoard("manual"); }} // 📊 查看最近总结：关菜单 + 开黑板（源 boardOpen）
+            onOpenDashboard={() => { closeMenu(); openDashboardPanel(); }} // 📈 用量看板：关菜单 + 开 L3 大看板（v2.2 R6；Task 13）
             onSessionPick={(p) => { closeMenu(); onProjectClick(p); }} // 🗂 会话一览点选：关菜单 + 跳会话（源 SessionsPage onPick）
             sessions={snap?.projects ?? []}
           />

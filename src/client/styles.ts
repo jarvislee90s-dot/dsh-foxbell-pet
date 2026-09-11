@@ -220,6 +220,8 @@ ${MINI_DETAIL_CSS}
 .dyn-pet-dash-toolcell strong { font-size: 13px; font-weight: 700; color: #7a4a2b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dyn-pet-dash-empty { color: #a07050; font-size: 12px; padding: 4px 0; }
 .dyn-pet-dash-foot { color: #a07050; font-size: 11px; padding-top: 2px; }
+/* ---- v2.2 侧栏看板入口图标（Task 13 R6）：sidebar.panellist 条目（dashboardSidebarEntry 门控注册）---- */
+.dyn-pet-sideicon { font-size: 20px; text-align: center; padding: 6px 0; cursor: pointer; user-select: none; -webkit-user-select: none; }
 `;
 
 const STYLE_ID = "dyn-pet-styles";

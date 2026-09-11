@@ -30,6 +30,9 @@ export interface PetConfig {
   summaryEntrySec: number;
   boardTtlSec: number;
   ttsEnabled: boolean;
+  // v2.2 用量看板（Task 13 消费；宿主 Config 同名键 dashboardSidebarEntry，默认 false=侧栏不出入口。
+  // Task 14 会补 exportQuote/exportPose 两键与设置卡 UI，本键先行为 sidebar.panellist 注册门）
+  dashboardSidebarEntry: boolean;
 }
 
 export const STORE_KEY = "dyn-pet-foxbell-visible";
@@ -70,6 +73,7 @@ export const CFG_DEFAULT: PetConfig = {
   summaryEntrySec: 15,
   boardTtlSec: 15,
   ttsEnabled: false,
+  dashboardSidebarEntry: false, // v2.2 R6 侧栏看板入口（默认关；宿主 settings 同名键镜像）
 };
 
 // ---- v2.1 看板数值键钳制表（v1.4.0 client.js NUM_KEYS/NUM_RANGE/clampNum 原样移植）----
