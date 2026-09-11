@@ -513,6 +513,9 @@ export function createStateEngine(deps) {
     return [
       rows,
       queue.length,
+      // 队列末 seq（review Important#1）：队列帽 8 后长度恒定，零用量补完成若不同时改变行内容，
+      // 仅靠 length 的 rev 会误判 unchanged，completion 被 mergeUnchanged 的 seq 推进永久吞掉。
+      queue.length ? queue[queue.length - 1].seq : 0,
       u.requestTotal || 0,
       u.grandTotal || 0,
       d.pace ? d.pace.tier : '',

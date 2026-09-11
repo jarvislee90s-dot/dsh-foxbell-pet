@@ -354,4 +354,29 @@ describe("contentRev 审批等待量化 + 项目 id（终审修复）", () => {
     };
     expect(mkRev("p1")).not.toBe(mkRev("zz9"));
   });
+
+  it("队列帽 8 后零用量补完成仍推进 rev（completion 不被 unchanged 短路吞掉）", () => {
+    const ref = { now: 2000 };
+    const events = [];
+    const eng = createStateEngine({
+      roots: () => [{ id: "p1", status: "idle" }],
+      getSession: () => ({ snapshotEvents: () => Object.freeze(events.slice()) }),
+      getTitle: () => undefined,
+      now: () => ref.now,
+      readConfig: () => ({ paceEnabled: false }),
+    });
+    const pushTurn = (n) => {
+      events.push({ type: "turn/start", seq: n * 2 + 1, time: ref.now, data: { turn: n } });
+      events.push({ type: "turn/end", seq: n * 2 + 2, time: ref.now, data: { turn: n, reason: { kind: "completed" } } });
+      ref.now += 1000;
+      eng.compute();
+    };
+    for (let n = 0; n < 9; n++) pushTurn(n); // 9 次完成 → 队列帽：长度恒 8
+    expect(eng.queue).toHaveLength(8);
+    const revBefore = eng.contentRev();
+    pushTurn(9); // 第 10 次：行内容不变（done+unread/同题/已完成）、零用量、pace 关
+    expect(eng.queue).toHaveLength(8);
+    expect(eng.queue[eng.queue.length - 1].seq).toBeGreaterThan(0);
+    expect(eng.contentRev()).not.toBe(revBefore); // review Important#1：队列末 seq 必须推动 rev
+  });
 });
