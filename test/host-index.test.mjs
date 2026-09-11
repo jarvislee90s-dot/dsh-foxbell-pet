@@ -6,7 +6,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { Readable } from "node:stream";
-import { apply, Config } from "../src/host/index.js";
+import { apply, Config, __testables } from "../src/host/index.js";
 import { ROUTE_PREFIX } from "../src/host/routes.js";
 
 // ---- 假 cordis ctx + webServer（mock 注册表 + 直调 handler，routes.test.mjs 同款）----
@@ -137,5 +137,50 @@ describe("readConfig 接线（引擎消费 live 配置）", () => {
     // 其余看板块不受 pace 门影响
     expect(r.body.dashboard.usage.requestTotal).toBe(0);
     expect(r.body.dashboard.summary.tokensText).toContain("请求输入 0");
+  });
+});
+
+// ---- v2.2 Config 新增 3 键（R6 侧栏入口 / R8 导出评语与姿态；客户端 Task 10/13/14 消费同名键）----
+describe("Config v2.2 新增 3 键（键名与默认值契约）", () => {
+  it("dashboardSidebarEntry/exportQuote/exportPose 默认值", () => {
+    const resolved = Config({});
+    expect(resolved.dashboardSidebarEntry).toBe(false);
+    expect(resolved.exportQuote).toBe("");
+    expect(resolved.exportPose).toBe("random");
+  });
+  it("旧配置无新键 → schema default 自动补齐，既有键不受影响", () => {
+    const resolved = Config({ muted: true, ttsEnabled: true });
+    expect(resolved.dashboardSidebarEntry).toBe(false);
+    expect(resolved.exportQuote).toBe("");
+    expect(resolved.exportPose).toBe("random");
+    expect(resolved.muted).toBe(true);
+    expect(resolved.ttsEnabled).toBe(true);
+  });
+});
+
+// ---- v2.2 P2：宠物目录/清单 mtime 指纹缓存（spec R1）----
+describe("listPetsCached mtime 指纹缓存", () => {
+  it("同 root 两次调用返回同一数组引用（缓存命中 = 未重扫）", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "foxbell-p2-"));
+    try {
+      const a = __testables.listPetsCached(dir);
+      const b = __testables.listPetsCached(dir);
+      expect(Array.isArray(a)).toBe(true);
+      expect(a).toBe(b); // 同一数组引用 = 未重扫
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+  it("root mtime 变化后重扫：返回新引用且内容反映新目录", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "foxbell-p2-"));
+    try {
+      const a = __testables.listPetsCached(dir);
+      fs.mkdirSync(path.join(dir, "pet-a"));
+      const b = __testables.listPetsCached(dir);
+      expect(b).not.toBe(a); // 目录 mtime 已变 → 必须重扫
+      expect(b.map((p) => p.id)).toContain("pet-a");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

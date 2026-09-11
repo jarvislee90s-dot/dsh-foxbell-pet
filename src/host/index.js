@@ -19,7 +19,7 @@ import path from 'node:path'
 import z from '@deepseek-ai/schemastery'
 import { storeRoot, petsRoot, stagingRoot, trashRoot, codexRoot } from './paths.js'
 import { createStateEngine } from './state.js'
-import { loadManifest, parseManifest, SHEET_FILE } from './manifest.js'
+import { loadManifest, parseManifest, SHEET_FILE, MANIFEST_FILE } from './manifest.js'
 import { BUILTIN_PET_ID, petIdProblem } from './petid.js'
 import { listPets, sweepStaging } from './scan.js'
 import { checkPet } from './guard.js'
@@ -60,10 +60,46 @@ export const Config = z.object({
   summaryEntrySec: z.number().default(15),
   boardTtlSec: z.number().default(15),
   ttsEnabled: z.boolean().default(false),
+  // v2.2 用量看板 3 项（R6 侧栏入口/R8 导出评语与姿态；客户端消费）
+  dashboardSidebarEntry: z.boolean().default(false),
+  exportQuote: z.string().default(''),
+  exportPose: z.string().default('random'),
 })
 
 // 硬依赖注入：与 v1.3.0 相同（settings 为可选注入，见 apply 内 ctx.inject）。
 export const inject = ['webServer', 'fs', 'agents', 'sessions', 'sessionTitle']
+
+// ---- v2.2 P2：宠物目录/清单 mtime 指纹缓存（spec R1，/state 1.5s 轮询降 IO）----
+// petsDirCache：root 目录 mtime 指纹 → listPets 重扫仅在根目录条目增删后发生；
+// manifestCache：per-dir manifest.json mtime 指纹 → 重读仅在清单被改写后发生。
+// 失效语义（无需路由侧显式失效）：导入 finalize/删除/改名均 rename PETS_ROOT 子目录
+// （父目录 mtime 变）→ listPetsCached 下轮自动重扫；manifest 编辑路由原子重写
+// manifest.json（tmp+rename，mtime 变）→ loadManifestCached 下轮自动重载。
+// 被删宠物的 manifestCache 残留行不可达且自愈（stat 失败 → mtime=-1 必失配 → 重载 null）。
+const petsDirCache = { root: null, mtimeMs: -1, pets: [] }
+const listPetsCached = (root) => {
+  if (petsDirCache.root !== root) { petsDirCache.root = root; petsDirCache.mtimeMs = -1 }
+  let mtime = -1
+  try { mtime = fs.statSync(root).mtimeMs } catch { return petsDirCache.mtimeMs === -1 ? [] : petsDirCache.pets }
+  if (mtime !== petsDirCache.mtimeMs) {
+    const pets = listPets(root) // 先扫后记账：listPets 半途抛错时旧缓存保持原样（下轮重试）
+    petsDirCache.mtimeMs = mtime
+    petsDirCache.pets = pets
+  }
+  return petsDirCache.pets
+}
+const manifestCache = new Map() // dir → { mtimeMs, manifest }
+const loadManifestCached = (dir, opts) => {
+  let mtime = -1
+  try { mtime = fs.statSync(path.join(dir, MANIFEST_FILE)).mtimeMs } catch { /* 缺失走原 loadManifest 的 null 路径 */ }
+  const c = manifestCache.get(dir)
+  if (c && c.mtimeMs === mtime) return c.manifest
+  const m = loadManifest(dir, opts)
+  manifestCache.set(dir, { mtimeMs: mtime, manifest: m })
+  return m
+}
+// 测试钩子（test/host-index.test.mjs 断言缓存命中同引用）
+export const __testables = { listPetsCached, loadManifestCached }
 
 export async function apply(ctx, config) {
   // 组合配置非法值不应拖垮整个插件：解析失败回落默认 schema 值
@@ -210,7 +246,7 @@ export async function apply(ctx, config) {
         rev: 'builtin',
       }
     }
-    const m = loadManifest(path.join(PETS_ROOT, id), { id })
+    const m = loadManifestCached(path.join(PETS_ROOT, id), { id })
     const exists = fs.existsSync(path.join(PETS_ROOT, id))
     return {
       id,
@@ -238,7 +274,7 @@ export async function apply(ctx, config) {
     const active = activePetSnapshot(hint)
     const activeManifest = active.id === BUILTIN_PET_ID
       ? builtinManifest
-      : loadManifest(path.join(PETS_ROOT, active.id), { id: active.id })
+      : loadManifestCached(path.join(PETS_ROOT, active.id), { id: active.id })
     const projects = engine.list()
     return {
       seq: engine.nextSeq(),
@@ -257,7 +293,7 @@ export async function apply(ctx, config) {
           hasVoice: builtinManifest.hasVoice, hasSubtitle: builtinManifest.hasSubtitle,
           manifestExists: true, spritesheetExists: spriteBytes !== null, builtin: true,
         },
-        ...listPets(PETS_ROOT).map((s) => ({ ...s, builtin: false, dir: undefined })),
+        ...listPetsCached(PETS_ROOT).map((s) => ({ ...s, builtin: false, dir: undefined })),
       ],
       guard: guardSnapshot(hint),
       assetDir: ASSET_DIR,
@@ -291,6 +327,6 @@ export async function apply(ctx, config) {
   if (webServer !== undefined) {
     console.log('[foxbell-pet] host mounted: sprite=' + (spriteBytes ? spriteBytes.length : 0)
       + ' builtinVoices=' + builtinVoices.length + ' assetDir=' + ASSET_DIR
-      + ' pets=' + listPets(PETS_ROOT).length + ' sweptStaging=' + sweptCount)
+      + ' pets=' + listPetsCached(PETS_ROOT).length + ' sweptStaging=' + sweptCount)
   }
 }
