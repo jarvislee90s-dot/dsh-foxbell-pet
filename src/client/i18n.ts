@@ -192,6 +192,8 @@ const ZH: Dict = {
   "dash.save": "保存",
   "dash.discard": "放弃",
   "dash.caliberNote": "用量均为纯 token 口径，不折算金额",
+  // L3 大看板脚注（v2.2 自检修复：spec R5 §7 引文逐字——SettingsCard 沿用 dash.caliberNote 不变）
+  "dash.caliber": "纯 token · 含子代理 · 本地聚合",
   // 设置卡 12 键标签（Task 9；zh 沿用 v1.4.0 SettingsCard 行标签语义，886b303 L1155-1172）
   "dash.cfg.paceEnabled": "节奏档位",
   "dash.cfg.usageEnabled": "用量统计",
@@ -272,7 +274,7 @@ const ZH: Dict = {
   "dash.g.cacheRead": "缓存命中",
   "dash.g.hitPct": "命中率",
   "dash.g.requests": "请求次数",
-  "dash.g.asOf": "数据截止",
+  "dash.g.asOf": "数据截止时间",
   // 2×2 工具格标签（数据源随视图：5h/7d→快照 usage.tools，30d/custom→range.tools）
   "dash.g.toolCalls": "调用总数",
   "dash.g.toolAvg": "平均耗时",
@@ -540,6 +542,7 @@ const EN: Dict = {
   "dash.save": "Save",
   "dash.discard": "Discard",
   "dash.caliberNote": "Usage is token-only, never converted to money",
+  "dash.caliber": "Token-only · includes subagents · local aggregation",
   // Settings card 12-key labels (Task 9; v1.4.0 row-label semantics)
   "dash.cfg.paceEnabled": "Pace tiers",
   "dash.cfg.usageEnabled": "Usage stats",
@@ -618,7 +621,7 @@ const EN: Dict = {
   "dash.g.cacheRead": "Cache hit",
   "dash.g.hitPct": "Hit rate",
   "dash.g.requests": "Requests",
-  "dash.g.asOf": "As of",
+  "dash.g.asOf": "Data as of",
   // 2x2 tools grid labels (source follows view: 5h/7d -> snapshot usage.tools; 30d/custom -> range.tools)
   "dash.g.toolCalls": "Total calls",
   "dash.g.toolAvg": "Avg time",

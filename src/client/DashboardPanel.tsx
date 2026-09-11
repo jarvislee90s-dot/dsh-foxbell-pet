@@ -387,7 +387,7 @@ export function DashboardPanel(): ReactElement {
         <ToolsGrid tools={tools} />
       </div>
 
-      <div className="dyn-pet-dash-foot">{t("dash.caliberNote")}</div>
+      <div className="dyn-pet-dash-foot">{t("dash.caliber")}</div>
     </div>
   );
 }

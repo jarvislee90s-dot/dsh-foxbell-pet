@@ -506,6 +506,8 @@ describe("i18n 字典完整性", () => {
       "dash.summaryTitle", "dash.farewellTitle", "dash.summaryEntry", "dash.menuUsage",
       "dash.menuSummary", "dash.menuSessions", "dash.unsaved", "dash.saved",
       "dash.invalidNums", "dash.save", "dash.discard", "dash.caliberNote", "dash.noActive",
+      // v2.2 自检修复：L3 脚注对齐 spec R5 §7 引文（新键；SettingsCard 仍用 dash.caliberNote）
+      "dash.caliber",
       // Task 6 迷你条：表盘档位（tier→label 客户端查表）+ 状态计数短词 + 本会话行「请求」
       "dash.tier.intense", "dash.tier.active", "dash.tier.longrun", "dash.tier.idle",
       "dash.tier.loaf1", "dash.tier.loaf2", "dash.tier.loaf3", "dash.tier.loaf4",
@@ -540,7 +542,7 @@ describe("i18n 字典完整性", () => {
       "dash.pose.random", "dash.pose.idle", "dash.pose.run-right", "dash.pose.run-left", "dash.pose.waving",
       "dash.pose.jumping", "dash.pose.failed", "dash.pose.waiting", "dash.pose.running", "dash.pose.review",
     ];
-    expect(expectedDash).toHaveLength(108); // 标题计数防再次失真（原 47 系陈旧值；Task9 警报三键 +3；Task10 钻取按钮 +1；Task11 黑板加料四键 +4；Task12 大看板 24 键 +24；Task14 导出 16 键 +16）
+    expect(expectedDash).toHaveLength(109); // 标题计数防再次失真（原 47 系陈旧值；Task9 警报三键 +3；Task10 钻取按钮 +1；Task11 黑板加料四键 +4；Task12 大看板 24 键 +24；Task14 导出 16 键 +16；自检修复 dash.caliber +1）
     const zhDash = dictKeys("zh").filter((k) => k.startsWith("dash.")).sort();
     expect(zhDash).toEqual([...expectedDash].sort());
     const en = new Set(dictKeys("en"));
@@ -998,7 +1000,7 @@ describe("v2.2 dashboard panel i18n (Task12)", () => {
     expect(t("dash.g.userEst")).toBe("用户输入");
     expect(t("dash.g.requestTotal")).toBe("请求输入(全文累计)");
     expect(t("dash.g.hitPct")).toBe("命中率");
-    expect(t("dash.g.asOf")).toBe("数据截止");
+    expect(t("dash.g.asOf")).toBe("数据截止时间");
     expect(t("dash.g.toolCalls")).toBe("调用总数");
     expect(t("dash.g.toolAvg")).toBe("平均耗时");
     expect(t("dash.g.toolTopCount")).toBe("Top 工具次数");
