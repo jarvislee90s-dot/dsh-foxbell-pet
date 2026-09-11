@@ -15,10 +15,10 @@ import {
 } from "./config";
 import { MIN_SPEECH_MS } from "./voices";
 import type { VoiceGroup } from "./validation";
-import { appStore, ackProject, cfgStore, petStore, voicePlayer, type ActivePetRuntime } from "./store";
+import { appStore, ackProject, cfgStore, petStore, playDefaultAlertSound, voicePlayer, type ActivePetRuntime } from "./store";
 import { apiPost, type ActivateResult, type GuardIssue, type PaceTier, type ProjectCard } from "./api";
 import { DOT_COLOR, DOT_HALO, lightOf, taskPoseOf } from "./statuscards";
-import { t } from "./i18n";
+import { t, alertText, getLang } from "./i18n";
 import { PetMenu, type MenuPage } from "./PetMenu";
 import { Sign } from "./Sign";
 import { MiniBar, type MiniMode } from "./MiniBar";
@@ -301,40 +301,37 @@ export function Pet(props: PetProps): React.ReactElement | null {
         playVoiceRef.current("done", cfgRef.current.doneAction);
       }
     }
-    // ---- v2.1 警报举牌/气泡 + 语音三优先级（源 refresh 警报段原样移植）：
-    // usage 语音组 > TTS 兜底 > 静默；先按 id 去重（usageEnabled=false 时也记 seen，开启瞬间不补发旧警报）
+    // ---- v2.2 警报举牌/气泡 + 音效链（R7/R10）：
+    // 四组配齐 → general 组宠物语音 > 内置合成 chime（spec 默认裁定②：TTS 不参与音效链）；
+    // 先按 id 去重（usageEnabled=false 时也记 seen，开启瞬间不补发旧警报）
     if (dash && Array.isArray(dash.alerts)) {
       for (const a of dash.alerts) {
         if (!a || typeof a.id !== "string" || seenAlertsRef.current.has(a.id)) continue;
         seenAlertsRef.current.add(a.id);
         if (!cfgRef.current.usageEnabled) continue;
-        // 里程碑一句话走气泡容器（spec 6.2 表现面3；一句话→气泡），数字类警报仍举牌
-        if (a.kind === "milestone") showBubble(a.text, 4200);
-        else { setSign(a.text); if (signTimerRef.current) { try { signTimerRef.current(); } catch { /* ignore */ } } signTimerRef.current = later(() => setSign(null), 4200); }
+        // 里程碑一句话走气泡容器（spec 6.2 表现面3；一句话→气泡），数字类警报仍举牌。
+        // v2.2 R10：文案结构化拼装 t(kind→键)+fmtTokens(reached)（随界面语言）；
+        // 旧宿主缺 reached 时回退下发文本 a.text（防御陈旧拼装）
+        const txt = typeof a.reached === "number" ? alertText(getLang(), a.kind, a.reached) : a.text;
+        if (a.kind === "milestone") showBubble(txt || a.text, 4200);
+        else { setSign(txt || a.text); if (signTimerRef.current) { try { signTimerRef.current(); } catch { /* ignore */ } } signTimerRef.current = later(() => setSign(null), 4200); }
         playTransient("jumping", 1600);
         if (cfgRef.current.muted) continue;
-        // 三优先级①：usage 组语音命中即播（pick 组空返回 null，语义同源 pickVoice('usage')）
-        const v = voicePlayer.pick("usage");
-        if (v) {
-          // 里程碑：气泡即容器，语音时长对齐刷新气泡；数字警报：举牌即容器，不叠加字幕气泡（spec 6.2 容器分工）
-          voicePlayer.play(v, {
-            muted: cfgRef.current.muted,
-            onSubtitle: a.kind === "milestone"
-              ? (name, ms) => {
-                  if (!cfgRef.current.muted && cfgRef.current.talkative && runtimeRef.current.hasSubtitle) showBubble(a.text || name, ms);
-                }
-              : undefined,
-          });
-          continue;
+        // v2.2 R7 音效链：四组配齐 → general 组宠物语音命中即播；否则内置合成 chime（语音组 > 默认音效；TTS 不参与）
+        if (runtimeRef.current.hasVoice) {
+          const v = voicePlayer.pick("general");
+          if (v) {
+            // 里程碑：气泡即容器，语音时长对齐刷新气泡；数字警报：举牌即容器，不叠加字幕气泡（spec 6.2 容器分工）
+            voicePlayer.play(v, {
+              muted: cfgRef.current.muted,
+              onSubtitle: a.kind === "milestone"
+                ? (name, ms) => { if (!cfgRef.current.muted && cfgRef.current.talkative && runtimeRef.current.hasSubtitle) showBubble(txt || name, ms); }
+                : undefined,
+            });
+            continue;
+          }
         }
-        // 三优先级②：TTS 兜底（zh-CN）；③静默
-        if (cfgRef.current.ttsEnabled && typeof window !== "undefined" && window.speechSynthesis) {
-          try {
-            const u = new window.SpeechSynthesisUtterance(a.text);
-            u.lang = "zh-CN";
-            window.speechSynthesis.speak(u);
-          } catch { /* ignore */ }
-        }
+        playDefaultAlertSound();
       }
     }
     // error / approval / running 差分

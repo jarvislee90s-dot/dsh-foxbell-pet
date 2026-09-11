@@ -15,7 +15,7 @@ import { DOT_COLOR, lightOf, taskPoseOf, truncate } from "../src/client/statusca
 import {
   CFG_DEFAULT, CFG_SCALES, NUM_KEYS, NUM_RANGE, sanitizeConfig, sanitizeValue, guardSignature, type PetConfig,
 } from "../src/client/config";
-import { dictKeys, t, setLang } from "../src/client/i18n";
+import { dictKeys, t, setLang, alertText } from "../src/client/i18n";
 import {
   DASH_BOOL_KEYS, DASH_NUM_ROWS, SETTINGS_ALL_KEYS,
   buildSavePatch, isBadNumValue, isDraftDirty, type DraftConfig,
@@ -492,7 +492,7 @@ describe("i18n 字典完整性", () => {
     expect(t("rpc.pet-exists", { name: "abc" })).toBe("Pet already exists: abc");
     setLang("zh");
   });
-  it("dash.* 效率看板键 zh/en 成对、60 键在位、五口径名词逐字（行为不变量）", () => {
+  it("dash.* 效率看板键 zh/en 成对、63 键在位、五口径名词逐字（行为不变量）", () => {
     const expectedDash = [
       "dash.today", "dash.requestInput", "dash.hit", "dash.cacheHit", "dash.output",
       "dash.yourInput", "dash.estimateSuffix", "dash.withSubagents", "dash.sessionReq",
@@ -514,8 +514,10 @@ describe("i18n 字典完整性", () => {
       "dash.cfg.dayLimitTokens", "dash.cfg.milestoneUnit", "dash.cfg.paceIntenseEvents",
       "dash.cfg.paceLongrunMin", "dash.cfg.paceLoafStartMin", "dash.cfg.approvalFlickerMin",
       "dash.cfg.summaryEntrySec", "dash.cfg.boardTtlSec",
+      // Task 9 警报举牌/气泡：kind+reached 结构化拼装（R10；{v}=fmtTokens(reached)）
+      "dash.alert.dayWarn", "dash.alert.dayHit", "dash.alert.milestone",
     ];
-    expect(expectedDash).toHaveLength(60); // 标题计数防再次失真（原 47 系陈旧值）
+    expect(expectedDash).toHaveLength(63); // 标题计数防再次失真（原 47 系陈旧值；Task9 警报三键 +3）
     const zhDash = dictKeys("zh").filter((k) => k.startsWith("dash.")).sort();
     expect(zhDash).toEqual([...expectedDash].sort());
     const en = new Set(dictKeys("en"));
@@ -788,5 +790,22 @@ describe("schedulePoll 代数守卫（Task8 评审修复：重入/stop 不产生
       globalThis.fetch = origFetch;
       appStore.stop();
     }
+  });
+});
+
+describe("v2.2 alert i18n（Task 9 R10：警报文案 kind+reached 结构化拼装）", () => {
+  it("builds zh/en alert text from kind+reached", () => {
+    expect(alertText("zh", "day-warn", 1234567)).toContain("80%");
+    expect(alertText("en", "day-hit", 100)).toContain("threshold");
+    expect(alertText("zh", "milestone", 2000000)).toContain("200万");
+  });
+  it("lang 参数独立于全局 currentLang（举牌/气泡不随查表态漂移）；未知 kind 归 milestone 键", () => {
+    setLang("en");
+    expect(alertText("zh", "day-hit", 100)).toContain("已达阈值"); // 全局 en 时不影响 zh 请求
+    expect(alertText("en", "day-hit", 100)).toBe("Daily token threshold reached · 100");
+    expect(alertText("zh", "milestone", 12345)).toContain("1.2万"); // fmtTokens 与看板同一格式化器
+    setLang("zh");
+    expect(alertText("en", "unknown-kind", 7)).toContain("Milestone"); // 兜底键
+    setLang("zh");
   });
 });

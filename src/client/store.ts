@@ -213,4 +213,16 @@ export async function fetchManifest(id: string): Promise<PetManifestView | null>
   }
 }
 
+// ---- v2.2 R7：看板默认音效（合成 chime ×3 轮换；失败静默——Audio autoplay 受限时不抛）。
+// 宠物四组语音配齐时警报走 general 组宠物语音；未配齐回落此处内置 chime（spec：语音组 > 默认音效）。
+const ALERT_SOUNDS = [1, 2, 3].map((n) => `${ROUTE_PREFIX}/sounds/alert-${n}.wav`);
+let alertIdx = 0;
+export function playDefaultAlertSound(): void {
+  try {
+    const a = new Audio(ALERT_SOUNDS[alertIdx++ % ALERT_SOUNDS.length]);
+    a.volume = 0.6;
+    a.play().catch(() => {});
+  } catch { /* ignore */ }
+}
+
 export type { PetConfig };

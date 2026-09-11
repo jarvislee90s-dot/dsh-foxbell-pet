@@ -1,5 +1,6 @@
 // i18n.ts — 插件内部 zh/en 字典（MAM locales pet.* 子树移植 + 本插件特有键）。
 // 语言判定：navigator.language（zh* → zh，其余 → en）；不集成 harness locale service。
+import { fmtTokens } from "./format";
 
 export type Lang = "zh" | "en";
 
@@ -207,6 +208,11 @@ const ZH: Dict = {
   "dash.noActive": "暂无进行中会话",
   // 标题闪烁（Task 8；spec 6.3 页外召集：approvalFlickerMin>0 且页面不可见时 document.title 每秒轮换本键/原标题）
   "dash.flickerTitle": "🦊 审批等待中…",
+  // 警报举牌/气泡（Task 9 R10：kind+reached 结构化拼装，{v}=fmtTokens(reached)；
+  // 客户端拼装取代宿主预拼文本——举牌/气泡随界面语言，不再固定宿主语）
+  "dash.alert.dayWarn": "今日 token 已用 80% · {v}",
+  "dash.alert.dayHit": "今日 token 已达阈值 · {v}",
+  "dash.alert.milestone": "里程碑：累计 {v} token",
   // 表盘档位（zh 逐字节 = 宿主 PACE_LABELS，src/host/dashboard.js L18-21；客户端按 pace.tier 查表）
   "dash.tier.intense": "高强度",
   "dash.tier.active": "活跃",
@@ -498,6 +504,10 @@ const EN: Dict = {
   "dash.noActive": "No active sessions",
   // Title flicker (Task 8; out-of-page recall while approvalFlickerMin > 0 and page hidden)
   "dash.flickerTitle": "🦊 Approval waiting…",
+  // Alert sign/bubble (Task 9 R10: composed client-side from kind+reached, {v}=fmtTokens(reached))
+  "dash.alert.dayWarn": "Daily tokens 80% used · {v}",
+  "dash.alert.dayHit": "Daily token threshold reached · {v}",
+  "dash.alert.milestone": "Milestone: {v} tokens total",
   // Dial tiers (zh byte-exact vs host PACE_LABELS; client looks up label by pace.tier)
   "dash.tier.intense": "Intense",
   "dash.tier.active": "Active",
@@ -605,16 +615,29 @@ let currentLang: Lang = detectLang();
 export function setLang(l: Lang): void { currentLang = l; }
 export function getLang(): Lang { return currentLang; }
 
-/** t(key, params)：{name} 风格插值；缺键回退 key 本身（zh 缺失回 en） */
-export function t(key: string, params?: Record<string, string | number>): string {
-  const dict = DICTS[currentLang];
-  let s = dict[key];
-  if (s === undefined && currentLang !== "zh") s = ZH[key];
+/** 查表 + {param} 风格插值；缺键回退 key 本身（非 zh 缺失回 zh 根字典）。
+ *  lang 显式入参（Task 9）：t() 走全局 currentLang，alertText() 走调用方指定语言——
+ *  警报文案拼装不读查表态，避免拼装时刻与全局语言漂移。 */
+function lookup(lang: Lang, key: string, params?: Record<string, string | number>): string {
+  let s = DICTS[lang][key];
+  if (s === undefined && lang !== "zh") s = ZH[key];
   if (s === undefined) return key;
   if (params) {
     for (const [k, v] of Object.entries(params)) s = s.split(`{${k}}`).join(String(v));
   }
   return s;
+}
+
+/** t(key, params)：{name} 风格插值；缺键回退 key 本身（zh 缺失回 en） */
+export function t(key: string, params?: Record<string, string | number>): string {
+  return lookup(currentLang, key, params);
+}
+
+/** 警报举牌/气泡文案（Task 9 R10）：kind+reached 结构化拼装，{v}=fmtTokens(reached)；
+ *  未知 kind 归 milestone 键兜底。旧宿主缺 reached 时由调用方回退下发文本 a.text。 */
+export function alertText(lang: Lang, kind: string, reached: number): string {
+  const key = kind === "day-warn" ? "dash.alert.dayWarn" : kind === "day-hit" ? "dash.alert.dayHit" : "dash.alert.milestone";
+  return lookup(lang, key, { v: fmtTokens(reached) });
 }
 
 /** 字典完整性自证（测试用）：两份字典键集必须一致 */
