@@ -13,3 +13,8 @@ export function fmtTokens(n: number): string {
   const v = (n / 100000000).toFixed(2);
   return v.replace(/\.?0+$/, "") + "亿";
 }
+
+/** 模型名短化（Task 11 黑板模型行；MiniBar 同款截断口径抽出共用）：>12 字符取前 10 + '…' */
+export function shortModel(name: string): string {
+  return name.length > 12 ? name.slice(0, 10) + "…" : name;
+}

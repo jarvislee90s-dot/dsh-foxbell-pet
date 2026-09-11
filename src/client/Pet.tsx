@@ -31,6 +31,9 @@ const LOOK_IDLE_MS = 6000;
 const TRANSIENT_WAVE_MS = 1700;
 const APPROVAL_THROTTLE_MS = 10_000;
 const MINI_HOVER_MS = 500; // 悬停 0.5s 出迷你条（源 client.js L888 定时时长）
+const BOARD_W = 310; // 黑板固定版式宽（与 styles.ts .dyn-pet-board 同源；锚定跟随偏移用）
+const BOARD_GAP = 12; // 黑板与宠物本体间距
+const BOARD_EDGE = 8; // 左侧锚定越界阈值（left < 8 → 翻宠物右侧）
 
 interface PetProps {
   ctx: { get(name: string): unknown };
@@ -697,20 +700,31 @@ export function Pet(props: PetProps): React.ReactElement | null {
   }, [snap]);
 
   // 小黑板：fragment 层渲染（源 L924-926：farewell 要在宠物隐藏后仍显示；无 summary 时 Board 自身返回 null）。
-  // 定位/层级与源一致：fixed 右下（bottom 与宠物默认落点同 76）、zIndex 与宠物 root 同层
-  const boardLayer = board !== null ? (
-    <div
-      ref={boardRef}
-      style={{ position: "fixed", right: 24, bottom: BOTTOM_MARGIN, zIndex: 2147483000, transform: `scale(${scale})`, transformOrigin: "bottom right" }}
-    >
-      <Board
-        dash={snap?.dashboard ?? null}
-        mode={board.mode}
-        ttlSec={cfg.boardTtlSec}
-        onClose={closeBoard}
-      />
-    </div>
-  ) : null;
+  // 定位（Task 11 R4 重锚定）：fixed 但锚定宠物侧——左优先 left = petX - BOARD_W - 12，越界（<8）翻右侧
+  // petX + petW + 12；y 对齐宠物顶部；随拖拽（pos 变更重渲染）跟随。pos 未落定（首次默认右下锚）时按
+  // right:24/bottom:BOTTOM_MARGIN 反推虚拟锚点。三档 scale 沿用 boardLayer transform（origin 随锚点改 top left）。
+  // 层级 zIndex 与宠物 root 同层
+  const boardLayer = board !== null ? (() => {
+    const p = posRef.current;
+    const petX = p ? p.x : window.innerWidth - 24 - frameW;
+    const petY = p ? p.y : window.innerHeight - BOTTOM_MARGIN - frameH;
+    let left = petX - BOARD_W - BOARD_GAP;
+    if (left < BOARD_EDGE) left = petX + frameW + BOARD_GAP; // 左侧放不下 → 翻宠物右侧
+    return (
+      <div
+        ref={boardRef}
+        style={{ position: "fixed", top: petY, left, zIndex: 2147483000, transform: `scale(${scale})`, transformOrigin: "top left" }}
+      >
+        <Board
+          dash={snap?.dashboard ?? null}
+          mode={board.mode}
+          ttlSec={cfg.boardTtlSec}
+          onClose={closeBoard}
+          onOpenPanel={() => {}} // v2.2 R4 入口行占位（L3 大看板开板回调在 Task 13 落地时替换为真切换）
+        />
+      </div>
+    );
+  })() : null;
 
   if (!visible) return boardLayer; // 关宠后黑板仍在（ttl 到点自动消失；✕/点外部/ESC 可关）
 

@@ -20,7 +20,8 @@ import {
   DASH_BOOL_KEYS, DASH_NUM_ROWS, SETTINGS_ALL_KEYS,
   buildSavePatch, isBadNumValue, isDraftDirty, type DraftConfig,
 } from "../src/client/settingsdraft";
-import { fmtTokens } from "../src/client/format";
+import { fmtTokens, shortModel } from "../src/client/format";
+import { lastN } from "../src/client/TrendChart";
 import { boardRows, fmtDur, fmtLongest } from "../src/client/boardrows";
 import { KNOWN_RPC_CODES, PetError, isPetRpcError } from "../src/client/errors";
 import { petErrMsg, type DashboardSummary, type ProjectCard } from "../src/client/api";
@@ -518,8 +519,10 @@ describe("i18n 字典完整性", () => {
       "dash.alert.dayWarn", "dash.alert.dayHit", "dash.alert.milestone",
       // Task 10 迷你条钻取按钮（R6）：唯一可点元素的按钮文案
       "dash.detail",
+      // Task 11 黑板加料（R4/R10）：sparkline 标签 / 模型行 / 等余量 / 完整看板入口行
+      "dash.trend7", "dash.models", "dash.moreN", "dash.openPanel",
     ];
-    expect(expectedDash).toHaveLength(64); // 标题计数防再次失真（原 47 系陈旧值；Task9 警报三键 +3；Task10 钻取按钮 +1）
+    expect(expectedDash).toHaveLength(68); // 标题计数防再次失真（原 47 系陈旧值；Task9 警报三键 +3；Task10 钻取按钮 +1；Task11 黑板加料四键 +4）
     const zhDash = dictKeys("zh").filter((k) => k.startsWith("dash.")).sort();
     expect(zhDash).toEqual([...expectedDash].sort());
     const en = new Set(dictKeys("en"));
@@ -824,5 +827,60 @@ describe("v2.2 MiniBar counts (Task10 countsFromDash：宿主 usage.counts 优�
     const cards = [{ status: "approval" }, { status: "error" }, { status: "done" }] as never[];
     expect(countsFromDash({ usage: {} } as never, cards)).toEqual({ approval: 1, running: 0, done: 1 });
     expect(countsFromDash({ usage: { counts: { approval: 1, running: "x", done: 2 } } } as never, cards)).toEqual({ approval: 1, running: 0, done: 1 });
+  });
+});
+
+// ---- Task 11：黑板 sparkline 数据切片（R4/R10）----
+// 数据构造注（Task 11 预裁定）：brief 原稿用 `2026-08-${29+i}` 拼键 → 2026-08-42 等非法日期，
+// 其 label 数学算出「8/42」与断言自身期望的 { label: "9/11", value: 13 }（滚动跨月、末日 2026-09-11）自相矛盾。
+// 按裁定以断言为钉住意图：改用 new Date(2026, 7, 29 + i) 构造合法滚动键（YYYY-MM-DD），断言逐字节不动。
+describe("v2.2 TrendChart data", () => {
+  it("lastN slices tail with short labels and zero-fill to n", () => {
+    const days = Array.from({ length: 14 }, (_, i) => {
+      const d = new Date(2026, 7, 29 + i); // 2026-08-29 起滚动 14 天 → 末日 2026-09-11
+      const mm = String(d.getMonth() + 1).padStart(2, "0");
+      const dd = String(d.getDate()).padStart(2, "0");
+      return { key: `${d.getFullYear()}-${mm}-${dd}`, dayTotal: i };
+    });
+    const out = lastN(days as never, 7);
+    expect(out).toHaveLength(7);
+    expect(out[6]).toMatchObject({ label: "9/11", value: 13 });
+  });
+  it("lastN fewer than n → 头部零值补位（key/label 空串）；非数组入参安全归空切片", () => {
+    const days = [{ key: "2026-09-10", dayTotal: 3 }, { key: "2026-09-11", dayTotal: 5 }];
+    const out = lastN(days as never, 7);
+    expect(out).toHaveLength(7);
+    expect(out[0]).toEqual({ key: "", label: "", value: 0 });
+    expect(out[5]).toEqual({ key: "2026-09-10", label: "9/10", value: 3 });
+    expect(out[6]).toEqual({ key: "2026-09-11", label: "9/11", value: 5 });
+    expect(lastN(undefined as never, 7)).toHaveLength(7); // 非数组归空切片后仍零值补位到 n（实现口径）
+    expect(lastN(undefined as never, 7)[0]).toEqual({ key: "", label: "", value: 0 });
+  });
+});
+
+// ---- Task 11：shortModel（format.ts 导出；模型行 Top3 截断：>12 字符取前 10 + '…'）----
+describe("v2.2 shortModel (Task11 模型行截断)", () => {
+  it("truncates >12 chars to first 10 + ellipsis, keeps short names intact", () => {
+    expect(shortModel("gpt-5.2")).toBe("gpt-5.2");
+    expect(shortModel("exactly12chr")).toBe("exactly12chr"); // 12 字符边界：不截
+    expect(shortModel("deepseek-chat-v3.2-exp")).toBe("deepseek-c…");
+    expect(shortModel("")).toBe("");
+  });
+});
+
+// ---- Task 11：黑板加料 i18n 四键（R4/R10；moreN 走 t() {param} 插值）----
+describe("v2.2 board extra rows i18n (Task11)", () => {
+  it("dash.trend7/models/moreN/openPanel zh/en 成对且插值正确", () => {
+    setLang("zh");
+    expect(t("dash.trend7")).toBe("7日");
+    expect(t("dash.models")).toBe("模型");
+    expect(t("dash.moreN", { n: 2 })).toBe("等2");
+    expect(t("dash.openPanel")).toBe("查看完整看板");
+    setLang("en");
+    expect(t("dash.trend7")).toBe("7d");
+    expect(t("dash.models")).toBe("Models");
+    expect(t("dash.moreN", { n: 2 })).toBe("+2");
+    expect(t("dash.openPanel")).toBe("Open full dashboard");
+    setLang("zh");
   });
 });

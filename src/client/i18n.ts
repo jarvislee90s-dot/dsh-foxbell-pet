@@ -229,6 +229,11 @@ const ZH: Dict = {
   "dash.request": "请求",
   // 迷你条钻取按钮（Task10 R6：唯一可点元素「详情 »」，点击开黑板）
   "dash.detail": "详情",
+  // 黑板加料三行（Task 11 R4/R10）：7 日 sparkline 标签 / 模型 Top3 行 / 等余量 / 完整看板入口行
+  "dash.trend7": "7日",
+  "dash.models": "模型",
+  "dash.moreN": "等{n}",
+  "dash.openPanel": "查看完整看板",
   // ---- 小黑板行拼装（Task 7；zh 拼装结果与宿主 summarize zh 字符串逐字节一致，见 boardrows.ts）----
   "dash.boardSessions": "会话",
   "dash.boardTurns": "turn",
@@ -526,6 +531,11 @@ const EN: Dict = {
   "dash.request": "Requests",
   // Mini bar drill-down button (Task 10 R6: the only clickable element, "Details »", opens the board)
   "dash.detail": "Details",
+  // Board extra rows (Task 11 R4/R10): 7-day sparkline label / model Top3 row / rest count / open-panel entry row
+  "dash.trend7": "7d",
+  "dash.models": "Models",
+  "dash.moreN": "+{n}",
+  "dash.openPanel": "Open full dashboard",
   // ---- Board rows (Task 7; client-side composition from structured summary fields) ----
   "dash.boardSessions": "Sessions",
   "dash.boardTurns": "turns",
