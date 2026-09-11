@@ -287,3 +287,71 @@ describe("state engine v2.2 快照扩展", () => {
     expect(t2.hours).toHaveLength(24);
   });
 });
+
+// ---- 终审修复：contentRev 补齐审批等待量化 + 项目 id（rows 由 status:unread:title:lines
+// 扩为 id:status:unread:title:lines；末段追加量化 max approval waitMin）。审批挂起期间
+// （agent 阻塞 → 零事件 → 其余 rev 输入全稳）rev 仍每整分钟推进，客户端 waitMin 门槛
+// （标题闪烁）不再被稳定 rev 冻结；age 依旧不参与。
+describe("contentRev 审批等待量化 + 项目 id（终审修复）", () => {
+  function approvalEngine(nowRef) {
+    const events = [
+      { type: "turn/start", seq: 1, time: 1000, data: { turn: 1 } },
+      { type: "approval/asked", seq: 2, time: 60000, data: { id: "a1" } },
+    ];
+    const eng = createStateEngine({
+      roots: () => [{ id: "p1", status: "running" }],
+      // rc.1 冻结数组契约保持：每次快照返回冻结拷贝，源数组可变（decided 用例事后补事件）
+      getSession: () => ({ snapshotEvents: () => Object.freeze(events.slice()) }),
+      getTitle: () => undefined,
+      now: () => nowRef.now,
+      readConfig: () => ({ paceEnabled: false }), // 关 pace：waitMin 成为唯一随钟推进的 rev 输入
+    });
+    return { eng, events };
+  }
+
+  it("pending approval：rev 同一分钟内稳定、跨过下一整分钟后推进（waitMin 量化进 rev）；age 仍不参与", () => {
+    const ref = { now: 61000 };
+    const { eng } = approvalEngine(ref);
+    eng.compute();
+    expect(eng.list()[0].status).toBe("approval");
+    expect(eng.dashboard().approvals).toHaveLength(1);
+    expect(eng.dashboard().approvals[0].waitMin).toBe(0);
+    const rev1 = eng.contentRev();
+    ref.now = 90000; // +30s 仍在同一分钟：waitMin 0→0，ages 推进而 rev 稳定
+    eng.compute();
+    expect(eng.list()[0].age).toBe("30s"); // ages 每轮现算（短路响应的 ages 字段仍刷新）
+    expect(eng.contentRev()).toBe(rev1);
+    ref.now = 121000; // +60s：waitMin 0→1 → rev 推进（挂起期间每整分钟一次）
+    eng.compute();
+    expect(eng.dashboard().approvals[0].waitMin).toBe(1);
+    expect(eng.contentRev()).not.toBe(rev1);
+  });
+
+  it("decided 后审批清除 → 量化 wait 段归 0（rev 末段回 0）", () => {
+    const ref = { now: 61000 };
+    const { eng, events } = approvalEngine(ref);
+    eng.compute();
+    const pendingRev = eng.contentRev();
+    events.push({ type: "approval/decided", seq: 3, time: 70000, data: { id: "a1", outcome: "allowed-once" } });
+    eng.compute();
+    expect(eng.dashboard().approvals).toHaveLength(0);
+    const rev = eng.contentRev();
+    expect(rev).not.toBe(pendingRev);
+    expect(rev.endsWith("#0")).toBe(true); // 末段 = 量化 max waitMin 归 0
+  });
+
+  it("rows 含项目 id：不同 id、同 status/unread/title/lines 的两引擎 rev 不同", () => {
+    const mkRev = (id) => {
+      const eng = createStateEngine({
+        roots: () => [{ id, status: "running" }],
+        getSession: () => ({ snapshotEvents: () => Object.freeze([{ type: "turn/start", seq: 1, time: 1000, data: { turn: 1 } }]) }),
+        getTitle: () => ({ title: "同题" }),
+        now: () => 2000,
+        readConfig: () => ({ paceEnabled: false }),
+      });
+      eng.compute();
+      return eng.contentRev();
+    };
+    expect(mkRev("p1")).not.toBe(mkRev("zz9"));
+  });
+});

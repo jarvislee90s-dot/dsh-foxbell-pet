@@ -90,7 +90,8 @@ function sendFile(res, filePath, contentType, cache) {
  * @param ctx cordis 上下文（webServer 在场才调用）
  * @param env {
  *   pkgDir, petsRoot, stagingRoot, trashRoot, codexRoot, tmpDir,
- *   stateEngine, snapshotExtra(), builtin: { manifest, assetDir },
+ *   stateEngine, snapshotExtra(), envRev()（可选：/state rev 的环境段，activePet/pets 指纹）,
+ *   builtin: { manifest, assetDir },
  *   getActivePetId(), diag
  * }
  */
@@ -130,15 +131,26 @@ export function registerRoutes(ctx, env) {
           hint = u.searchParams.get('pet')
           since = u.searchParams.get('since')
         } catch { /* ignore */ }
-        // P3 短路（Task 6）：聚合每轮必跑（P1 指纹缓存已把 compute 降为廉价操作）——
+        // P3 短路（Task 6 + 终审修复）：聚合每轮必跑（P1 指纹缓存已把 compute 降为廉价操作）——
         // 短路省的是 JSON.stringify + 传输 + 客户端解析，不是聚合。ages 现取自本轮
         // compute 后的 list()，绝不复用上一轮的旧 ages（age 不参与 rev，时钟推进时
         // rev 不变而 ages 刷新）。无 since 参数的旧客户端完全不进此分支（行为逐字节不变）。
+        // rev 组成（终审修复）：引擎 contentRev() 只覆盖引擎聚合面（项目行 id:status:unread:
+        // title:lines / 队列 / 用量 / 档位 / 警报 / 审批等待量化），非引擎快照部件
+        // （activePet/pets/voices，源自宠物文件与激活配置）由 env.envRev(hint) 环境指纹覆盖，
+        // 追加为 '#' 后缀——宠物热切换/外部清单变化也能打穿 unchanged。guard 刻意不进
+        // envRev（其问题源自宠物文件，已被 activePet.rev 的 manifest mtime 指纹覆盖，避免每轮
+        // 重复 fs 读）；ages 依旧不参与。envRev 缺席（旧测试假 env）回退纯引擎 rev。
         const engine = env.stateEngine
         const revEngine = engine && typeof engine.contentRev === 'function' ? engine : null
+        const envRevFn = env && typeof env.envRev === 'function' ? env.envRev : null
+        const combinedRev = () => {
+          const r = revEngine.contentRev()
+          return envRevFn === null ? r : r + '#' + String(envRevFn(hint))
+        }
         if (revEngine !== null && since !== null) {
           revEngine.compute()
-          const rev = revEngine.contentRev()
+          const rev = combinedRev()
           if (typeof rev === 'string' && since === rev) {
             json(res, { rev, unchanged: true, ages: revEngine.list().map((p) => p.age || ''), seq: revEngine.nextSeq() })
             return
@@ -146,9 +158,9 @@ export function registerRoutes(ctx, env) {
         }
         const body = env.snapshotExtra(hint)
         // 全量快照：既有数值 seq（completions 序号）保持不变（客户端 snap.seq typeof 校验），
-        // 顶层附加字符串 rev 供 Task 8 客户端下一轮 ?since 回传（additive，不改既有形状）
+        // 顶层附加字符串 rev（同上组合 rev）供 Task 8 客户端下一轮 ?since 回传（additive，不改既有形状）
         if (revEngine !== null) {
-          const rev = revEngine.contentRev()
+          const rev = combinedRev()
           if (typeof rev === 'string') body.rev = rev
         }
         json(res, body)

@@ -4,7 +4,7 @@
 /* ---- v2.2 迷你条钻取按钮（Task10 R6 铁律修订最小实现）：容器 .dyn-pet-mini 保持 pointer-events:none
    不动（区域外点击照旧穿透），仅此子元素开 auto——迷你条内唯一可点元素，点击展开黑板 ---- */
 export const MINI_DETAIL_CSS = `
-.dyn-pet-mini-detail { pointer-events: auto; cursor: pointer; margin-top: 2px; align-self: flex-end; font-size: 11px; color: #8a6d3b; opacity: .85; }
+.dyn-pet-mini-detail { pointer-events: auto; cursor: pointer; margin-top: 2px; text-align: right; font-size: 11px; color: #8a6d3b; opacity: .85; }
 .dyn-pet-mini-detail:hover { opacity: 1; text-decoration: underline; }
 `;
 

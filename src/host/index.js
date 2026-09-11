@@ -290,6 +290,19 @@ export async function apply(ctx, config) {
     } catch { return [] }
   }
 
+  // ---- v2.2 终审修复：/state ?since 短路的环境指纹（envRev）----
+  // /state 的 rev 拆成两段：引擎 contentRev()（项目行/队列/用量/档位/警报/审批等待）+
+  // '#' + envRev()（非引擎快照部件 activePet/pets——voices 由 activePet id+rev 派生）。
+  // 宠物热切换写配置但不产生引擎事件，纯引擎 rev 稳定会把切换冻在 unchanged 里；
+  // envRev = 激活宠物 id + '/' + 资产修订号（外部=manifest mtime，一次 statSync）+ '|' +
+  // 外部宠物摘要（id:spriteVersionNumber，listPetsCached 全缓存）。guard 刻意不进指纹：
+  // 其问题源自宠物文件本身，已被 activePet.rev 的 manifest mtime 覆盖，纳入反而引入
+  // 每轮 checkPet 的重复 fs 读（P3 skip 的初心）。ages 依旧不参与任何 rev。
+  const envRev = (hint) => {
+    const id = activePetId(hint)
+    return id + '/' + revOf(id) + '|' + listPetsCached(PETS_ROOT).map((s) => s.id + ':' + s.spriteVersionNumber).join(',')
+  }
+
   const snapshotExtra = (hint) => {
     engine.compute()
     diag.computeCount += 1
@@ -334,6 +347,7 @@ export async function apply(ctx, config) {
     tmpDir: TMP_DIR,
     stateEngine: engine,
     snapshotExtra,
+    envRev, // v2.2 终审修复：/state rev 的环境段（activePet/pets 指纹，guard/ages 不参与）
     builtin: {
       manifest: builtinManifest,
       assetDir: ASSET_DIR || path.join(PKG_DIR, 'assets'),

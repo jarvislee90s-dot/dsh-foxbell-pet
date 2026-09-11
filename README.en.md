@@ -86,7 +86,7 @@ One data core, three levels of disclosure, each click going deeper: **L1 mini ba
 - **Model / provider distribution** (F05 settled): usage is booked per settled (turn, step) sample by `provider/model` (same-slot replacements roll back, no cross-day pollution); the aggregation reconciles byte-for-byte with the session’s official tokenUsage totals across all four metrics.
 - **Share & export**: a 1200×675 PNG — title / hero / trend line / metric grid / model rows + the current pet sprite at the bottom (random or picked pose) + a smart quote bubble (rule pool with zh/en priority matching, or a custom template `{range}` `{tokens}` `{hitPct}` `{models}` in settings); “Copy text” is the same data as plain text.
 - **Dashboard sounds**: alerts (daily threshold / milestone) play the `general` voice group when all four groups are present, otherwise a built-in synthesized chime (served via `/sounds/`).
-- Three new settings: “Sidebar dashboard entry” (off by default; shows a dashboard icon in the sidebar when enabled), “Export quote”, “Export pose”.
+- Three new settings: “Sidebar dashboard entry” (off by default; shows a dashboard icon in the sidebar when enabled), “Export quote”, “Export pose”. Note: on rc.2 the sidebar entry icon may not project (upstream child-slot lifecycle under investigation); the right-click menu and the blackboard chain are the verified entrances.
 
 ## Requirements (compatibility)
 

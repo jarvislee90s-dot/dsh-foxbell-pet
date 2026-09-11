@@ -712,3 +712,39 @@ describe("无 webServer 降级（回归项，任务目标 6/8）", () => {
     expect(made.routes.prefix.length).toBeGreaterThanOrEqual(2); // /pets /staging
   });
 });
+
+// ---- 终审修复：/state rev 组合环境段（envRev）——引擎聚合面零事件时（审批挂起/空闲系统），
+// env 面变化（宠物热切换/外部清单变化）仍须打穿 unchanged 回落全量快照 ----
+describe("Task 6 /state ?since + envRev（终审修复）", () => {
+  it("rev = 引擎 rev + '#' + envRev；envRev 变化 → 旧组合 since 失配回落全量快照", async () => {
+    const made = makeStateEnv();
+    let envFp = "foxbell/builtin|"; // 模拟 index.js envRev：activePet id/rev + '|' + 宠物摘要
+    made.env.envRev = () => envFp;
+    const made2 = makeCtx();
+    registerRoutes(made2.ctx, made.env);
+    const full1 = await made2.dispatch("GET", `${ROUTE_PREFIX}/state`);
+    const rev1 = full1.body.rev;
+    expect(typeof rev1).toBe("string");
+    expect(rev1.endsWith("#" + envFp)).toBe(true); // 组合 rev 末段 = 环境指纹
+    const tiny = await made2.dispatch("GET", `${ROUTE_PREFIX}/state?since=${encodeURIComponent(rev1)}`);
+    expect(tiny.body.unchanged).toBe(true); // 引擎与 env 均未变 → 短路命中（响应形状 {rev,unchanged,ages,seq} 不变）
+    expect(Object.keys(tiny.body).sort()).toEqual(["ages", "rev", "seq", "unchanged"]);
+    expect(tiny.body.rev).toBe(rev1);
+    // env 面变化（宠物热切换：activePet id/rev 变），引擎聚合面零事件（引擎 rev 分量不变）
+    envFp = "mochi/1750000000000|foxbell:2";
+    const r = await made2.dispatch("GET", `${ROUTE_PREFIX}/state?since=${encodeURIComponent(rev1)}`);
+    expect(r.status).toBe(200);
+    expect(r.body.unchanged).toBeUndefined(); // 不再短路：回落全量快照
+    expect(r.body.rev.endsWith("#" + envFp)).toBe(true);
+    expect(r.body.rev).not.toBe(rev1);
+    expect(r.body.activePet).toBeDefined(); // 全量快照携带 envRev 覆盖的非引擎部件（activePet/pets/voices）
+  });
+  it("env 无 envRev（旧假 env）→ 回退纯引擎 rev（与 engine.contentRev() 逐字节一致，既有契约不变）", async () => {
+    const made = makeStateEnv(); // makeStateEnv 不带 envRev
+    const made2 = makeCtx();
+    registerRoutes(made2.ctx, made.env);
+    const r = await made2.dispatch("GET", `${ROUTE_PREFIX}/state`);
+    expect(typeof r.body.rev).toBe("string");
+    expect(r.body.rev).toBe(made.env.stateEngine.contentRev()); // 无组合段
+  });
+});

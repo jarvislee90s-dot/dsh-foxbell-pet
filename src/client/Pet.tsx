@@ -700,15 +700,17 @@ export function Pet(props: PetProps): React.ReactElement | null {
   }, [snap]);
 
   // 小黑板：fragment 层渲染（源 L924-926：farewell 要在宠物隐藏后仍显示；无 summary 时 Board 自身返回 null）。
-  // 定位（Task 11 R4 重锚定）：fixed 但锚定宠物侧——左优先 left = petX - BOARD_W - 12，越界（<8）翻右侧
-  // petX + petW + 12；y 对齐宠物顶部；随拖拽（pos 变更重渲染）跟随。pos 未落定（首次默认右下锚）时按
+  // 定位（Task 11 R4 重锚定；终审修复：黑板层经 transform:scale 缩放，锚点须用缩放后宽度
+  // BOARD_W*scale，否则 1.25 档下黑板右缘压住宠物 ~65px）——左优先 left = petX - BOARD_W*scale - 12，
+  // 越界（<8）翻右侧 petX + frameW + 12（frameW=px(FRAME_W) 已缩放）；y 对齐宠物顶部；随拖拽
+  // （pos 变更重渲染）跟随。pos 未落定（首次默认右下锚）时按
   // right:24/bottom:BOTTOM_MARGIN 反推虚拟锚点。三档 scale 沿用 boardLayer transform（origin 随锚点改 top left）。
   // 层级 zIndex 与宠物 root 同层
   const boardLayer = board !== null ? (() => {
     const p = posRef.current;
     const petX = p ? p.x : window.innerWidth - 24 - frameW;
     const petY = p ? p.y : window.innerHeight - BOTTOM_MARGIN - frameH;
-    let left = petX - BOARD_W - BOARD_GAP;
+    let left = petX - BOARD_W * scale - BOARD_GAP;
     if (left < BOARD_EDGE) left = petX + frameW + BOARD_GAP; // 左侧放不下 → 翻宠物右侧
     return (
       <div

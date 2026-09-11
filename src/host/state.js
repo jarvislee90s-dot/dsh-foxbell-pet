@@ -493,13 +493,23 @@ export function createStateEngine(deps) {
 
   // ---------- v2.2 Task 6（P3/R3）：内容修订号 + 跨日区间汇总 ----------
   // contentRev：本轮 compute 后的内容变更令牌（/state ?since 短路判据）。组成 = list() 各行
-  // status:unread:title:lines（'|' 连接）+ 完成队列长度 + 当日请求输入 + 累计总量 + pace 档位
-  // + 警报 id，以 '#' 连接。age 刻意不参与（ages 每轮都在变的派生量，进 rev 会让短路永不命中）。
+  // id:status:unread:title:lines（'|' 连接）+ 完成队列长度 + 当日请求输入 + 累计总量 + pace 档位
+  // + 警报 id + 审批最大等待分钟（取整），以 '#' 连接。id 进行串（终审修复：纯行内容会把
+  // 不同 id 同内容的两张卡折成同一令牌）；审批等待取 dashState.approvals（与看板同源，
+  // aggregateFold 每轮以当前 now 重算 waitMin）的最大值向下取整——挂起审批期间 rev 每整分钟
+  // 推进一次，客户端 waitMin 门槛（标题闪烁）不再被稳定 rev 冻结。age 刻意不参与（ages 每轮
+  // 都在变的派生量，进 rev 会让短路永不命中）。
   const contentRev = () => {
-    const rows = list().map((p) => `${p.status}:${p.unread ? 1 : 0}:${p.title || ''}:${(p.lines || []).join('/')}`).join('|')
+    const rows = list().map((p) => `${p.id}:${p.status}:${p.unread ? 1 : 0}:${p.title || ''}:${(p.lines || []).join('/')}`).join('|')
     const d = dashState || {}
     const u = d.usage || {}
     const alerts = Array.isArray(d.alerts) ? d.alerts : []
+    const approvals = Array.isArray(d.approvals) ? d.approvals : []
+    let maxWaitMin = 0
+    for (const a of approvals) {
+      const w = a && typeof a.waitMin === 'number' && Number.isFinite(a.waitMin) ? Math.floor(a.waitMin) : 0
+      if (w > maxWaitMin) maxWaitMin = w
+    }
     return [
       rows,
       queue.length,
@@ -507,6 +517,7 @@ export function createStateEngine(deps) {
       u.grandTotal || 0,
       d.pace ? d.pace.tier : '',
       alerts.map((a) => (a && a.id != null) ? String(a.id) : '').join(','),
+      maxWaitMin,
     ].join('#')
   }
   // rangeSummary（/dashboard/range，R3）：遍历 foldCache 折叠产物交 Task 2 summarizeRange
