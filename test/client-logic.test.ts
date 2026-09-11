@@ -11,7 +11,7 @@ import {
   nameFromRel, petNameProblem, petNameProblemKey, rowsFromSize, spriteVersionOf, voiceRowProblem,
   MAX_AUDIO_BYTES, MIN_DURATION_MS, MAX_DURATION_MS, type PetManifestView, type PetScan,
 } from "../src/client/validation";
-import { DOT_COLOR, lightOf, taskPoseOf, truncate } from "../src/client/statuscards";
+import { DOT_COLOR, lightOf, taskPoseOf, truncate, countsFromDash } from "../src/client/statuscards";
 import {
   CFG_DEFAULT, CFG_SCALES, NUM_KEYS, NUM_RANGE, sanitizeConfig, sanitizeValue, guardSignature, type PetConfig,
 } from "../src/client/config";
@@ -516,8 +516,10 @@ describe("i18n 字典完整性", () => {
       "dash.cfg.summaryEntrySec", "dash.cfg.boardTtlSec",
       // Task 9 警报举牌/气泡：kind+reached 结构化拼装（R10；{v}=fmtTokens(reached)）
       "dash.alert.dayWarn", "dash.alert.dayHit", "dash.alert.milestone",
+      // Task 10 迷你条钻取按钮（R6）：唯一可点元素的按钮文案
+      "dash.detail",
     ];
-    expect(expectedDash).toHaveLength(63); // 标题计数防再次失真（原 47 系陈旧值；Task9 警报三键 +3）
+    expect(expectedDash).toHaveLength(64); // 标题计数防再次失真（原 47 系陈旧值；Task9 警报三键 +3；Task10 钻取按钮 +1）
     const zhDash = dictKeys("zh").filter((k) => k.startsWith("dash.")).sort();
     expect(zhDash).toEqual([...expectedDash].sort());
     const en = new Set(dictKeys("en"));
@@ -807,5 +809,20 @@ describe("v2.2 alert i18n（Task 9 R10：警报文案 kind+reached 结构化拼�
     setLang("zh");
     expect(alertText("en", "unknown-kind", 7)).toContain("Milestone"); // 兜底键
     setLang("zh");
+  });
+});
+
+// ---- Task 10：MiniBar 计数口径（R10 follow-up）——宿主全量计数 dash.usage.counts 优先
+//      （Task 4 引擎并入，宿主真实形状：counts 挂在 usage 之下），缺省/畸形回退本地 cards 计数 ----
+describe("v2.2 MiniBar counts (Task10 countsFromDash：宿主 usage.counts 优先 + 本地回退)", () => {
+  it("prefers host counts and falls back to local cards", () => {
+    const cards = [{ status: "approval" }, { status: "running" }, { status: "running" }, { status: "done" }] as never[];
+    expect(countsFromDash(null, cards)).toEqual({ approval: 1, running: 2, done: 1 });
+    expect(countsFromDash({ usage: { counts: { approval: 3, running: 0, done: 2 } } } as never, cards)).toEqual({ approval: 3, running: 0, done: 2 });
+  });
+  it("malformed host counts（缺 counts / 三键非全数字）→ 回退本地 cards 计数（error 卡不计）", () => {
+    const cards = [{ status: "approval" }, { status: "error" }, { status: "done" }] as never[];
+    expect(countsFromDash({ usage: {} } as never, cards)).toEqual({ approval: 1, running: 0, done: 1 });
+    expect(countsFromDash({ usage: { counts: { approval: 1, running: "x", done: 2 } } } as never, cards)).toEqual({ approval: 1, running: 0, done: 1 });
   });
 });

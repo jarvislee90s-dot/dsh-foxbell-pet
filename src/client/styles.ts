@@ -1,5 +1,13 @@
 // styles.ts — 样式 CSS 内联注入（构建时经 esbuild 打进 bundle，运行时 <style> 落地）。
 // v1.3.0 类名全部保留（dyn-pet-*），新增对话框/管理/切换/守卫系列。
+
+/* ---- v2.2 迷你条钻取按钮（Task10 R6 铁律修订最小实现）：容器 .dyn-pet-mini 保持 pointer-events:none
+   不动（区域外点击照旧穿透），仅此子元素开 auto——迷你条内唯一可点元素，点击展开黑板 ---- */
+export const MINI_DETAIL_CSS = `
+.dyn-pet-mini-detail { pointer-events: auto; cursor: pointer; margin-top: 2px; align-self: flex-end; font-size: 11px; color: #8a6d3b; opacity: .85; }
+.dyn-pet-mini-detail:hover { opacity: 1; text-decoration: underline; }
+`;
+
 const CSS = `
 .dyn-pet-root { position: fixed; z-index: 2147483000; pointer-events: auto; user-select: none; -webkit-user-select: none; touch-action: none; }
 .dyn-pet-sprite { width: 192px; height: 208px; background-repeat: no-repeat; cursor: grab; }
@@ -159,6 +167,7 @@ const CSS = `
 .dyn-pet-mini-tier { font-weight: 700; white-space: nowrap; }
 .dyn-pet-mini-row { white-space: normal; word-break: break-word; }
 .dyn-pet-mini-dim { color: #a07050; font-size: 11px; }
+${MINI_DETAIL_CSS}
 /* ---- v2.1 小黑板 + 📖 限时入口（v1.4.0 client.js L1118-1123 原样移植；行 normal 换行 per 7e16d62）----
    黑板为 310px 固定版式（fixed 右下挂点与 scale 缩放由 Pet.tsx boardLayer 内联下发） */
 .dyn-pet-board { width: 310px; background: #2f2a26; color: #f3e9dc; border-radius: 12px; padding: 10px 12px; font-size: 12.5px; line-height: 1.7; box-shadow: 0 6px 20px rgba(0,0,0,0.35); }

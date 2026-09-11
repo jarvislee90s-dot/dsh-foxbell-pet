@@ -227,6 +227,8 @@ const ZH: Dict = {
   "dash.countRunning": "运行",
   "dash.countDone": "完成",
   "dash.request": "请求",
+  // 迷你条钻取按钮（Task10 R6：唯一可点元素「详情 »」，点击开黑板）
+  "dash.detail": "详情",
   // ---- 小黑板行拼装（Task 7；zh 拼装结果与宿主 summarize zh 字符串逐字节一致，见 boardrows.ts）----
   "dash.boardSessions": "会话",
   "dash.boardTurns": "turn",
@@ -522,6 +524,8 @@ const EN: Dict = {
   "dash.countRunning": "running",
   "dash.countDone": "done",
   "dash.request": "Requests",
+  // Mini bar drill-down button (Task 10 R6: the only clickable element, "Details »", opens the board)
+  "dash.detail": "Details",
   // ---- Board rows (Task 7; client-side composition from structured summary fields) ----
   "dash.boardSessions": "Sessions",
   "dash.boardTurns": "turns",

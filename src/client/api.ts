@@ -155,6 +155,8 @@ export interface UsageSnapshot {
   tools?: { name: string; count: number; durMs: number }[];
   /** v2.2 趋势切片：14 天 / 24 小时（可空：容错旧宿主） */
   trend?: { days: TrendDay[]; hours: TrendHour[] };
+  /** v2.2 迷你条状态计数（R10 follow-up；引擎并入，与 list() 同口径；可空：容错旧宿主） */
+  counts?: { approval: number; running: number; done: number };
 }
 
 /** 阈值警报（evaluateAlerts，src/host/dashboard.js L103-125） */

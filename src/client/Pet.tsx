@@ -806,6 +806,7 @@ export function Pet(props: PetProps): React.ReactElement | null {
               mode={miniMode}
               scale={scale}
               usageOn={cfg.usageEnabled}
+              onDetail={() => openBoard("manual")} // v2.2 R6：详情 » 钻取 → 黑板（L2 主链；hover/manual 共用此挂载点）
             />
           </div>
         ) : null}
