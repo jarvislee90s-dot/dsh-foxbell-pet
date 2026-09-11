@@ -2,6 +2,16 @@
 
 本文件记录本项目的所有重要变更。
 
+## [2.2.0] - 2026-09-11
+
+> 发布预置条目（Task 7 版本与守卫）；完整 R0-R10 变更清单随 Task 15 文档收尾补全。
+
+### Added
+- 内置看板默认音效 3 枚：脚本合成的两音上行 chime（`assets/sounds/alert-{1,2,3}.wav`，44.1kHz 单声道 PCM16；生成脚本 `scripts/gen-alert-sounds.mjs` 留仓可复现，许可洁净），供 `/sounds/` 静态路由（v2.2 Task 6）服务
+
+### 兼容性
+- `dsh.plugin.json` engines 对齐实际基线：`dsh >= 0.1.2-rc.1`（与 v2.0 起的最低 harness 版本一致，非新增强制）
+
 ## [2.1.0] - 2026-09-11
 
 ### Added — 效率看板移植（v1.4.0 → v2 双树架构）
