@@ -192,13 +192,15 @@ export function DashboardPanel(): ReactElement {
   const trend = dash && dash.usage && dash.usage.trend ? dash.usage.trend : null;
 
   useEffect(() => {
-    if (tab !== "30d" && tab !== "custom") return;
+    if (tab !== "7d" && tab !== "30d" && tab !== "custom") return;
     let live = true; setBusy(true);
     // 31 天前端钳制（spec R9「超限前端截断提示」；宿主 400 之外的第二道闸）：
     // clampRangeFrom 先行裁定，同 pass 以钳后 from 拉取（绝不发越界请求）；
     // 提示常驻至用户下次编辑日期（两处 onChange 复位）——此处不设 else 清除（旧实现提示一帧即逝）。
+    // review Important#2：7d 也走区间拉取——spec R3「模型分布/工具区随视图联动」，7d 网格/模型/工具
+    // 不得停留在当日口径（趋势图/hero 仍吃快照即时渲染，区间到达后口径行无缝升级；60s 缓存二次即瞬）。
     const to = tab === "custom" ? custom.to : dayKey(new Date());
-    const rawFrom = tab === "30d" ? dayKey(new Date(Date.now() - 29 * 86400000)) : custom.from;
+    const rawFrom = tab === "30d" ? dayKey(new Date(Date.now() - 29 * 86400000)) : tab === "7d" ? dayKey(new Date(Date.now() - 6 * 86400000)) : custom.from;
     const { from, clamped } = clampRangeFrom(rawFrom, to);
     if (clamped) { setCustom((c) => ({ ...c, from })); setRangeHint(t("dash.rangeClamp")); }
     fetchRange(from, to)
@@ -216,10 +218,10 @@ export function DashboardPanel(): ReactElement {
     return [];
   }, [tab, trend, range]);
 
-  // —— hero 与五口径（7d/30d/custom 用区间 totals；5h/7d 快照口径）——
+  // —— hero 与五口径（7d/30d/custom 区间 totals；5h 快照口径；区间未达时暂回落当日，到达即升级）——
   const hero = useMemo(() => points.reduce((s, p) => s + p.value, 0), [points]);
   const usage = dash ? dash.usage : null;
-  const inRange = tab === "30d" || tab === "custom";
+  const inRange = tab === "7d" || tab === "30d" || tab === "custom";
   const totals = inRange && range ? range.totals : null;
 
   const grid: [string, string][] = [
@@ -234,7 +236,7 @@ export function DashboardPanel(): ReactElement {
   const models: RouteUsage[] = inRange ? (range ? range.models : []) : (usage && usage.models) || [];
   const maxModel = Math.max(1, ...models.map((m) => m.requestTotal));
   const tools: ToolAgg[] = inRange ? (range ? range.tools : []) : (usage && usage.tools) || [];
-  const inFlight = busy && (tab === "30d" || tab === "custom");
+  const inFlight = busy && inRange;
 
   // ---- v2.2 R8 导出（Task 14）：复制文本 / 导出图片 ----
 
@@ -303,7 +305,8 @@ export function DashboardPanel(): ReactElement {
     a.href = url;
     a.download = `foxbell-dashboard-${tab}.png`;
     a.click();
-    URL.revokeObjectURL(url);
+    // Safari：同步 revoke 会中断未开始的下载——延后到下一轮宏任务再释放
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
   };
 
   useEffect(() => {
@@ -339,7 +342,7 @@ export function DashboardPanel(): ReactElement {
       <div className="dyn-pet-dash-hero">
         <div className="dyn-pet-dash-hero-label">{t("dash.heroTotal", { range: t(`dash.tab.${tab}`) })}</div>
         <div className="dyn-pet-dash-hero-num">{fmtTokens(hero)}</div>
-        {!inRange && trend ? (
+        {(tab === "5h" || tab === "7d") && trend ? (
           <div className="dyn-pet-dash-weekhit">
             {t("dash.weekHit", { a: fmtPct(weekHit(trend, 0)), b: fmtPct(weekHit(trend, 1)), d: hitDeltaText(trend) })}
           </div>

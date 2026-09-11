@@ -300,7 +300,9 @@ export async function apply(ctx, config) {
   // 每轮 checkPet 的重复 fs 读（P3 skip 的初心）。ages 依旧不参与任何 rev。
   const envRev = (hint) => {
     const id = activePetId(hint)
-    return id + '/' + revOf(id) + '|' + listPetsCached(PETS_ROOT).map((s) => s.id + ':' + s.spriteVersionNumber).join(',')
+    // pets 段含 displayName（review Minor#1）：非激活宠物改名只动 manifest（listPetsCached 已按清单
+    // mtime 复验刷新摘要），指纹若只看 id:spriteVersionNumber 会把改名冻在 unchanged 里。
+    return id + '/' + revOf(id) + '|' + listPetsCached(PETS_ROOT).map((s) => s.id + ':' + (s.displayName || '') + ':' + s.spriteVersionNumber).join(',')
   }
 
   const snapshotExtra = (hint) => {
