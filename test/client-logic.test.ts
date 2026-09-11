@@ -1,6 +1,6 @@
 // 客户端纯逻辑测试（TS 直测）：动画表/物理积分/语音选择/校验函数/色彩映射/配置兼容/i18n 完整性。
-import { describe, expect, it, vi } from "vitest";
-import { ANIM, FRAME_H, FRAME_W, frameStyle, LOOK_FRAMES, SHEET_COLS } from "../src/client/animations";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { ANIM, FRAME_H, FRAME_W, frameStyle, LOOK_FRAMES, POSE_KEYS, SHEET_COLS } from "../src/client/animations";
 import {
   clampPos, dragDirection, GRAVITY, DAMP, MIN_VX, pushSample, stepFall, throwVelocity,
   viewportBounds, SQUASH_TIMING,
@@ -17,14 +17,16 @@ import {
 } from "../src/client/config";
 import { dictKeys, t, setLang, alertText } from "../src/client/i18n";
 import {
-  DASH_BOOL_KEYS, DASH_NUM_ROWS, SETTINGS_ALL_KEYS,
+  ALL_DRAFT_KEYS, DASH_BOOL_KEYS, DASH_NUM_ROWS, SETTINGS_ALL_KEYS, SETTINGS_V22_KEYS,
   buildSavePatch, isBadNumValue, isDraftDirty, type DraftConfig,
 } from "../src/client/settingsdraft";
 import { fmtPct, fmtTokens, shortModel } from "../src/client/format";
-import { clampRangeFrom, hitDeltaText, hourPoints, toolsMetrics, viewWindow, weekHit } from "../src/client/DashboardPanel";
+import { clampRangeFrom, hitDeltaText, hourPoints, toolsMetrics, trendDirection, viewWindow, weekHit } from "../src/client/DashboardPanel";
+import { maxAnimCols, resolvePoseRow } from "../src/client/exportimage";
 import { lastN } from "../src/client/TrendChart";
 import { boardRows, fmtDur, fmtLongest } from "../src/client/boardrows";
 import { KNOWN_RPC_CODES, PetError, isPetRpcError } from "../src/client/errors";
+import { fillQuote, pickQuote } from "../src/client/quotes";
 import { petErrMsg, type DashboardSummary, type ProjectCard } from "../src/client/api";
 import {
   appStore, mergeUnchanged, openDashboardPanel, PANEL_ID, POLL_INTERVAL_HIDDEN_MS, POLL_INTERVAL_MS,
@@ -532,8 +534,13 @@ describe("i18n 字典完整性", () => {
       // Task 12 五口径网格 + 2×2 工具格标签（R5 名词序：用户输入/产出/请求输入(全文累计)/缓存命中/命中率/请求次数/数据截止）
       "dash.g.userEst", "dash.g.output", "dash.g.requestTotal", "dash.g.cacheRead", "dash.g.hitPct",
       "dash.g.requests", "dash.g.asOf", "dash.g.toolCalls", "dash.g.toolAvg", "dash.g.toolTopCount", "dash.g.toolTopDur",
+      // Task 14 R8 导出：头部两按钮 + 复制回执 / 设置卡 3 键标签 / 姿态下拉（random + ANIM 键）
+      "dash.export.copyText", "dash.export.exportImage", "dash.export.copied",
+      "dash.cfg.dashboardSidebarEntry", "dash.cfg.exportQuote", "dash.cfg.exportPose",
+      "dash.pose.random", "dash.pose.idle", "dash.pose.run-right", "dash.pose.run-left", "dash.pose.waving",
+      "dash.pose.jumping", "dash.pose.failed", "dash.pose.waiting", "dash.pose.running", "dash.pose.review",
     ];
-    expect(expectedDash).toHaveLength(92); // 标题计数防再次失真（原 47 系陈旧值；Task9 警报三键 +3；Task10 钻取按钮 +1；Task11 黑板加料四键 +4；Task12 大看板 24 键 +24）
+    expect(expectedDash).toHaveLength(108); // 标题计数防再次失真（原 47 系陈旧值；Task9 警报三键 +3；Task10 钻取按钮 +1；Task11 黑板加料四键 +4；Task12 大看板 24 键 +24；Task14 导出 16 键 +16）
     const zhDash = dictKeys("zh").filter((k) => k.startsWith("dash.")).sort();
     expect(zhDash).toEqual([...expectedDash].sort());
     const en = new Set(dictKeys("en"));
@@ -1034,6 +1041,8 @@ describe("v2.2 clampRangeFrom (Task12 评审修复：31 天前端钳制决策)",
 // 无注入 → openDashboardPanel() 返回 false（调用方静默降级，console.warn）；
 // setPanelSwitcher 注入后 → true 且以 PANEL_ID 调用（index.tsx 注入 ctx.layout.selectPanel）。
 describe("v2.2 panel switcher (Task13)", () => {
+  // 测试卫生（Task 14 预裁定补充）：注入的 switcher 是模块级状态，leave clean 防跨 describe 泄漏
+  afterEach(() => setPanelSwitcher(null));
   it("returns false without switcher, true and calls after set", () => {
     expect(PANEL_ID).toBe("foxbell-dashboard");
     expect(openDashboardPanel()).toBe(false);
@@ -1041,5 +1050,128 @@ describe("v2.2 panel switcher (Task13)", () => {
     setPanelSwitcher((id) => { called = id; });
     expect(openDashboardPanel()).toBe(true);
     expect(called).toBe("foxbell-dashboard");
+  });
+});
+
+// ---- Task 14：导出评语池（R8 纯规则匹配，无 LLM；自定义模板优先）----
+// 预裁定（控制器 resolution #1）：brief Step 1 片段的 {hit} 占位符系笔误——fillQuote 实现
+// {range}/{tokens}/{hitPct}/{models}（spec R8 + plan Self-Review ⑦），变量键名为 hit（QuoteVars）。
+describe("v2.2 quotes (Task14 R8)", () => {
+  it("custom template wins with placeholders filled", () => {
+    expect(fillQuote("今日 {tokens}，命中 {hitPct}", { range: "", tokens: "12.3万", hit: "90%", models: "" })).toBe("今日 12.3万，命中 90%");
+  });
+  it("rule pool picks by priority (hit>total>trend>multi>loaf)", () => {
+    const q = pickQuote({ total: 500, hitPct: 0.95, trendUp: true, multiModel: true, loaf: false }, "zh");
+    expect(q).toContain("缓存");
+  });
+  it("custom 非空优先于规则池（trim 后判空；vars 缺省回空串占位）", () => {
+    const agg = { total: 500, hitPct: 0.95, trendUp: true, multiModel: true, loaf: false };
+    expect(pickQuote(agg, "zh", "  ")).toContain("缓存"); // 空白模板=未自定义 → 走池
+    expect(pickQuote(agg, "zh", "自定义 {models}")).toBe("自定义 "); // vars 缺省 → 空串占位
+    expect(pickQuote(agg, "zh", "自定义", { range: "7日", tokens: "1万", hit: "90%", models: "3" })).toBe("自定义");
+  });
+  it("fillQuote 四占位符全替换（{range}/{tokens}/{hitPct}/{models}；未出现的占位符原样保留语义=split/join 直替）", () => {
+    expect(fillQuote("{range}·{tokens}·{hitPct}·{models}", { range: "30日", tokens: "5.0亿", hit: "37.5%", models: "2" }))
+      .toBe("30日·5.0亿·37.5%·2");
+  });
+  it("en 池同规则；优先级顺序（总量档在趋势前：中档总量才落到 trend>multi>loaf>兜底）", () => {
+    expect(pickQuote({ total: 500, hitPct: 0.95, trendUp: true, multiModel: true, loaf: false }, "en")).toContain("Cache");
+    expect(pickQuote({ total: 500, hitPct: 0.2, trendUp: null, multiModel: false, loaf: true }, "zh")).toContain("缓存");
+    expect(pickQuote({ total: 2_000_000, hitPct: 0.7, trendUp: null, multiModel: false, loaf: true }, "zh")).toContain("百万");
+    expect(pickQuote({ total: 0, hitPct: 0, trendUp: null, multiModel: false, loaf: false }, "zh")).toContain("没开工");
+    // 中档总量（10万..100万）+ 中段命中 → 依次 trend 连升/连降 → 多模型 → 摸鱼 → 兜底
+    expect(pickQuote({ total: 500_000, hitPct: 0.7, trendUp: true, multiModel: true, loaf: true }, "zh")).toContain("爬坡");
+    expect(pickQuote({ total: 500_000, hitPct: 0.7, trendUp: false, multiModel: true, loaf: true }, "zh")).toContain("收敛");
+    expect(pickQuote({ total: 500_000, hitPct: 0.7, trendUp: null, multiModel: true, loaf: true }, "zh")).toContain("多线");
+    expect(pickQuote({ total: 500_000, hitPct: 0.7, trendUp: null, multiModel: false, loaf: true }, "zh")).toContain("摸鱼");
+    expect(pickQuote({ total: 500_000, hitPct: 0.7, trendUp: null, multiModel: false, loaf: false }, "zh")).toContain("干活");
+  });
+});
+
+// ---- Task 14：R8 导出三键的配置契约 + 姿态/趋势纯函数（测试全部为追加）----
+describe("v2.2 export config keys (Task14 R8)", () => {
+  it("CFG_DEFAULT 导出 3 键与宿主 Config schema 逐字一致（false/''/'random'）", () => {
+    expect(CFG_DEFAULT.dashboardSidebarEntry).toBe(false);
+    expect(CFG_DEFAULT.exportQuote).toBe("");
+    expect(CFG_DEFAULT.exportPose).toBe("random");
+  });
+  it("sanitizeValue：exportQuote 字符串直存（不得布尔真值化）、2000 字符钳制、非串回空", () => {
+    expect(sanitizeValue("exportQuote", "今日 {tokens}，命中 {hitPct}")).toBe("今日 {tokens}，命中 {hitPct}");
+    expect(sanitizeValue("exportQuote", "x".repeat(2500))).toHaveLength(2000);
+    expect(sanitizeValue("exportQuote", 42)).toBe("");
+    expect(sanitizeValue("exportQuote", undefined)).toBe("");
+  });
+  it("sanitizeValue：exportPose 白名单（random + ANIM 键），越界回 random", () => {
+    expect(sanitizeValue("exportPose", "waving")).toBe("waving");
+    expect(sanitizeValue("exportPose", "look")).toBe("random"); // look 是内部扫视，非姿态
+    expect(sanitizeValue("exportPose", "bogus")).toBe("random");
+    expect(sanitizeValue("exportPose", 42)).toBe("random");
+    expect(sanitizeValue("exportPose", undefined)).toBe("random");
+  });
+  it("sanitizeConfig JSON 存档回环保真（字符串键布尔化回归）", () => {
+    const edited = sanitizeConfig({ ...CFG_DEFAULT, exportQuote: "今日 {tokens}", exportPose: "jumping" } as PetConfig);
+    const round2 = sanitizeConfig(JSON.parse(JSON.stringify(edited)) as PetConfig);
+    expect(round2.exportQuote).toBe("今日 {tokens}");
+    expect(round2.exportPose).toBe("jumping");
+  });
+  it("SETTINGS_V22_KEYS 3 键并入草稿层：buildSavePatch 字符串原值透传（无 Number 转换）、dirty 可判", () => {
+    expect([...SETTINGS_V22_KEYS]).toEqual(["dashboardSidebarEntry", "exportQuote", "exportPose"]);
+    expect(ALL_DRAFT_KEYS).toHaveLength(SETTINGS_ALL_KEYS.length + 3);
+    const draft = { ...CFG_DEFAULT, exportQuote: "自定义 {models}", dashboardSidebarEntry: true } as DraftConfig;
+    const patch = buildSavePatch(draft, CFG_DEFAULT);
+    expect(patch.exportQuote).toBe("自定义 {models}");
+    expect(patch.dashboardSidebarEntry).toBe(true);
+    expect(patch.exportPose).toBeUndefined(); // 未变更不入 patch
+    expect(isDraftDirty({ ...CFG_DEFAULT }, CFG_DEFAULT)).toBe(false);
+    expect(isDraftDirty(draft, CFG_DEFAULT)).toBe(true);
+  });
+  it("新 i18n 键 zh/en 成对取值（按钮/设置卡标签/姿态）", () => {
+    setLang("zh");
+    expect(t("dash.export.copyText")).toBe("复制文本");
+    expect(t("dash.export.exportImage")).toBe("导出图片");
+    expect(t("dash.export.copied")).toBe("已复制");
+    expect(t("dash.cfg.dashboardSidebarEntry")).toBe("侧栏看板入口");
+    expect(t("dash.cfg.exportQuote")).toBe("导出评语(空=评语池)");
+    expect(t("dash.cfg.exportPose")).toBe("导出姿态");
+    expect(t("dash.pose.random")).toBe("随机");
+    expect(t("dash.pose.run-right")).toBe("向右跑");
+    setLang("en");
+    expect(t("dash.export.copyText")).toBe("Copy text");
+    expect(t("dash.export.exportImage")).toBe("Export image");
+    expect(t("dash.cfg.exportQuote")).toBe("Export quote (empty = pool)");
+    expect(t("dash.pose.random")).toBe("Random");
+    expect(t("dash.pose.run-left")).toBe("Run left");
+    setLang("zh");
+  });
+});
+
+describe("v2.2 pose + trend helpers (Task14 R8)", () => {
+  it("POSE_KEYS = random + ANIM 全键（无 look），与 sanitizeValue/设置卡下拉共用", () => {
+    expect(POSE_KEYS).toEqual([
+      "random", "idle", "run-right", "run-left", "waving", "jumping", "failed", "waiting", "running", "review",
+    ]);
+  });
+  it("maxAnimCols = ANIM 最长 d 数组（8 列图集）", () => {
+    expect(maxAnimCols()).toBe(8);
+    expect(maxAnimCols()).toBe(Math.max(...Object.values(ANIM).map((a) => a.d.length)));
+  });
+  it("resolvePoseRow：已知键→行号；未知键→0 兜底；random→ANIM 行域内", () => {
+    expect(resolvePoseRow("waving")).toBe(3);
+    expect(resolvePoseRow("failed")).toBe(5);
+    expect(resolvePoseRow("no-such")).toBe(0);
+    const rows = new Set(Object.values(ANIM).map((a) => a.row));
+    const spy = vi.spyOn(Math, "random").mockReturnValue(0);
+    expect(resolvePoseRow("random")).toBe(ANIM.idle.row);
+    spy.mockReturnValue(0.999);
+    expect(rows.has(resolvePoseRow("random"))).toBe(true);
+    spy.mockRestore();
+  });
+  it("trendDirection：末两日升 true/降 false/等或不足 null", () => {
+    expect(trendDirection([{ dayTotal: 1 }, { dayTotal: 2 }])).toBe(true);
+    expect(trendDirection([{ dayTotal: 3 }, { dayTotal: 2 }])).toBe(false);
+    expect(trendDirection([{ dayTotal: 2 }, { dayTotal: 2 }])).toBe(null);
+    expect(trendDirection([{ dayTotal: 5 }])).toBe(null);
+    expect(trendDirection(null)).toBe(null);
+    expect(trendDirection([{ dayTotal: 1 }, { dayTotal: 9 }, { dayTotal: 4 }])).toBe(false); // 只看末两日
   });
 });

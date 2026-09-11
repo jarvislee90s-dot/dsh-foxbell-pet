@@ -24,13 +24,23 @@ export const SETTINGS_ALL_KEYS = [
   "scale",
 ] as const satisfies readonly (keyof PetConfig)[];
 
+/** v2.2 导出 3 键（Task 14 R8）：布尔（侧栏看板入口）+ 字符串（导出评语/导出姿态）——
+ *  纯布尔/字符串键，不在 NUM_KEYS（无 Number 转换）；与 SETTINGS_ALL_KEYS 共用草稿/save 机制，
+ *  单列的原因：既有 21 键键集契约测试不动（append-only），新键以增量清单并入迭代。 */
+export const SETTINGS_V22_KEYS = [
+  "dashboardSidebarEntry", "exportQuote", "exportPose",
+] as const satisfies readonly (keyof PetConfig)[];
+
+/** 草稿层实际迭代的全键集（v2.2 起 = 21 键 + 3 导出键；dirty 判定与 save patch 收集均遍历此表） */
+export const ALL_DRAFT_KEYS: readonly (keyof PetConfig)[] = [...SETTINGS_ALL_KEYS, ...SETTINGS_V22_KEYS];
+
 /** v1.4.0 isBadNum："" / null / 非有限数。Number("") = 0 是有限数，故空串必须先判 */
 export const isBadNumValue = (v: unknown): boolean =>
   v === "" || v === null || !Number.isFinite(Number(v));
 
 /** dirty：任一草稿键与提交值 String 口径不等（v1.4.0 同款——草稿 "12" vs 已存 12 视为相等） */
 export const isDraftDirty = (draft: DraftConfig, cfg: PetConfig): boolean =>
-  SETTINGS_ALL_KEYS.some((k) => String(draft[k]) !== String(cfg[k]));
+  ALL_DRAFT_KEYS.some((k) => String(draft[k]) !== String(cfg[k]));
 
 /**
  * 保存 diff：仅收集变更键成 patch。
@@ -40,7 +50,7 @@ export const isDraftDirty = (draft: DraftConfig, cfg: PetConfig): boolean =>
  */
 export function buildSavePatch(draft: DraftConfig, cfg: PetConfig): Partial<PetConfig> {
   const patch: Partial<PetConfig> = {};
-  for (const k of SETTINGS_ALL_KEYS) {
+  for (const k of ALL_DRAFT_KEYS) {
     if (String(draft[k]) === String(cfg[k])) continue;
     (patch as Record<string, unknown>)[k] = (NUM_KEYS as readonly string[]).includes(k)
       ? sanitizeValue(k as NumKey, Number(draft[k]))

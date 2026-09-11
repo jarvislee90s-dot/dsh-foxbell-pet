@@ -37,6 +37,10 @@ export const LOOK_FRAMES = Array.from({ length: 16 }, (_, i) => ({
   y: 0 - (i < 8 ? 9 : 10) * FRAME_H,
 }));
 
+/** v2.2 R8 导出姿态候选（Task 14）：'random'（按 ANIM 键随机行首帧）+ ANIM 全键（look 为内部
+ *  扫视动画，非用户姿态，不入列）。config.sanitizeValue 的 exportPose 白名单与设置卡下拉共用。 */
+export const POSE_KEYS: string[] = ["random", ...Object.keys(ANIM)];
+
 /** 帧样式：background-position/size（scale 作用于精灵与图集整体；rows=9 时 v1 图集） */
 export function frameStyle(
   anim: PetAnimKey,

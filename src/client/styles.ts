@@ -86,6 +86,8 @@ const CSS = `
 .dyn-pet-settings-save { background: #16a34a; color: #fff; border: none; border-radius: 8px; padding: 5px 18px; font-size: 13px; cursor: pointer; }
 .dyn-pet-settings-save:disabled { background: #c9bdae; cursor: default; }
 .dyn-pet-settings-row.bad input { border: 1px solid #ef4444; border-radius: 4px; }
+/* ---- v2.2 R8 设置卡导出评语文本域（Task 14）---- */
+.dyn-pet-settings-quote { flex: 1; max-width: 220px; border: 1px solid rgba(122,74,43,.35); border-radius: 6px; padding: 4px 6px; font-size: 12px; color: #3b2f23; background: #fff; font-family: inherit; line-height: 1.4; resize: vertical; box-sizing: border-box; }
 .dyn-pet-settings-actions { justify-content: flex-start; flex-wrap: wrap; }
 .dyn-pet-scale-group { display: inline-flex; gap: 4px; }
 .dyn-pet-scale-btn { border:1px solid rgba(122,74,43,.35); background:#fff; color:#7a4a2b; border-radius:8px; font-size:12px; padding:2px 10px; cursor:pointer; }
@@ -195,6 +197,10 @@ ${MINI_DETAIL_CSS}
 .dyn-pet-dash-dates { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: #7a4a2b; }
 .dyn-pet-dash-dates input { border: 1px solid rgba(122,74,43,.35); border-radius: 6px; padding: 2px 4px; font-size: 12px; color: #3b2f23; background: #fff; }
 .dyn-pet-dash-rangehint { color: #b45309; font-style: normal; font-size: 11px; }
+/* ---- v2.2 R8 大看板头部导出按钮（Task 14）：复制文本 / 导出图片 ---- */
+.dyn-pet-dash-actions { display: flex; align-items: center; gap: 6px; }
+.dyn-pet-dash-actbtn { border: 1px solid rgba(122,74,43,.35); background: #fff; color: #7a4a2b; border-radius: 999px; padding: 3px 12px; font-size: 12px; cursor: pointer; }
+.dyn-pet-dash-actbtn:hover { background: rgba(122,74,43,.08); }
 .dyn-pet-dash-hero { padding: 10px 2px 6px; }
 .dyn-pet-dash-hero-label { font-size: 12px; color: #a07050; }
 .dyn-pet-dash-hero-num { font-size: 28px; font-weight: 700; color: #7a4a2b; line-height: 1.25; }

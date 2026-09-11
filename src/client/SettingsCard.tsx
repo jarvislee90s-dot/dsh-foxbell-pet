@@ -8,6 +8,7 @@
 // 外部变更（右键菜单/宠物管理写同键）仅无未保存修改时 rebase draft。
 import React, { useEffect, useRef, useState } from "react";
 import { CFG_ACTIONS, CFG_SCALES, type PetAction, type PetConfig, type PetScale } from "./config";
+import { POSE_KEYS } from "./animations";
 import { appStore, cfgStore } from "./store";
 import { openDialog } from "./dialogs/host";
 import { t } from "./i18n";
@@ -131,6 +132,30 @@ export function SettingsCard(): React.ReactElement {
           ))}
           {/* 纯 token 口径说明：静态提示行，不可交互 */}
           <div className="dyn-pet-settings-note">{t("dash.caliberNote")}</div>
+          {/* v2.2 导出 3 键（Task 14 R8）：布尔→复选 / 字符串→文本域 / 枚举→下拉（random + ANIM 键） */}
+          <label className="dyn-pet-settings-row">
+            <span>{t("dash.cfg.dashboardSidebarEntry")}</span>
+            <input type="checkbox" checked={draft.dashboardSidebarEntry} onChange={(e) => setDraftKey("dashboardSidebarEntry", e.target.checked)} />
+          </label>
+          <label className="dyn-pet-settings-row">
+            <span>{t("dash.cfg.exportQuote")}</span>
+            <textarea
+              className="dyn-pet-settings-quote"
+              rows={2}
+              maxLength={2000}
+              placeholder={t("dash.cfg.exportQuote")}
+              value={draft.exportQuote}
+              onChange={(e) => setDraftKey("exportQuote", e.target.value)}
+            />
+          </label>
+          <div className="dyn-pet-settings-row">
+            <span>{t("dash.cfg.exportPose")}</span>
+            <select value={draft.exportPose} onChange={(e) => setDraftKey("exportPose", e.target.value)}>
+              {POSE_KEYS.map((p) => (
+                <option key={p} value={p}>{p === "random" ? t("dash.pose.random") : t(`dash.pose.${p}`)}</option>
+              ))}
+            </select>
+          </div>
           {(["dblAction", "approvalAction", "runningAction", "errorAction", "doneAction"] as const).map((k) => (
             <div key={k} className="dyn-pet-settings-row">
               <span>{t(`settings.${k}`)}</span>

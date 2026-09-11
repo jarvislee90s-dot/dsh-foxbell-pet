@@ -4,12 +4,14 @@
 // 不复刻：价格（F04 存档）、推理单列（F03 存档）——spec §2.1。
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import type { ReactElement } from "react";
-import { appStore } from "./store";
+import { appStore, cfgStore } from "./store";
 import { apiGetRange, type RangeSummary, type RouteUsage, type TrendDay, type TrendHour } from "./api";
 import { TrendChart, lastN } from "./TrendChart";
-import { t } from "./i18n";
+import { t, getLang } from "./i18n";
 import { fmtPct, fmtTokens, shortModel } from "./format";
 import { fmtDur } from "./boardrows";
+import { exportDashboardImage, loadSprite, maxAnimCols, resolvePoseRow } from "./exportimage";
+import { pickQuote, type QuoteVars } from "./quotes";
 
 // ---- 纯函数（test/client-logic.test.ts 直测）----
 
@@ -94,8 +96,17 @@ export function clampRangeFrom(from: string, to: string): { from: string; clampe
   return from < maxFrom ? { from: maxFrom, clamped: true } : { from, clamped: false };
 }
 
-// ---- 区间拉取（30d/自定义；60s 内存缓存，Map key `from:to`）----
+/** 趋势方向（Task 14 R8 评语聚合输入）：末两日 dayTotal 升 → true / 降 → false / 相等或不足两日 → null。
+ *  纯函数不读时钟；入参为当前视图的日桶序列（快照 trend.days 或 range.days）。 */
+export function trendDirection(days: { dayTotal: number }[] | null | undefined): boolean | null {
+  const arr = Array.isArray(days) ? days : [];
+  if (arr.length < 2) return null;
+  const a = arr[arr.length - 2].dayTotal;
+  const b = arr[arr.length - 1].dayTotal;
+  return a < b ? true : a > b ? false : null;
+}
 
+// ---- 区间拉取（30d/自定义；60s 内存缓存，Map key `from:to`）----
 const rangeCache = new Map<string, { at: number; data: RangeSummary }>();
 async function fetchRange(from: string, to: string): Promise<RangeSummary> {
   const key = `${from}:${to}`;
@@ -168,12 +179,14 @@ function ToolsGrid(props: { tools: ToolAgg[] }): ReactElement {
 
 export function DashboardPanel(): ReactElement {
   const snap = useSyncExternalStore(appStore.subscribe, appStore.getSnapshot);
+  const cfg = useSyncExternalStore(cfgStore.subscribe, cfgStore.getSnapshot);
   const [tab, setTab] = useState<DashTab>("7d");
   const [custom, setCustom] = useState({ from: dayKey(new Date(Date.now() - 6 * 86400000)), to: dayKey(new Date()) });
   const [range, setRange] = useState<RangeSummary | null>(null);
   const [busy, setBusy] = useState(false);
   const [rangeHint, setRangeHint] = useState("");
   const [hover, setHover] = useState<Hover | null>(null);
+  const [copiedFlash, setCopiedFlash] = useState(false);
 
   const dash = snap ? snap.dashboard : null;
   const trend = dash && dash.usage && dash.usage.trend ? dash.usage.trend : null;
@@ -223,6 +236,82 @@ export function DashboardPanel(): ReactElement {
   const tools: ToolAgg[] = inRange ? (range ? range.tools : []) : (usage && usage.tools) || [];
   const inFlight = busy && (tab === "30d" || tab === "custom");
 
+  // ---- v2.2 R8 导出（Task 14）：复制文本 / 导出图片 ----
+
+  // 评语聚合输入（当前视图数据推导）：hero 合计 / 窗口命中率（快照 cacheHitRate vs 区间 totals.hitPct）/
+  // 趋势末两日 dayTotal 升降（相等或不足两日 → null）/ 多模型 / 摸鱼（快照 pace 档位 loaf1..4；pace 关闭 = false）
+  const hitRate = totals ? totals.hitPct : usage ? usage.cacheHitRate : 0;
+  const exportTrendDays = inRange ? (range ? range.days : []) : trend ? trend.days : [];
+  const trendUp: boolean | null = trendDirection(exportTrendDays);
+  const loaf = dash && dash.pace ? dash.pace.tier.startsWith("loaf") : false;
+  const quoteVars: QuoteVars = {
+    range: t(`dash.tab.${tab}`),
+    tokens: fmtTokens(hero),
+    hit: fmtPct(hitRate),
+    models: String(models.length),
+  };
+  const buildQuote = (): string =>
+    pickQuote({ total: hero, hitPct: hitRate, trendUp, multiModel: models.length > 1, loaf }, getLang(), cfg.exportQuote, quoteVars);
+
+  // 复制文本：grid + models 多行纯文本；clipboard API 优先，失败回退 execCommand，再失败静默（toast-less，ManageDialog 同款）
+  const onCopyText = async (): Promise<void> => {
+    const lines = [
+      `${t("dash.panelTitle")} · ${t(`dash.tab.${tab}`)}`,
+      ...grid.map(([k, v]) => `${k}: ${v}`),
+      `${t("dash.models")}:`,
+      ...models.map((m) => `${shortModel(m.model || m.route)}  ${fmtTokens(m.requestTotal)}`),
+    ];
+    const text = lines.join("\n");
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        ta.remove();
+      } catch { /* 剪贴板不可用：静默 */ }
+    }
+    setCopiedFlash(true);
+  };
+
+  // 导出图片：sprite 从 runtime.spriteUrl 现场加载（失败 → null，无立绘继续导出）；
+  // frameCols=ANIM 最长 d 数组；frameW=sheet 宽/cols，frameH=sheet 高/行数（runtime.rows 自适应 v1/v2 图集）
+  const onExportImage = async (): Promise<void> => {
+    const rt = appStore.getRuntime();
+    const sprite = await loadSprite(rt.spriteUrl);
+    const frameCols = maxAnimCols();
+    const blob = await exportDashboardImage({
+      title: `${t("dash.panelTitle")} · ${t(`dash.tab.${tab}`)}`,
+      hero: fmtTokens(hero),
+      grid,
+      models: models.map((m) => ({ name: shortModel(m.model || m.route), val: fmtTokens(m.requestTotal) })),
+      points: points.map((p) => ({ label: p.label, value: p.value })),
+      quote: buildQuote(),
+      poseRow: resolvePoseRow(cfg.exportPose),
+      frameCols,
+      sprite,
+      frameW: sprite ? sprite.naturalWidth / frameCols : 0,
+      frameH: sprite ? sprite.naturalHeight / rt.rows : 0,
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `foxbell-dashboard-${tab}.png`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  useEffect(() => {
+    if (!copiedFlash) return;
+    const timer = setTimeout(() => setCopiedFlash(false), 1600);
+    return () => clearTimeout(timer);
+  }, [copiedFlash]);
+
   return (
     <div className="dyn-pet-dash">
       <div className="dyn-pet-dash-head">
@@ -239,6 +328,11 @@ export function DashboardPanel(): ReactElement {
               {rangeHint ? <em className="dyn-pet-dash-rangehint">{rangeHint}</em> : null}
             </span>
           ) : null}
+        </div>
+        {/* v2.2 R8 导出（Task 14）：复制文本 / 导出图片 */}
+        <div className="dyn-pet-dash-actions">
+          <button className="dyn-pet-dash-actbtn" onClick={() => void onCopyText()}>{copiedFlash ? t("dash.export.copied") : t("dash.export.copyText")}</button>
+          <button className="dyn-pet-dash-actbtn" onClick={() => void onExportImage()}>{t("dash.export.exportImage")}</button>
         </div>
       </div>
 
