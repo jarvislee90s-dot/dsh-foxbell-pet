@@ -33,7 +33,9 @@ function makeCtx() {
   const dispatch = async (method, url, { body = null, headers = {} } = {}) => {
     const u = new URL(url, "http://localhost:3080");
     const handler = routes.exact.get(u.pathname)
-      ?? routes.prefix.find((p) => u.pathname === p.path || u.pathname.startsWith(p.path + "/") || u.pathname.startsWith(p.path))?.handler;
+      // 与真实 harness matcher 同语义：p === pathname 或 p/ 前缀（deepseek-harness
+      // packages/host/webserver/src/index.ts:322-324——prefix 路由裸 startsWith 会误派发）
+      ?? routes.prefix.find((p) => u.pathname === p.path || u.pathname.startsWith(p.path + "/"))?.handler;
     if (!handler) return { status: 404, body: null, headers: {} };
     const req = Object.assign(Readable.from(body ? [Buffer.isBuffer(body) ? body : Buffer.from(body)] : []), {
       method,

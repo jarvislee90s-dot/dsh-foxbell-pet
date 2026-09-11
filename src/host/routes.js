@@ -300,9 +300,11 @@ export function registerRoutes(ctx, env) {
   })
 
   // ---------- 音效静态（v2.2 Task 6 / R7 前置）：包内 assets/sounds/<file>，白名单防穿越 ----------
+  // path 无尾斜杠：harness matcher 的 prefix 语义是 p === pathname 或 pathname 以 p+'/' 开头
+  // （注册 p 带尾斜杠则永远不派发——E2E 真机发现的 404）；handler 自行切段（3 段校验不受影响）。
   reg({
     kind: 'prefix',
-    path: `${ROUTE_PREFIX}/sounds/`,
+    path: `${ROUTE_PREFIX}/sounds`,
     handler(req, res) {
       try {
         if (req.method !== 'GET' && req.method !== 'HEAD') throw new PetError('origin-forbidden', '音效路由仅支持 GET')
