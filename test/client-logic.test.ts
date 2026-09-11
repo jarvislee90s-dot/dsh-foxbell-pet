@@ -1,5 +1,5 @@
 // 客户端纯逻辑测试（TS 直测）：动画表/物理积分/语音选择/校验函数/色彩映射/配置兼容/i18n 完整性。
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ANIM, FRAME_H, FRAME_W, frameStyle, LOOK_FRAMES, SHEET_COLS } from "../src/client/animations";
 import {
   clampPos, dragDirection, GRAVITY, DAMP, MIN_VX, pushSample, stepFall, throwVelocity,
@@ -24,7 +24,7 @@ import { fmtTokens } from "../src/client/format";
 import { boardRows, fmtDur, fmtLongest } from "../src/client/boardrows";
 import { KNOWN_RPC_CODES, PetError, isPetRpcError } from "../src/client/errors";
 import { petErrMsg, type DashboardSummary, type ProjectCard } from "../src/client/api";
-import { mergeUnchanged, POLL_INTERVAL_HIDDEN_MS, POLL_INTERVAL_MS } from "../src/client/store";
+import { appStore, mergeUnchanged, POLL_INTERVAL_HIDDEN_MS, POLL_INTERVAL_MS, schedulePoll } from "../src/client/store";
 // 宿主 ESM 纯函数（allowJs:false 无声明；vitest 运行时直解）——用于客户端/宿主逐值恒等契约校验
 // @ts-expect-error 宿主 JS 模块无类型声明
 import { formatTokens as hostFormatTokens, PACE_LABELS as HOST_PACE_LABELS, summarize as hostSummarize } from "../src/host/dashboard.js";
@@ -744,5 +744,49 @@ describe("v2.2 P3 unchanged merge", () => {
   it("轮询间隔常量：可见 1.5s / 不可见 5s（P4 降频）", () => {
     expect(POLL_INTERVAL_MS).toBe(1500);
     expect(POLL_INTERVAL_HIDDEN_MS).toBe(5000);
+  });
+});
+
+describe("schedulePoll 代数守卫（Task8 评审修复：重入/stop 不产生双链）", () => {
+  // 恒量：任一时刻全模块恰一条自续轮询链。复现评审场景——旧链 tick 已触发、
+  // .finally 未跑（in-flight 窗口）时 visibilitychange 重入 schedulePoll：
+  // clearTimeout 清的是已触发的陈旧句柄，旧链 .finally 若不设防会用自身下一轮
+  // 覆写 pollTimer → 2× 频率双链，stop() 也停不掉。fetch 全 mock 为可控
+  // deferred（不 resolve 即 in-flight），poll 响应无 seq → pollOnce 静默返回。
+  it("in-flight 链未决时重入 schedulePoll：旧链 .finally 不得续排，始终恰一条链", async () => {
+    vi.useFakeTimers();
+    const origFetch = globalThis.fetch;
+    const pending: Array<(v: unknown) => void> = [];
+    let calls = 0;
+    (globalThis as unknown as Record<string, unknown>).fetch = (async () => {
+      calls += 1;
+      return new Promise((resolve) => pending.push(resolve));
+    }) as unknown as typeof fetch;
+    const settle = (i: number) => { pending[i]?.({ ok: true, status: 200, json: async () => ({}) }); };
+    try {
+      schedulePoll(); // 立即 pollOnce #1（in-flight）+ 首个 tick 定时器
+      expect(calls).toBe(1);
+      await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS); // 旧链 tick 触发 → pollOnce #2 in-flight（.finally 未跑）
+      expect(calls).toBe(2);
+      schedulePoll(); // 重入（同 visibilitychange）：代数 +1；立即 pollOnce #3
+      expect(calls).toBe(3);
+      settle(1); // 旧链 pollOnce #2 完成 → 其 .finally 不得再排下一轮
+      await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS); // 新链首个 tick → pollOnce #4
+      expect(calls, "旧链复活则此处为 5（双链 2×频率）").toBe(4);
+      settle(3); // 新链 #4 完成（gen 未变）→ 正常续排
+      await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+      expect(calls, "每个间隔恰 1 次调用（单链不变量）").toBe(5);
+      settle(4);
+      await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+      expect(calls).toBe(6);
+      appStore.stop(); // in-flight 链未决时 stop：.finally 不得复活轮询
+      settle(2); settle(5); // 冲刷在途 poll（#3 为重入立即轮、#6 为停止前的链上 tick）
+      await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS * 2);
+      expect(calls, "stop 后零调用（stop 亦作废 in-flight 链的 .finally）").toBe(6);
+    } finally {
+      vi.useRealTimers();
+      globalThis.fetch = origFetch;
+      appStore.stop();
+    }
   });
 });

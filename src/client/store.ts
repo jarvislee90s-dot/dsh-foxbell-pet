@@ -74,6 +74,7 @@ interface AppState {
 const listeners = new Set<() => void>();
 const state: AppState = { snapshot: null, runtime: { ...FOXBELL_RUNTIME } };
 let pollTimer: ReturnType<typeof setTimeout> | null = null;
+let pollGen = 0; // 调度代数：schedulePoll 重入 / stop 时自增，作废在途旧链（防 .finally 续排出双链）
 let lastSeq: number | null = null;
 let lastRev: string | null = null; // P3：上轮全量快照修订号；仅全量路径更新，unchanged 响应不改写
 let loadedKey = ""; // `${id}#${rev}` — 激活宠物或清单修订变化才重建 VoicePlayer
@@ -85,13 +86,17 @@ export function mergeUnchanged(cur: StateSnapshot, res: { rev: string; unchanged
 }
 
 /** P4 可变间隔调度：立即拉一次，其后每轮按当轮页面可见性选间隔（可见 1.5s / 隐藏 5s）。
- *  visibilitychange 时由 index.tsx 重入以立刻切换节奏（node 测试环境无 document，读取处全程守卫）。 */
+ *  visibilitychange 时由 index.tsx 重入以立刻切换节奏（node 测试环境无 document，读取处全程守卫）。
+ *  代数守卫：重入/stop 先 ++pollGen，在途旧链 tick 的 .finally 见 gen 失配即放弃续排
+ *  （否则旧链用自身下一 tick 覆写 pollTimer → 2× 频率双链，stop 也停不掉）。 */
 export const schedulePoll = (): void => {
+  const gen = ++pollGen;
   if (pollTimer !== null) { clearTimeout(pollTimer); pollTimer = null; }
   void pollOnce();
   const hidden = typeof document !== "undefined" && document.hidden;
   pollTimer = setTimeout(function tick() {
     void pollOnce().finally(() => {
+      if (gen !== pollGen) return; // 本链已被重入/stop 作废：不得续排
       const h = typeof document !== "undefined" && document.hidden;
       pollTimer = setTimeout(tick, h ? POLL_INTERVAL_HIDDEN_MS : POLL_INTERVAL_MS);
     });
@@ -112,6 +117,7 @@ export const appStore = {
     schedulePoll();
   },
   stop() {
+    pollGen += 1; // 作废 in-flight 链：其 tick 的 .finally 不得复活轮询
     if (pollTimer !== null) { clearTimeout(pollTimer); pollTimer = null; }
   },
   /** 设置 scope 接线（settingsScope 不在场时静默，纯 localStorage 后端） */
