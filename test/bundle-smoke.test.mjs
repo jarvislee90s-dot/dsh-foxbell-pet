@@ -37,6 +37,8 @@ function runBundle() {
       head: { appendChild() {} },
       getElementById: () => null,
       createElement: () => ({ style: {}, setAttribute() {}, appendChild() {} }),
+      addEventListener() {}, // Task8 P4 visibilitychange 轮询调度注册
+      removeEventListener() {},
     },
     localStorage: {
       _m: {}, getItem(k) { return this._m[k] ?? null }, setItem(k, v) { this._m[k] = String(v) },
