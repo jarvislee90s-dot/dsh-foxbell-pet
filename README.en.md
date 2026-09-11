@@ -6,7 +6,7 @@ A draggable **multi-pet desktop-pet system** for the DeepSeek Harness (DSH) Web 
 
 ![Built-in pet Foxbell](reference/桃子衣服粉狐狸形象.png)
 
-> **v2.1.0 targets dsh ≥ 0.1.2-rc.1** (older rc.7/rc.8-era harnesses are no longer supported; see the compatibility table below; **0.1.5-rc.2 verified compatible surface-by-surface**).
+> **v2.2.0 targets dsh ≥ 0.1.2-rc.1** (older rc.7/rc.8-era harnesses are no longer supported; see the compatibility table below; **0.1.5-rc.2 verified compatible surface-by-surface**).
 > Starting with v2.0.0 the status-card color semantics follow MAM: **red = awaiting approval, yellow = running, green = done-unread, dark red + ⚠ = error/disconnected** (v1.x used green/yellow/red/blue). See [CHANGELOG](CHANGELOG.md).
 
 ## Screenshots
@@ -54,8 +54,8 @@ A draggable **multi-pet desktop-pet system** for the DeepSeek Harness (DSH) Web 
 The v1.4.0 efficiency-dashboard phase one, ported wholesale onto the v2 architecture: aggregated by the host half and delivered with the `/state` snapshot, **zero always-on UI** (the mini bar exists only while hovering). Usage is always **pure tokens — never converted to money** — presented in **five metrics**: **request input / cache hit / hit rate / output / your input (est.)** (plus a "incl. subagents" tag).
 
 1. **Pace dial** (duration-posture engine) — the pet's pose follows the event timeline through tiers: intense / active / **long-run** (turn open but silent ≥3 min — guards against babysitting a hanging task) / idle / **four loafing stages** (turn closed but silent ≥15 min: resting → lounging → idling → dried-fish, progressively suppressing the idle look-around). Swapping animation variants does **not** change speed; a tier transition plays one short animation, and any new event resets immediately.
-2. **Five-metric mini bar** — hover the pet ≈0.5s and it appears: pace dial (current tier readout) + "today × · this session ×" five-metric usage + an "N awaiting approval / N running / N done" status line; **read-only**, vanishes when the pointer leaves (right-click "🏷 Today's usage" summons it manually; close via outside click / ESC).
-3. **Alert placards + three-tier voice priority** — daily threshold `dayLimitTokens` raises a placard "spent X today" once each at 80% / 100%; crossing a `milestoneUnit` token milestone speaks one bubble line. Alert voice priority: **voice-group audio > TTS > silence** (enable via `ttsEnabled`). Current builtin and external pet inventories ship no usage voice group, so threshold/milestone alerts actually fall through to TTS/silence.
+2. **Five-metric mini bar** — hover the pet ≈0.5s and it appears: pace dial (current tier readout) + "today × · this session ×" five-metric usage + an "N awaiting approval / N running / N done" status line; its only clickable element is the trailing "Details »" drill button (the container still never intercepts clicks); it vanishes when the pointer leaves (right-click "🏷 Today's usage" summons it manually; close via outside click / ESC).
+3. **Alert placards + dashboard sound chain** — daily threshold `dayLimitTokens` raises a placard "spent X today" once each at 80% / 100%; crossing a `milestoneUnit` token milestone speaks one bubble line. Since v2.2.0 alert sounds follow the **MAM four-group mechanism + built-in defaults**: with all four pet voice groups present the `general` group plays, otherwise a built-in synthesized chime (3 rotating) plays; TTS no longer takes part in dashboard alerts (`ttsEnabled` remains for spoken lines only).
 4. **Blackboard + 📖 limited-time entry** — after a task completes, a "📖 Summary" entry appears next to the pet for a limited time (default 15s; 10/15/20 configurable) → clicking opens the summary board (sessions / turns / five-metric token ledger / top-3 tools / longest single turn / error count); it auto-dismisses after `boardTtlSec`, and ✕ / outside click / ESC all close it; right-click "📊 Last summary" reopens it anytime.
 5. **Farewell on hide** — hiding the pet dispatches a "Wrapping up today" board once, so the day ends with a report.
 
@@ -70,12 +70,23 @@ All of this adds **12 new settings** (`paceEnabled` / `usageEnabled` / `summaryE
 | Status card (single click) | Smart jump: with a pending approval → approval anchor; otherwise → session + mark read |
 | 📖 summary limited-time entry | Open the blackboard; the entry then disappears |
 | New right-click menu items | Today's usage → open mini bar manually; Last summary → open blackboard; session-overview item → smart jump |
-| Hover ≈0.5s | Mini bar appears (**read-only**, nothing clickable, gone when the pointer leaves) |
+| Hover ≈0.5s | Mini bar appears (only clickable element = the "Details »" drill button; gone when the pointer leaves) |
 | Drag | Pure physics animation, **carries no command** (mini bar hides and hover detection suspends while dragging) |
 | Mouse wheel | Never hijacked over the pet body or mini bar — scrolls the page through; the blackboard / menu scroll their own content |
 | Right-click | **Pet body only** opens the menu (status card and floating layers have no custom right-click behavior) |
 | ESC | Peels one layer at a time, topmost first (manual mini bar → blackboard → menu) |
-| Blackboard vs mini bar | **Blackboard wins the yield**: while the blackboard is open the mini bar stays hidden and reappears once it closes |
+| Blackboard vs mini bar | **Mutually exclusive**: while the blackboard is open the mini bar is replaced; it comes back once the blackboard closes |
+
+## Usage Dashboard (v2.2.0, three-level disclosure)
+
+One data core, three levels of disclosure, each click going deeper: **L1 mini bar → L2 blackboard → L3 main-column dashboard** (plus a right-click “📈 Usage dashboard” shortcut). The host aggregates session-event usage once (by day / hour / route / tool) and serves it via the `/state` snapshot and an on-demand route; **pure tokens, never money**; performance-wise it uses last-event-fingerprint incremental caching + `/state` short-circuit + reduced polling when hidden, so idle overhead is near zero.
+
+- **L2 blackboard extras**: after the five-metric rows it appends a **7-day sparkline**, **top-3 models**, and an “**Open full dashboard →**” entry row; the blackboard anchors beside the pet (left first, flipping right on overflow) and replaces the mini bar while open.
+- **L3 dashboard** (Codex++-style layout, occupying the main column): tabs [Last 5 hours | Last 7 days | Last 30 days | Custom ≤31 days] + “Copy text” / “Export image”; a range hero number plus this-week/last-week hit-rate comparison; five-metric grid; blue→purple gradient trend chart (hover tooltip / data points / peak / axis labels); **model distribution** progress bars (≤6 rows); 2×2 tool grid + top-5 tools; a caliber footnote at the bottom.
+- **Model / provider distribution** (F05 settled): usage is booked per settled (turn, step) sample by `provider/model` (same-slot replacements roll back, no cross-day pollution); the aggregation reconciles byte-for-byte with the session’s official tokenUsage totals across all four metrics.
+- **Share & export**: a 1200×675 PNG — title / hero / trend line / metric grid / model rows + the current pet sprite at the bottom (random or picked pose) + a smart quote bubble (rule pool with zh/en priority matching, or a custom template `{range}` `{tokens}` `{hitPct}` `{models}` in settings); “Copy text” is the same data as plain text.
+- **Dashboard sounds**: alerts (daily threshold / milestone) play the `general` voice group when all four groups are present, otherwise a built-in synthesized chime (served via `/sounds/`).
+- Three new settings: “Sidebar dashboard entry” (off by default; shows a dashboard icon in the sidebar when enabled), “Export quote”, “Export pose”.
 
 ## Requirements (compatibility)
 
