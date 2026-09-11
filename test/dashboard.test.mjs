@@ -329,13 +329,20 @@ describe('dashboard', () => {
     expect(r.tools[0]).toEqual({ name: 'bash', count: 3, durMs: 1200 })
   })
 
+  it('summarizeRange clamps to at most 31 day buckets', () => {
+    const r = summarizeRange([], [], [], '2026-01-01', '2026-12-31')
+    expect(r.days).toHaveLength(31)
+    expect(r.days[30].key).toBe('2026-01-31')
+  })
+
   it('foldToolsByDay counts tool calls and durations defensively', () => {
     const evts = [
       { type: 'tool/call', time: new Date(2026, 8, 11, 9).getTime(), data: { name: 'bash' } },
       { type: 'tool/result', time: new Date(2026, 8, 11, 9).getTime() + 500, data: { name: 'bash', durationMs: 500 } },
       { type: 'tool/call', time: new Date(2026, 8, 11, 9).getTime() + 600, data: {} }, // 无名 → 忽略
+      { type: 'tool/result', time: new Date(2026, 8, 11, 9).getTime() + 1000, data: { name: 'bash', durationMs: 100 } }, // 无配对 call → 只累加耗时，不计数
     ]
     const t = foldToolsByDay(evts)
-    expect(t.byDay['2026-09-11'].bash).toEqual({ count: 2, durMs: 500 })
+    expect(t.byDay['2026-09-11'].bash).toEqual({ count: 1, durMs: 600 })
   })
 })

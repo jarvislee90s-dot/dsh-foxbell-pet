@@ -352,7 +352,7 @@ export function buildTrend(folds, nowMs) {
  *  模型聚合走 byDayRoute 日切片（Task 1 交叉维度）——绝不用会话全量 byRoute（跨日旧账会污染区间）。 */
 export function summarizeRange(folds, toolsByDayList, userEstByDayList, fromKey, toKey) {
   const dayKeys = []
-  for (let k = fromKey; k <= toKey && dayKeys.length <= 31; k = shiftDayKey(k, 1)) dayKeys.push(k)
+  for (let k = fromKey; k <= toKey && dayKeys.length < 31; k = shiftDayKey(k, 1)) dayKeys.push(k)
   const dayAcc = Object.fromEntries(dayKeys.map((k) => [k, zeroUsage()]))
   const routeAcc = {}
   for (const f of Array.isArray(folds) ? folds : []) {
@@ -412,8 +412,8 @@ export function summarizeRange(folds, toolsByDayList, userEstByDayList, fromKey,
 }
 
 /** 工具调用按日折叠（/dashboard/range 的工具区数据核；防御式读 name/durationMs）。
- *  计数口径（Task 2 测试钉死 count:2）：带名的 tool/call 与 tool/result 各计一次；耗时仅由带
- *  durationMs 的 tool/result 累加。注意与 v2.1 scanSession 的 toolCalls（仅 tool/call 计数）口径不同。 */
+ *  计数口径（Task 2 评审裁定，spec R5「调用总数」语义）：仅带名的 tool/call 计一次数；耗时由配对的
+ *  tool/result（带正的 durationMs）累加——与 v2.1 scanSession 的 toolCalls 口径一致。 */
 export function foldToolsByDay(evts) {
   const byDay = {}
   for (const ev of Array.isArray(evts) ? evts : []) {
@@ -425,7 +425,7 @@ export function foldToolsByDay(evts) {
     const day = dateKeyOf(ev.time)
     const b = byDay[day] || (byDay[day] = {})
     const a = b[name] || (b[name] = { count: 0, durMs: 0 })
-    a.count += 1
+    if (ev.type === 'tool/call') a.count += 1
     if (ev.type === 'tool/result' && typeof d.durationMs === 'number' && Number.isFinite(d.durationMs) && d.durationMs > 0) a.durMs += d.durationMs
   }
   return { byDay }
