@@ -90,7 +90,8 @@ function sendFile(res, filePath, contentType, cache) {
  * @param ctx cordis 上下文（webServer 在场才调用）
  * @param env {
  *   pkgDir, petsRoot, stagingRoot, trashRoot, codexRoot, tmpDir,
- *   stateEngine, snapshotExtra(), builtin: { manifest, assetDir },
+ *   stateEngine, snapshotExtra(), envRev()（可选：/state rev 的环境段，activePet/pets 指纹）,
+ *   builtin: { manifest, assetDir },
  *   getActivePetId(), diag
  * }
  */
@@ -121,13 +122,48 @@ export function registerRoutes(ctx, env) {
     handler(req, res) {
       try {
         // ?pet=<id> 仅为无 settings 服务降级部署的激活提示（白名单校验在宿主 index.js）；
-        // settings 在场时被忽略（配置为唯一事实源）——既有 GET /state 语义不变
+        // settings 在场时被忽略（配置为唯一事实源）——既有 GET /state 语义不变。
+        // ?since=<rev>（v2.2 Task 6 / P3）：内容修订号命中 → 微型响应。
         let hint = null
+        let since = null
         try {
           const u = new URL(req.url || '/', 'http://x')
           hint = u.searchParams.get('pet')
+          since = u.searchParams.get('since')
         } catch { /* ignore */ }
-        json(res, env.snapshotExtra(hint))
+        // P3 短路（Task 6 + 终审修复）：聚合每轮必跑（P1 指纹缓存已把 compute 降为廉价操作）——
+        // 短路省的是 JSON.stringify + 传输 + 客户端解析，不是聚合。ages 现取自本轮
+        // compute 后的 list()，绝不复用上一轮的旧 ages（age 不参与 rev，时钟推进时
+        // rev 不变而 ages 刷新）。无 since 参数的旧客户端完全不进此分支（行为逐字节不变）。
+        // rev 组成（终审修复）：引擎 contentRev() 只覆盖引擎聚合面（项目行 id:status:unread:
+        // title:lines / 队列 / 用量 / 档位 / 警报 / 审批等待量化），非引擎快照部件
+        // （activePet/pets/voices，源自宠物文件与激活配置）由 env.envRev(hint) 环境指纹覆盖，
+        // 追加为 '#' 后缀——宠物热切换/外部清单变化也能打穿 unchanged。guard 刻意不进
+        // envRev（其问题源自宠物文件，已被 activePet.rev 的 manifest mtime 指纹覆盖，避免每轮
+        // 重复 fs 读）；ages 依旧不参与。envRev 缺席（旧测试假 env）回退纯引擎 rev。
+        const engine = env.stateEngine
+        const revEngine = engine && typeof engine.contentRev === 'function' ? engine : null
+        const envRevFn = env && typeof env.envRev === 'function' ? env.envRev : null
+        const combinedRev = () => {
+          const r = revEngine.contentRev()
+          return envRevFn === null ? r : r + '#' + String(envRevFn(hint))
+        }
+        if (revEngine !== null && since !== null) {
+          revEngine.compute()
+          const rev = combinedRev()
+          if (typeof rev === 'string' && since === rev) {
+            json(res, { rev, unchanged: true, ages: revEngine.list().map((p) => p.age || ''), seq: revEngine.nextSeq() })
+            return
+          }
+        }
+        const body = env.snapshotExtra(hint)
+        // 全量快照：既有数值 seq（completions 序号）保持不变（客户端 snap.seq typeof 校验），
+        // 顶层附加字符串 rev（同上组合 rev）供 Task 8 客户端下一轮 ?since 回传（additive，不改既有形状）
+        if (revEngine !== null) {
+          const rev = combinedRev()
+          if (typeof rev === 'string') body.rev = rev
+        }
+        json(res, body)
       } catch (e) { errJson(res, e) }
     },
   })
@@ -154,6 +190,34 @@ export function registerRoutes(ctx, env) {
         if (v === '0' || v === '1') env.diag.clientVisible = v
       } catch { /* ignore */ }
       json(res, { ok: true })
+    },
+  })
+
+  // ---------- 效率看板跨日区间（v2.2 Task 6 / R3）：Task 2 summarizeRange 形状 ----------
+  reg({
+    kind: 'exact',
+    path: `${ROUTE_PREFIX}/dashboard/range`,
+    handler(req, res) {
+      try {
+        const u = new URL(req.url || '/', 'http://x')
+        const from = u.searchParams.get('from') || ''
+        const to = u.searchParams.get('to') || ''
+        // 格式 + 真实日历日（2026-02-30 型拒绝，防下游 shiftDayKey 静默滚日）+ from<=to
+        const cal = (s) => {
+          const d = new Date(s + 'T00:00:00')
+          return !Number.isNaN(d.getTime())
+            && d.getFullYear() === Number(s.slice(0, 4))
+            && d.getMonth() + 1 === Number(s.slice(5, 7))
+            && d.getDate() === Number(s.slice(8, 10))
+        }
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !cal(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || !cal(to) || from > to) {
+          throw new PetError('bad-request', 'from/to 需为真实日历日 YYYY-MM-DD 且 from<=to').with('from', from).with('to', to)
+        }
+        // 跨度天数（本地零点之差；DST 23/25h 日由 round 吸收），含首尾，上限 31
+        const days = Math.round((new Date(to + 'T00:00:00').getTime() - new Date(from + 'T00:00:00').getTime()) / 86400000) + 1
+        if (days > 31) throw new PetError('bad-request', '跨度最长 31 天').with('days', String(days))
+        json(res, env.stateEngine.rangeSummary(from, to))
+      } catch (e) { errJson(res, e) }
     },
   })
 
@@ -243,6 +307,30 @@ export function registerRoutes(ctx, env) {
           return
         }
         throw new PetError('staging-not-found', `未知暂存路径: /${rest.join('/')}`)
+      } catch (e) { errJson(res, e) }
+    },
+  })
+
+  // ---------- 音效静态（v2.2 Task 6 / R7 前置）：包内 assets/sounds/<file>，白名单防穿越 ----------
+  // path 无尾斜杠：harness matcher 的 prefix 语义是 p === pathname 或 pathname 以 p+'/' 开头
+  // （注册 p 带尾斜杠则永远不派发——E2E 真机发现的 404）；handler 自行切段（3 段校验不受影响）。
+  reg({
+    kind: 'prefix',
+    path: `${ROUTE_PREFIX}/sounds`,
+    handler(req, res) {
+      try {
+        if (req.method !== 'GET' && req.method !== 'HEAD') throw new PetError('origin-forbidden', '音效路由仅支持 GET')
+        const u = new URL(req.url || '/', 'http://x')
+        let segs
+        try { segs = decodeURIComponent(u.pathname).split('/').filter(Boolean) } catch {
+          throw new PetError('bad-request', '非法音效路径')
+        }
+        // segs: ['dyn-pet-foxbell','sounds', <file>]；单段小写字母数字连字符 + .wav
+        // （白名单拒绝路径分隔/穿越/大写/空格；文件名不含目录成分，path.join 无逃逸面）
+        const file = segs.length === 3 ? segs[2] : ''
+        if (!/^[a-z0-9-]+\.wav$/.test(file)) throw new PetError('bad-request', '非法音效文件名').with('file', file)
+        // sendFile 与姊妹资产路由同管道：lstat 拒绝符号链接叶子，缺失 → pet-not-found(404)
+        sendFile(res, path.join(env.pkgDir, 'assets', 'sounds', file), 'audio/wav', 'public, max-age=86400')
       } catch (e) { errJson(res, e) }
     },
   })

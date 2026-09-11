@@ -55,24 +55,77 @@ export function dateKeyOf(ms) {
 const USAGE_KEYS = ['inputTokens', 'outputTokens', 'cacheReadTokens', 'cacheWriteTokens']
 export const zeroUsage = () => ({ inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 })
 
+/** 事件消息源路由（v2.2 R2）：assistant/message.data.message.source.{provider,model}；
+ *  缺失/非字符串 → null（记账归「未知」桶）。 */
+export function routeSource(ev) {
+  const src = ev && ev.data && ev.data.message && ev.data.message.source
+  if (!src || typeof src !== 'object') return null
+  const p = typeof src.provider === 'string' ? src.provider.trim() : ''
+  const m = typeof src.model === 'string' ? src.model.trim() : ''
+  return p && m ? { provider: p, model: m } : null
+}
+
+/** 整点桶键（本地时区）：YYYY-MM-DDTHH（与 dateKeyOf 同款 pad 拼接）。 */
+export function hourKeyOf(ms) {
+  const d = new Date(ms)
+  return dateKeyOf(ms) + 'T' + String(d.getHours()).padStart(2, '0')
+}
+
+const UNKNOWN_ROUTE = '未知'
+const routeBuckets = () => ({ inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, requestCount: 0 })
+
 export function foldUsage(evts) {
   const byDay = {}
+  const byHour = {}
+  const byRoute = {}
+  const byDayRoute = {}
   const grand = zeroUsage()
+  let requestCount = 0
   let lastKey = null
   let lastBuckets = null
   let lastDay = null
-  const apply = (b, day, sign) => {
+  let lastHour = null
+  let lastRoute = null
+  // 冲回后全零的壳桶就地摘除：同 (turn,step) 替换不留 0 值残桶（否则旧路由/小时/日以 0 壳污染切片）
+  const pruneIfEmpty = (parent, key) => {
+    const t = parent && parent[key]
+    if (!t) return
+    if (USAGE_KEYS.every((k) => !t[k]) && !t.requestCount) delete parent[key]
+  }
+  const apply = (b, day, hour, route, sign) => {
+    const d = byDay[day] || (byDay[day] = zeroUsage())
+    const h = byHour[hour] || (byHour[hour] = zeroUsage())
+    const r = byRoute[route] || (byRoute[route] = routeBuckets())
+    const dr = byDayRoute[day] || (byDayRoute[day] = {})
+    const rd = dr[route] || (dr[route] = routeBuckets())
     for (const k of USAGE_KEYS) {
       const v = (b[k] || 0) * sign
       grand[k] += v
-      const d = byDay[day] || (byDay[day] = zeroUsage())
       d[k] += v
+      h[k] += v
+      r[k] += v
+      rd[k] += v
+    }
+    r.requestCount += sign
+    rd.requestCount += sign
+    d.requestCount = (d.requestCount || 0) + sign
+    h.requestCount = (h.requestCount || 0) + sign
+    requestCount += sign
+    if (sign < 0) {
+      pruneIfEmpty(byRoute, route)
+      pruneIfEmpty(byDayRoute[day], route)
+      if (byDayRoute[day] && !Object.keys(byDayRoute[day]).length) delete byDayRoute[day]
+      pruneIfEmpty(byDay, day)
+      pruneIfEmpty(byHour, hour)
     }
   }
   for (const ev of Array.isArray(evts) ? evts : []) {
     const d = ev && ev.data
     if (!d) continue
-    if (ev.type === 'llm/retry-started') { lastKey = null; lastBuckets = null; continue }
+    if (ev.type === 'llm/retry-started') {
+      lastKey = null; lastBuckets = null; lastDay = null; lastHour = null; lastRoute = null
+      continue
+    }
     if (ev.type !== 'assistant/message' || !d.usage || typeof d.usage !== 'object') continue
     if (typeof ev.time !== 'number' || !Number.isFinite(ev.time)) continue // 无时间戳的样本无法归日，跳过（防 NaN 桶）
     const u = d.usage
@@ -80,11 +133,14 @@ export function foldUsage(evts) {
     for (const k of USAGE_KEYS) b[k] = typeof u[k] === 'number' && Number.isFinite(u[k]) && u[k] > 0 ? u[k] : 0
     const key = d.turn + ':' + d.step
     const day = dateKeyOf(ev.time)
-    if (key === lastKey && lastBuckets && lastDay) apply(lastBuckets, lastDay, -1)
-    apply(b, day, 1)
-    lastKey = key; lastBuckets = b; lastDay = day
+    const hour = hourKeyOf(ev.time)
+    const src = routeSource(ev)
+    const route = src ? src.provider + '/' + src.model : UNKNOWN_ROUTE
+    if (key === lastKey && lastBuckets && lastDay) apply(lastBuckets, lastDay, lastHour, lastRoute, -1)
+    apply(b, day, hour, route, 1)
+    lastKey = key; lastBuckets = b; lastDay = day; lastHour = hour; lastRoute = route
   }
-  return { byDay, grand }
+  return { byDay, byHour, byRoute, byDayRoute, grand, requestCount }
 }
 
 // ---------- 组件②：阈值阶梯与里程碑（跨阈值判定，天然一次性） ----------
@@ -108,17 +164,17 @@ export function evaluateAlerts(prev, next, cfg, dateKey) {
   if (limit > 0) {
     const warn = limit * 0.8
     if (prev.dayTotal < warn && next.dayTotal >= warn) {
-      out.push({ id: 'day-warn' + day, kind: 'day-warn', text: '今日 token 已用 80% · ' + formatTokens(next.dayTotal) })
+      out.push({ id: 'day-warn' + day, kind: 'day-warn', reached: next.dayTotal, text: '今日 token 已用 80% · ' + formatTokens(next.dayTotal) })
     }
     if (prev.dayTotal < limit && next.dayTotal >= limit) {
-      out.push({ id: 'day-hit' + day, kind: 'day-hit', text: '今日 token 已达阈值 · ' + formatTokens(next.dayTotal) })
+      out.push({ id: 'day-hit' + day, kind: 'day-hit', reached: next.dayTotal, text: '今日 token 已达阈值 · ' + formatTokens(next.dayTotal) })
     }
   }
   const unit = cfg && cfg.milestoneUnit > 0 ? cfg.milestoneUnit : 0
   if (unit > 0) {
     const k = Math.floor(next.grandTotal / unit)
     if (k > 0 && Math.floor(prev.grandTotal / unit) < k) {
-      out.push({ id: 'milestone:' + k, kind: 'milestone', text: '里程碑：累计 ' + formatTokens(k * unit) + ' token' })
+      out.push({ id: 'milestone:' + k, kind: 'milestone', reached: k * unit, text: '里程碑：累计 ' + formatTokens(k * unit) + ' token' })
     }
   }
   return out
@@ -250,4 +306,127 @@ export function hitRate(usage) {
   const denom = (u.inputTokens || 0) + (u.cacheReadTokens || 0)
   if (denom <= 0) return 0
   return Math.min(1, Math.max(0, (u.cacheReadTokens || 0) / denom))
+}
+
+// ---------- v2.2 R3：趋势窗口（14 日 + 当日 24 整点桶）与区间聚合 ----------
+
+const dayTotalOf = (u) => u.inputTokens + u.outputTokens + u.cacheReadTokens + u.cacheWriteTokens
+const reqTotalOf = (u) => u.inputTokens + u.cacheReadTokens
+
+const shiftDayKey = (key, delta) => {
+  const [y, m, d] = key.split('-').map(Number)
+  const dt = new Date(y, m - 1, d + delta)
+  return dateKeyOf(dt.getTime())
+}
+
+/** folds: foldUsage() 产物数组（每会话一份）。days=近 14 日升序零填充；hours=今日 0-23 整点桶。
+ *  requestCount 由 Task 1 的 byDay/byHour 桶透传。 */
+export function buildTrend(folds, nowMs) {
+  const todayKey = dateKeyOf(nowMs)
+  const dayKeys = []
+  for (let i = 13; i >= 0; i--) dayKeys.push(shiftDayKey(todayKey, -i))
+  const dayAcc = Object.fromEntries(dayKeys.map((k) => [k, zeroUsage()]))
+  const hourAcc = {}
+  for (let h = 0; h < 24; h++) hourAcc[todayKey + 'T' + String(h).padStart(2, '0')] = zeroUsage()
+  for (const f of Array.isArray(folds) ? folds : []) {
+    if (!f) continue
+    for (const [k, u] of Object.entries(f.byDay || {})) {
+      if (!dayAcc[k]) continue
+      for (const bk of USAGE_KEYS) dayAcc[k][bk] += u[bk] || 0
+      dayAcc[k].requestCount = (dayAcc[k].requestCount || 0) + (u.requestCount || 0)
+    }
+    for (const [k, u] of Object.entries(f.byHour || {})) {
+      if (!hourAcc[k]) continue
+      for (const bk of USAGE_KEYS) hourAcc[k][bk] += u[bk] || 0
+      hourAcc[k].requestCount = (hourAcc[k].requestCount || 0) + (u.requestCount || 0)
+    }
+  }
+  const day = (k, b) => ({ key: k, dayTotal: dayTotalOf(b), requestTotal: reqTotalOf(b), cacheRead: b.cacheReadTokens, outputTokens: b.outputTokens, hitPct: hitRate(b), requestCount: b.requestCount || 0 })
+  return {
+    days: dayKeys.map((k) => day(k, dayAcc[k])),
+    hours: Object.entries(hourAcc).map(([k, u]) => ({ key: k, dayTotal: dayTotalOf(u), requestTotal: reqTotalOf(u), requestCount: u.requestCount || 0 })),
+  }
+}
+
+/** 区间聚合（/dashboard/range 数据核）。folds/toolsByDayList/userEstByDayList 与会话一一对应。
+ *  模型聚合走 byDayRoute 日切片（Task 1 交叉维度）——绝不用会话全量 byRoute（跨日旧账会污染区间）。 */
+export function summarizeRange(folds, toolsByDayList, userEstByDayList, fromKey, toKey) {
+  const dayKeys = []
+  for (let k = fromKey; k <= toKey && dayKeys.length < 31; k = shiftDayKey(k, 1)) dayKeys.push(k)
+  const dayAcc = Object.fromEntries(dayKeys.map((k) => [k, zeroUsage()]))
+  const routeAcc = {}
+  for (const f of Array.isArray(folds) ? folds : []) {
+    if (!f) continue
+    for (const [k, u] of Object.entries(f.byDay || {})) {
+      if (!dayAcc[k]) continue
+      for (const bk of USAGE_KEYS) dayAcc[k][bk] += u[bk] || 0
+      dayAcc[k].requestCount = (dayAcc[k].requestCount || 0) + (u.requestCount || 0)
+    }
+    for (const k of dayKeys) {
+      const dayRoute = f.byDayRoute && f.byDayRoute[k]
+      if (!dayRoute) continue
+      for (const [route, r] of Object.entries(dayRoute)) {
+        const slash = route.indexOf('/')
+        const a = routeAcc[route] || (routeAcc[route] = {
+          route,
+          provider: slash > 0 ? route.slice(0, slash) : '',
+          model: slash > 0 ? route.slice(slash + 1) : '',
+          requestTotal: 0, cacheRead: 0, outputTokens: 0,
+        })
+        a.requestTotal += r.inputTokens + r.cacheReadTokens
+        a.cacheRead += r.cacheReadTokens
+        a.outputTokens += r.outputTokens
+      }
+    }
+  }
+  const totals = { requestTotal: 0, cacheRead: 0, outputTokens: 0, userEst: 0, hitPct: 0, requestCount: 0 }
+  for (const est of Array.isArray(userEstByDayList) ? userEstByDayList : []) {
+    if (!est) continue
+    for (const k of dayKeys) totals.userEst += est[k] || 0
+  }
+  const days = dayKeys.map((k) => {
+    const b = dayAcc[k]
+    return { key: k, dayTotal: dayTotalOf(b), requestTotal: reqTotalOf(b), cacheRead: b.cacheReadTokens, outputTokens: b.outputTokens, hitPct: hitRate(b), requestCount: b.requestCount || 0 }
+  })
+  totals.requestTotal = days.reduce((s, d) => s + d.requestTotal, 0)
+  totals.cacheRead = days.reduce((s, d) => s + d.cacheRead, 0)
+  totals.outputTokens = days.reduce((s, d) => s + d.outputTokens, 0)
+  totals.requestCount = days.reduce((s, d) => s + d.requestCount, 0)
+  totals.hitPct = totals.requestTotal > 0 ? totals.cacheRead / totals.requestTotal : 0
+  const models = Object.values(routeAcc).sort((a, b) => b.requestTotal - a.requestTotal)
+  const toolsAcc = {}
+  for (const t of Array.isArray(toolsByDayList) ? toolsByDayList : []) {
+    if (!t || !t.byDay) continue
+    for (const k of dayKeys) {
+      const day = t.byDay[k]
+      if (!day) continue
+      for (const [name, v] of Object.entries(day)) {
+        const a = toolsAcc[name] || (toolsAcc[name] = { name, count: 0, durMs: 0 })
+        a.count += v.count || 0
+        a.durMs += v.durMs || 0
+      }
+    }
+  }
+  const tools = Object.values(toolsAcc).sort((a, b) => b.count - a.count)
+  return { from: fromKey, to: toKey, days, totals, models, tools }
+}
+
+/** 工具调用按日折叠（/dashboard/range 的工具区数据核；防御式读 name/durationMs）。
+ *  计数口径（Task 2 评审裁定，spec R5「调用总数」语义）：仅带名的 tool/call 计一次数；耗时由配对的
+ *  tool/result（带正的 durationMs）累加——与 v2.1 scanSession 的 toolCalls 口径一致。 */
+export function foldToolsByDay(evts) {
+  const byDay = {}
+  for (const ev of Array.isArray(evts) ? evts : []) {
+    const d = ev && ev.data
+    if (!d || (ev.type !== 'tool/call' && ev.type !== 'tool/result')) continue
+    if (typeof ev.time !== 'number' || !Number.isFinite(ev.time)) continue
+    const name = typeof d.name === 'string' && d.name.trim() ? d.name.trim() : null
+    if (!name) continue
+    const day = dateKeyOf(ev.time)
+    const b = byDay[day] || (byDay[day] = {})
+    const a = b[name] || (b[name] = { count: 0, durMs: 0 })
+    if (ev.type === 'tool/call') a.count += 1
+    if (ev.type === 'tool/result' && typeof d.durationMs === 'number' && Number.isFinite(d.durationMs) && d.durationMs > 0) a.durMs += d.durationMs
+  }
+  return { byDay }
 }

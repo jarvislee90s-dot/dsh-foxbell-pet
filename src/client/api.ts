@@ -138,7 +138,7 @@ export interface SessionUsageSnapshot extends UsageBucket {
   requestTotal: number;
 }
 
-/** 今日用量聚合（src/host/state.js L273-283；models 为二期预留空桶） */
+/** 今日用量聚合（src/host/state.js L273-283；v2.2 models 由 {} 占位桶转正为 RouteAgg[]，可空容错旧宿主） */
 export interface UsageSnapshot {
   day: UsageBucket;
   /** 请求输入口径：inputTokens + cacheReadTokens（2026-09-10 用户裁定） */
@@ -149,7 +149,14 @@ export interface UsageSnapshot {
   userEst: number;
   session: SessionUsageSnapshot | null;
   grandTotal: number;
-  models: Record<string, unknown>;
+  /** v2.2 当日按路由聚合 Top6（可空：容错旧宿主） */
+  models?: RouteUsage[];
+  /** v2.2 当日工具调用计数（可空：容错旧宿主） */
+  tools?: { name: string; count: number; durMs: number }[];
+  /** v2.2 趋势切片：14 天 / 24 小时（可空：容错旧宿主） */
+  trend?: { days: TrendDay[]; hours: TrendHour[] };
+  /** v2.2 迷你条状态计数（R10 follow-up；引擎并入，与 list() 同口径；可空：容错旧宿主） */
+  counts?: { approval: number; running: number; done: number };
 }
 
 /** 阈值警报（evaluateAlerts，src/host/dashboard.js L103-125） */
@@ -157,6 +164,8 @@ export interface DashboardAlert {
   id: string;
   kind: "day-warn" | "day-hit" | "milestone";
   text: string;
+  /** v2.2 触发时阈值原值（milestone 类展示「已达成 N」用；可空容错旧宿主） */
+  reached?: number;
 }
 
 /** 未决审批（src/host/state.js L251） */
@@ -216,8 +225,25 @@ export interface DashboardSnapshot {
   summary: DashboardSummary;
 }
 
+// ---- v2.2 类型增量（/state rev、usage.models/tools/trend、/dashboard/range；Task 8）----
+/** 当日按「路由(provider/model)」聚合行（宿主 RouteAgg 同形，buildDashboard usage.models） */
+export interface RouteUsage { route: string; provider: string; model: string; requestTotal: number; cacheRead: number; outputTokens: number }
+/** 日趋势切片（byDay；hitPct 分母 0 记 0） */
+export interface TrendDay { key: string; dayTotal: number; requestTotal: number; cacheRead: number; outputTokens: number; hitPct: number; requestCount: number }
+/** 小时趋势切片（近 24h） */
+export interface TrendHour { key: string; dayTotal: number; requestTotal: number; requestCount: number }
+/** /dashboard/range 区间汇总（宿主 range.js RangeSummary 同形） */
+export interface RangeSummary { from: string; to: string; days: TrendDay[]; totals: { requestTotal: number; cacheRead: number; outputTokens: number; userEst: number; hitPct: number; requestCount: number }; models: RouteUsage[]; tools: { name: string; count: number; durMs: number }[] }
+
+/** 区间用量汇总（R3；from/to 为 YYYY-MM-DD，宿主闭区间） */
+export async function apiGetRange(from: string, to: string): Promise<RangeSummary> {
+  return apiGet<RangeSummary>(`/dashboard/range?from=${from}&to=${to}`);
+}
+
 export interface StateSnapshot {
   seq: number;
+  /** v2.2 P3 快照修订号（与 numeric seq 独立递增；客户端轮询 since 短路凭据） */
+  rev?: string;
   completions: { seq: number; at: number; agentId: string }[];
   runningSessions: number;
   projects: ProjectCard[];

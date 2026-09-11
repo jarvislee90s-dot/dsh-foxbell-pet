@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { sessionEvents, estimateTokens, estimateUserTokensByDay, hitRate, blocksTextOf } from '../src/host/dashboard.js'
 import { derivePaceTier, DEFAULT_PACE, PACE_LABELS } from '../src/host/dashboard.js'
-import { foldUsage, dateKeyOf } from '../src/host/dashboard.js'
+import { foldUsage, dateKeyOf, hourKeyOf, buildTrend, summarizeRange, foldToolsByDay } from '../src/host/dashboard.js'
 import { evaluateAlerts, formatTokens } from '../src/host/dashboard.js'
 import { ageLabel, summarize } from '../src/host/dashboard.js'
 
@@ -226,5 +226,130 @@ describe('dashboard', () => {
     const zero = summarize([], null, 0)
     expect(zero.tokensText.includes('请求输入 0')).toBeTruthy()
     expect(zero.tokensText.includes('（缓存命中 0 · 0.0%）')).toBeTruthy()
+  })
+
+  // ---- v2.2 Task 1：byRoute / requestCount / byHour ----
+  const mkMsg = (turn, step, time, usage, source) => ({
+    type: 'assistant/message', time, data: { turn, step, usage, message: source ? { source } : undefined },
+  })
+  const U = (i, o, c) => ({ inputTokens: i, outputTokens: o, cacheReadTokens: c })
+
+  it('foldUsage routes usage by provider/model and counts settled samples', () => {
+    const evts = [
+      mkMsg(0, 0, 1000, U(100, 10, 0), { provider: 'p1', model: 'm1' }),
+      mkMsg(0, 1, 2000, U(50, 5, 20), { provider: 'p2', model: 'm2' }),
+    ]
+    const f = foldUsage(evts)
+    expect(f.requestCount).toBe(2)
+    expect(f.byRoute['p1/m1'].inputTokens).toBe(100)
+    expect(f.byRoute['p2/m2'].cacheReadTokens).toBe(20)
+    expect(f.byRoute['p1/m1'].requestCount).toBe(1)
+  })
+
+  it('foldUsage replacement moves usage between routes and decrements requestCount', () => {
+    const evts = [
+      mkMsg(0, 0, 1000, U(100, 10, 0), { provider: 'p1', model: 'm1' }),
+      mkMsg(0, 0, 3000, U(70, 7, 0), { provider: 'p2', model: 'm2' }), // 同 (turn,step) 替换
+    ]
+    const f = foldUsage(evts)
+    expect(f.requestCount).toBe(1)
+    expect(f.byRoute['p1/m1']).toBeUndefined()           // 旧路由账全部冲回
+    expect(f.byRoute['p2/m2'].inputTokens).toBe(70)
+    expect(f.byRoute['p2/m2'].requestCount).toBe(1)
+  })
+
+  it('foldUsage missing source goes to 未知 bucket', () => {
+    const f = foldUsage([mkMsg(0, 0, 1000, U(10, 1, 0), undefined)])
+    expect(f.byRoute['未知'].inputTokens).toBe(10)
+  })
+
+  it('foldUsage byHour buckets by calendar hour key', () => {
+    const t = new Date(2026, 8, 11, 14, 30, 0).getTime()
+    const f = foldUsage([mkMsg(0, 0, t, U(10, 1, 0), { provider: 'p', model: 'm' })])
+    expect(f.byHour['2026-09-11T14'].inputTokens).toBe(10)
+    expect(hourKeyOf(t)).toBe('2026-09-11T14')
+  })
+
+  it('foldUsage carries requestCount on day/hour buckets and byDayRoute cross-dimension', () => {
+    const t = new Date(2026, 8, 11, 14, 30, 0).getTime()
+    const f = foldUsage([
+      mkMsg(0, 0, t, U(10, 1, 0), { provider: 'p', model: 'm' }),
+      mkMsg(0, 1, t + 1000, U(20, 2, 0), { provider: 'q', model: 'n' }),
+    ])
+    expect(f.byDay['2026-09-11'].requestCount).toBe(2)
+    expect(f.byDayRoute['2026-09-11']['p/m'].inputTokens).toBe(10)
+    expect(f.byDayRoute['2026-09-11']['q/n'].inputTokens).toBe(20)
+    // 同 (turn,step) 替换：byDayRoute 同步冲回旧路由
+    const g = foldUsage([
+      mkMsg(0, 0, t, U(10, 1, 0), { provider: 'p', model: 'm' }),
+      mkMsg(0, 0, t + 1000, U(5, 1, 0), { provider: 'q', model: 'n' }),
+    ])
+    expect(g.byDayRoute['2026-09-11']['p/m']).toBeUndefined()
+    expect(g.byDayRoute['2026-09-11']['q/n'].inputTokens).toBe(5)
+    expect(g.byDay['2026-09-11'].requestCount).toBe(1)
+  })
+
+  // ---- v2.2 Task 2：buildTrend / summarizeRange / foldToolsByDay ----
+  const fold1 = () => foldUsage([
+    mkMsg(0, 0, new Date(2026, 8, 11, 10, 0).getTime(), U(100, 40, 60), { provider: 'p', model: 'm1' }),
+  ])
+
+  it('buildTrend returns 14 ascending day buckets with zero-fill and derived fields', () => {
+    const now = new Date(2026, 8, 11, 15, 0).getTime()
+    const t = buildTrend([fold1()], now)
+    expect(t.days).toHaveLength(14)
+    expect(t.days[13].key).toBe('2026-09-11')
+    expect(t.days[13].dayTotal).toBe(200)
+    expect(t.days[13].requestTotal).toBe(160)
+    expect(t.days[13].hitPct).toBeCloseTo(0.375, 5) // 60/160
+    expect(t.days[13].requestCount).toBe(1)
+    expect(t.days[0].key).toBe('2026-08-29')
+    expect(t.days[0].dayTotal).toBe(0)
+  })
+
+  it('buildTrend returns 24 hour buckets for today only', () => {
+    const now = new Date(2026, 8, 11, 15, 0).getTime()
+    const t = buildTrend([fold1()], now)
+    expect(t.hours).toHaveLength(24)
+    expect(t.hours[10].requestTotal).toBe(160)
+    expect(t.hours[0].key).toBe('2026-09-11T00')
+    expect(t.hours[23].key).toBe('2026-09-11T23')
+  })
+
+  it('summarizeRange aggregates days/models/tools/userEst within [from, to]', () => {
+    const now = new Date(2026, 8, 11, 15, 0).getTime()
+    const f = fold1()
+    const tools = { byDay: { '2026-09-11': { bash: { count: 3, durMs: 1200 } } } }
+    const userEst = { '2026-09-11': 55 }
+    const r = summarizeRange([f], [tools], [userEst], '2026-09-10', '2026-09-11')
+    expect(r.days.map((d) => d.key)).toEqual(['2026-09-10', '2026-09-11'])
+    expect(r.totals.requestTotal).toBe(160)
+    expect(r.totals.userEst).toBe(55)
+    expect(r.models[0]).toMatchObject({ route: 'p/m1', provider: 'p', model: 'm1', requestTotal: 160 })
+    expect(r.tools[0]).toEqual({ name: 'bash', count: 3, durMs: 1200 })
+  })
+
+  it('summarizeRange clamps to at most 31 day buckets', () => {
+    const r = summarizeRange([], [], [], '2026-01-01', '2026-12-31')
+    expect(r.days).toHaveLength(31)
+    expect(r.days[30].key).toBe('2026-01-31')
+  })
+
+  it('foldToolsByDay counts tool calls and durations defensively', () => {
+    const evts = [
+      { type: 'tool/call', time: new Date(2026, 8, 11, 9).getTime(), data: { name: 'bash' } },
+      { type: 'tool/result', time: new Date(2026, 8, 11, 9).getTime() + 500, data: { name: 'bash', durationMs: 500 } },
+      { type: 'tool/call', time: new Date(2026, 8, 11, 9).getTime() + 600, data: {} }, // 无名 → 忽略
+      { type: 'tool/result', time: new Date(2026, 8, 11, 9).getTime() + 1000, data: { name: 'bash', durationMs: 100 } }, // 无配对 call → 只累加耗时，不计数
+    ]
+    const t = foldToolsByDay(evts)
+    expect(t.byDay['2026-09-11'].bash).toEqual({ count: 1, durMs: 600 })
+  })
+
+  it('evaluateAlerts emits structured reached for i18n assembly', () => {
+    const out = evaluateAlerts({ dayTotal: 0, grandTotal: 0 }, { dayTotal: 900, grandTotal: 0 }, { dayLimitTokens: 1000, milestoneUnit: 0 }, '2026-09-11')
+    expect(out[0]).toMatchObject({ kind: 'day-warn', reached: 900 })
+    const ms = evaluateAlerts({ dayTotal: 0, grandTotal: 0 }, { dayTotal: 0, grandTotal: 2_500_000 }, { dayLimitTokens: 0, milestoneUnit: 1_000_000 }, '2026-09-11')
+    expect(ms[0]).toMatchObject({ kind: 'milestone', reached: 2_000_000 })
   })
 })

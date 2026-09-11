@@ -13,3 +13,15 @@ export function fmtTokens(n: number): string {
   const v = (n / 100000000).toFixed(2);
   return v.replace(/\.?0+$/, "") + "亿";
 }
+
+/** 模型名短化（Task 11 黑板模型行；MiniBar 同款截断口径抽出共用）：>12 字符取前 10 + '…' */
+export function shortModel(name: string): string {
+  return name.length > 12 ? name.slice(0, 10) + "…" : name;
+}
+
+/** 百分数（Task 12 大看板五口径「命中率」/tooltip）：入参为 0-1 分数（宿主 hitRate 口径：
+ *  usage.cacheHitRate / TrendDay.hitPct / range.totals.hitPct 均为 分数），出参 (x*100).toFixed(1)+'%'。
+ *  注意 SummaryTokens.hitPct 为 0-100 原值（黑板行直 toFixed），勿混用两口径。 */
+export function fmtPct(x: number): string {
+  return (x * 100).toFixed(1) + "%";
+}

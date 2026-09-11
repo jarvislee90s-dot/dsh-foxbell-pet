@@ -3,7 +3,7 @@
 //   本插件特有的错误/断联态（error）= 深红 + 错误标识（⚠），与「待审批」明确区分。
 // 宿主 /state 的 status 字段语义不变（running/approval/error/done），仅客户端渲染口径变化。
 // 卡片点击跳会话 + 已读行为不变；排序 error > approval > running > done（宿主管）。
-import type { ProjectCard } from "./api";
+import type { DashboardSnapshot, ProjectCard } from "./api";
 
 export type LightKind = "approval-red" | "running-yellow" | "done-green" | "error-darkred";
 
@@ -72,4 +72,18 @@ export function truncate(s: string, maxTokens = 24): string {
     if (n >= maxTokens || i + 1 >= maxChars) { cut = i + 1; break; }
   }
   return t.slice(0, cut).trim() + "…";
+}
+
+/** v2.2 迷你条状态计数（Task10 R10 follow-up）：宿主全量计数 dash.usage.counts 优先（宿主引擎从
+ *  projects Map 并入，与 list() 同口径），仅当 counts 在位且三键均为数字时采用；否则回退本地
+ *  cards 按 status 计数（原 MiniBar.tsx 内联计数逻辑函数化，error 卡不计）。放本模块而非
+ *  MiniBar.tsx：vitest node 环境 react 为 external 不可装，.tsx 无法被测试导入（纯函数须 react-free）。 */
+export function countsFromDash(dash: DashboardSnapshot | null, cards: ProjectCard[] | null): Record<string, number> {
+  const counts: Record<string, number> = { approval: 0, running: 0, done: 0 };
+  for (const p of cards || []) { if (counts[p.status] !== undefined) counts[p.status] += 1 }
+  const c = dash && dash.usage ? dash.usage.counts : undefined;
+  if (c && typeof c.approval === "number" && typeof c.running === "number" && typeof c.done === "number") {
+    return { approval: c.approval, running: c.running, done: c.done };
+  }
+  return counts;
 }

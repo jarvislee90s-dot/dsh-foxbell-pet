@@ -6,11 +6,15 @@
 // 倒序 decidedIds 过滤未决审批）；新增纯函数 buildDashboard（v1.4.0 computeProjects
 // 看板聚合段移植，可喂裸事件数组直测）；createStateEngine 每轮 compute 聚合并缓存于
 // dashboard()，警报基线跨轮保留。
+// v2.2（Task 4）：buildDashboard 重构为 foldEntry/aggregateFold 折叠管线（usage 增
+// models/tools/trend 快照字段，counts 由引擎并入）；createStateEngine 按 agentId 指纹
+// （事件数:末事件 seq）增量缓存 scan+folded（P1：未变不重扫），trend 整点节流。
 // 纯逻辑工厂 createStateEngine(deps)，便于 vitest 直接喂假会话。
 
 import {
   sessionEvents, PACE_LABELS, derivePaceTier, dateKeyOf, zeroUsage, foldUsage,
   evaluateAlerts, summarize, summarizeStructured, estimateUserTokensByDay, hitRate, ageLabel,
+  buildTrend, foldToolsByDay, hourKeyOf, summarizeRange,
 } from './dashboard.js'
 
 /** 文本助手（与 v1.3.0 相同：词元感知截断，CJK 每字 1 词元） */
@@ -201,20 +205,59 @@ export function derive(a, info, prev, newCompletion) {
 }
 
 /**
- * 效率看板聚合（v1.4.0 computeProjects 看板聚合段移植；纯函数，可喂裸事件数组直测）。
- * sessionsData: [{ id, title, events }]（events 为原始事件数组；引擎侧以 sessionEvents()
- * 采集一次后映射为该形状，无会话可解析的 root 不进数组——与源 m=null 跳过口径一致）。
- * cfg: 看板 8 项配置（缺键逐键回退 BOARD_DEFAULTS）；alertPrev: 上一轮 { dayTotal, grandTotal }
- * 警报基线（缺省按 0 起步；引擎每轮以返回的聚合量推进，与源 alertPrev 语义一致）。
+ * 单会话折叠（v2.2 Task 4）：引擎增量缓存的最小单位。usage 三维账（foldUsage：
+ * byDay/byHour/byRoute/byDayRoute/grand/requestCount）+ 用户输入按日估算 + 工具调用按日。
+ * 引擎按指纹缓存折叠结果；时间派生量（pace/approvals/summary 行）不进缓存、每轮重算。
+ */
+export function foldEntry(evts) {
+  return {
+    usage: foldUsage(evts),
+    userEstByDay: estimateUserTokensByDay(evts),
+    toolsByDay: foldToolsByDay(evts),
+  }
+}
+
+/**
+ * 效率看板聚合——兼容入口（v2.2 Task 4 起为薄折叠层）：签名与返回与 v2.1 完全一致。
+ * sessionsData: [{ id, title, events }]（events 为原始事件数组；无会话可解析的 root 不进
+ * 数组——与源 m=null 跳过口径一致），折叠成 FoldEntry 后交 aggregateFold。scan 以 dayStart=0
+ * 采集（全部事件计入 metrics「今日」；pace/usage/summary 不消费 lines 当日性，与按本地零点
+ * 采集对既有用例逐字段等价）。cfg: 看板 8 项配置（缺键逐键回退 BOARD_DEFAULTS）；
+ * alertPrev: 上一轮 { dayTotal, grandTotal } 警报基线（缺省按 0 起步）。
  */
 export function buildDashboard(sessionsData, cfg, now, alertPrev) {
-  const sessions = Array.isArray(sessionsData) ? sessionsData : []
+  const nowMs = typeof now === 'number' && Number.isFinite(now) ? now : Date.now()
+  const entries = (Array.isArray(sessionsData) ? sessionsData : []).flatMap((s) => {
+    if (!s) return [] // 与原 `if (!s) continue` 同口径：假条目整条剔除
+    const evts = Array.isArray(s.events) ? s.events : []
+    const sid = s.id !== undefined && s.id !== null ? s.id : ''
+    return [{
+      id: sid,
+      title: s.title || sid,
+      scan: scanInfo(evts, 0),
+      folded: foldEntry(evts),
+      recentCount: events5mCount(evts, nowMs), // 兼容路径现算 5min 活跃数（引擎路径由缓存 recent 提供）
+    }]
+  })
+  return aggregateFold(entries, cfg, now, alertPrev)
+}
+
+/**
+ * 效率看板聚合核心（v2.2 Task 4 新导出纯函数）：消费折叠条目
+ * FoldEntry: { id, title, scan: scanInfo 产物, folded: foldEntry 产物, recentCount?: number }。
+ * 逐字段复刻 v2.1 buildDashboard 语义（pace / usage 五口径 / alerts / approvals / summary），
+ * 仅新增 usage.models（当日 Top6 模型账）/ usage.tools（当日 Top5 工具账）/ usage.trend
+ * （14 日 + 当日 24 整点桶）。recentCount：近 5 分钟活跃事件数——兼容层由 events5mCount
+ * 现算，引擎由缓存 recent 裁剪提供。usage.counts 不在此产出：引擎组装时从 projects Map
+ * 并入（本函数保持无会话表依赖）。
+ */
+export function aggregateFold(entries, cfg, now, alertPrev) {
+  const sessions = Array.isArray(entries) ? entries : []
   const live = cfg && typeof cfg === 'object' ? cfg : {}
   // 配置门逐键判型回退（v1.4.0 cfgB/cfgN 原样语义）
   const cfgB = (k) => (typeof live[k] === 'boolean' ? live[k] : BOARD_DEFAULTS[k])
   const cfgN = (k) => (typeof live[k] === 'number' && Number.isFinite(live[k]) ? live[k] : BOARD_DEFAULTS[k])
   const nowMs = typeof now === 'number' && Number.isFinite(now) ? now : Date.now()
-  const dayStart = new Date(nowMs); dayStart.setHours(0, 0, 0, 0)
   const dayKey = dateKeyOf(nowMs)
   let aggTurnOpen = false, aggLastEvent = null, agg5m = 0
   let dayUsage = zeroUsage(), grandTotal = 0, latestSession = null, latestTime = -1
@@ -223,22 +266,21 @@ export function buildDashboard(sessionsData, cfg, now, alertPrev) {
   const perSessionMetrics = []
   for (const s of sessions) {
     if (!s) continue
-    const evts = Array.isArray(s.events) ? s.events : []
     const sid = s.id !== undefined && s.id !== null ? s.id : ''
     const stitle = s.title || sid
-    const info = scanInfo(evts, dayStart.getTime())
-    const m = info.metrics
+    const info = s.scan
+    const m = info && info.metrics
     if (m) {
       if (m.lastEventTime !== null) {
         if (m.lastEventTime > aggLastEvent) aggLastEvent = m.lastEventTime
         // 近 5 分钟窗口锚定 now（v1.4.0 已验证修正：陈旧会话尾巴不计入全局强度）
-        agg5m += events5mCount(evts, nowMs)
+        agg5m += s.recentCount || 0
       }
       const hasOpenTurn = (info.latestTurnStartSeq !== null && info.lastEnd !== null && info.latestTurnStartSeq > info.lastEnd.seq)
         || (info.latestTurnStartSeq !== null && info.lastEnd === null)
       if (hasOpenTurn) aggTurnOpen = true
-      const usage = foldUsage(evts)
-      userEstToday += estimateUserTokensByDay(evts)[dayKey] || 0
+      const usage = s.folded.usage
+      userEstToday += s.folded.userEstByDay[dayKey] || 0
       const dayB = usage.byDay[dayKey] || null
       if (dayB) for (const k of USAGE_KEYS) dayUsage[k] += dayB[k]
       grandTotal += usage.grand.inputTokens + usage.grand.outputTokens + usage.grand.cacheReadTokens + usage.grand.cacheWriteTokens
@@ -249,6 +291,36 @@ export function buildDashboard(sessionsData, cfg, now, alertPrev) {
       }
       perSessionMetrics.push({ title: stitle, turns: m.turns, errors: m.errors, toolCalls: m.toolCalls, toolDurMs: m.toolDurMs || {}, longestTurnMs: m.longestTurnMs })
       for (const pnd of m.pendingList) approvals.push({ id: sid + ':' + pnd.id, title: stitle, waitMin: Math.floor((nowMs - pnd.at) / 60000) })
+    }
+  }
+  // ---------- v2.2 快照扩展三段（folded 已缓存，零重扫成本） ----------
+  // ① models 当日账（R2）：从 byDayRoute[dayKey] 日切片聚合（Task 1 交叉维度，跨日旧账不污染）
+  const routeDay = {}
+  for (const s of sessions) {
+    const dayRoute = s && s.folded && s.folded.usage.byDayRoute && s.folded.usage.byDayRoute[dayKey]
+    if (!dayRoute) continue
+    for (const [route, r] of Object.entries(dayRoute)) {
+      const slash = route.indexOf('/')
+      const a = routeDay[route] || (routeDay[route] = {
+        route,
+        provider: slash > 0 ? route.slice(0, slash) : '',
+        model: slash > 0 ? route.slice(slash + 1) : '',
+        requestTotal: 0, cacheRead: 0, outputTokens: 0,
+      })
+      a.requestTotal += r.inputTokens + r.cacheReadTokens
+      a.cacheRead += r.cacheReadTokens
+      a.outputTokens += r.outputTokens
+    }
+  }
+  // ①b tools 当日账（R5）：foldToolsByDay 的 { byDay } 日切片聚合（计数口径=带名 tool/call）
+  const toolDay = {}
+  for (const s of sessions) {
+    const day = s && s.folded && s.folded.toolsByDay && s.folded.toolsByDay.byDay && s.folded.toolsByDay.byDay[dayKey]
+    if (!day) continue
+    for (const [name, v] of Object.entries(day)) {
+      const a = toolDay[name] || (toolDay[name] = { name, count: 0, durMs: 0 })
+      a.count += v.count || 0
+      a.durMs += v.durMs || 0
     }
   }
   // ---------- pace 档位 / 阈值警报 / 黑板汇总 ----------
@@ -272,7 +344,6 @@ export function buildDashboard(sessionsData, cfg, now, alertPrev) {
   const summaryStructured = summarizeStructured(perSessionMetrics, dayUsage, userEstToday)
   return {
     pace: cfgB('paceEnabled') ? paceState : null, // 关闭时不下发档位：客户端据此清掉旧档位（关闭语义）
-    // 二期预留（issue #4 F05）：按模型分布空桶——事件暂无 model 字段（spec 附录 A），结构先立
     usage: {
       day: dayUsage,
       // 五口径派生（2026-09-10 用户裁定）：请求输入=全文累计；命中率=命中/请求输入；用户输入为启发式估算
@@ -282,7 +353,12 @@ export function buildDashboard(sessionsData, cfg, now, alertPrev) {
       session: latestSession === null ? null : Object.assign({}, latestSession, {
         requestTotal: latestSession.inputTokens + latestSession.cacheReadTokens,
       }),
-      grandTotal, models: {},
+      grandTotal,
+      // v2.2 R2/R5/R3 快照扩展：当日模型 Top6 / 当日工具 Top5 / 14 日+24 桶趋势。
+      // models 由 v2.1 的 {} 二期占位桶转正为 RouteAgg[]（客户端 UsageSnapshot.models / Board 消费数组）。
+      models: Object.values(routeDay).sort((a, b) => b.requestTotal - a.requestTotal).slice(0, 6),
+      tools: Object.values(toolDay).sort((a, b) => b.count - a.count).slice(0, 5),
+      trend: buildTrend(sessions.map((s) => (s && s.folded) ? s.folded.usage : null), nowMs),
     },
     alerts: newAlerts,
     approvals: cfgN('approvalFlickerMin') > 0 ? approvals.filter((x) => x.waitMin >= 0) : [],
@@ -303,13 +379,21 @@ export function createStateEngine(deps) {
   // ---------- 效率看板状态（跨轮询保留；v1.4.0 alertPrev/dashState 语义移植）----------
   let alertPrev = { dayTotal: 0, grandTotal: 0 } // 警报基线：无论 usageEnabled 与否每轮都推进，避免开启瞬间补发旧警报
   let dashState = null // dashboard() 在首轮 compute 前为 null
+  // ---------- v2.2 Task 4（R1/P1 增量缓存）----------
+  // 已知边界（fp 缓存设计取舍，接受）：缓存行内的 scan 指标（turns/errors/tool 计数）按采集
+  // 时刻的「今日」算好随 fp 缓存——空闲会话跨零点后这些当日计数保持午夜前的旧值，直到该会话
+  // 下一个事件（fp 变化触发重扫）才刷新。当日性随会话活动即时自愈，不为跨零点空闲专门重扫。
+  const foldCache = new Map() // agentId → { fp, scan, folded, recent: number[] }；fp=事件数:末事件 seq
+  const stats = { rescans: 0 } // 诊断计数：累计实际重扫次数（含首轮；fp 未变的轮次复用缓存不计数）
+  let trendCache = { hourKey: null, value: null } // trend 整点锚定节流（R3）
 
   const compute = () => {
     const roots = (() => { try { return deps.roots() || [] } catch { return [] } })()
     const seen = new Set()
     const now = deps.now()
     const dayStart = new Date(now); dayStart.setHours(0, 0, 0, 0)
-    const boardSessions = []
+    const boardEntries = []
+    const rescansBefore = stats.rescans // 本轮是否有任一指纹变化（trend 节流判据之一）
     for (const a of roots) {
       if (!a || a.id === undefined || a.id === null) continue
       seen.add(a.id)
@@ -318,12 +402,26 @@ export function createStateEngine(deps) {
       try {
         const session = deps.getSession(a.id)
         if (session) {
-          const sessionEvts = sessionEvents(session) // 只采集一次：scanSession / foldUsage / 5min 活跃计数共用
-          info = scanSession(session, deps.getTitle, dayStart.getTime(), sessionEvts)
-          boardEntry = { id: a.id, title: info.title || a.id, events: sessionEvts }
+          const evts = sessionEvents(session) // 只采集一次：指纹 / scanSession / foldEntry 共用
+          const last = evts.length > 0 ? evts[evts.length - 1] : null
+          const fp = evts.length + ':' + (last && typeof last.seq === 'number' ? last.seq : -1)
+          let c = foldCache.get(a.id)
+          if (!c || c.fp !== fp) {
+            stats.rescans += 1
+            const recent = []
+            for (const e of evts) if (e && typeof e.time === 'number' && ACTIVITY_TYPES.has(e.type) && e.time > now - 300000) recent.push(e.time)
+            c = { fp, scan: scanSession(session, deps.getTitle, dayStart.getTime(), evts), folded: foldEntry(evts), recent }
+            foldCache.set(a.id, c)
+          } else {
+            // 5 分钟活跃窗滑动：只裁剪，不重扫（谓词与 events5mCount 一致：time > now-300000）
+            while (c.recent.length > 0 && c.recent[0] <= now - 300000) c.recent.shift()
+          }
+          // P1 核心：derive/状态卡/age/看板全部读缓存 scan（时间派生量由 aggregateFold 每轮从缓存重算）
+          info = c.scan
+          boardEntry = { id: a.id, title: info.title || a.id, scan: c.scan, folded: c.folded, recentCount: c.recent.length }
         }
       } catch { /* keep defaults */ }
-      if (boardEntry) boardSessions.push(boardEntry)
+      if (boardEntry) boardEntries.push(boardEntry)
       const prev = projects.get(a.id)
       const newCompletion = prev !== undefined && info.lastEnd !== null && info.lastEnd.seq > (prev.lastTurnEndSeq || -1)
       const derived = derive(a, info, prev, newCompletion)
@@ -358,7 +456,25 @@ export function createStateEngine(deps) {
         return v && typeof v === 'object' ? v : {}
       } catch { return {} }
     })()
-    dashState = buildDashboard(boardSessions, cfgRaw, now, alertPrev)
+    dashState = aggregateFold(boardEntries, cfgRaw, now, alertPrev)
+    // v2.2 usage.counts（MiniBar 计数口径 follow-up）：引擎侧从 projects Map 并入
+    // （与 list() 同口径：仅 status 非空的项目计数；aggregateFold 不产 counts）
+    const counts = { approval: 0, running: 0, done: 0 }
+    for (const p of projects.values()) {
+      if (!p || !p.status) continue
+      if (p.status === 'approval') counts.approval += 1
+      else if (p.status === 'running') counts.running += 1
+      else if (p.status === 'done') counts.done += 1
+    }
+    dashState.usage.counts = counts
+    // trend 节流（R3 整点锚定）：整点变化或本轮任一指纹变化才采纳重算结果，否则复用缓存
+    // （同整点且 folded 未变 → 重算值与缓存值等价，替换为纯性能优化）
+    const hk = hourKeyOf(now)
+    if (trendCache.hourKey !== hk || stats.rescans !== rescansBefore) {
+      trendCache = { hourKey: hk, value: dashState.usage.trend }
+    } else {
+      dashState.usage.trend = trendCache.value
+    }
     // 警报基线推进：无论 usageEnabled 与否都推进（v1.4.0 alertPrev 语义），数值取自本轮聚合结果
     const du = dashState.usage.day
     alertPrev = { dayTotal: du.inputTokens + du.outputTokens + du.cacheReadTokens + du.cacheWriteTokens, grandTotal: dashState.usage.grandTotal }
@@ -375,16 +491,63 @@ export function createStateEngine(deps) {
     return out
   }
 
+  // ---------- v2.2 Task 6（P3/R3）：内容修订号 + 跨日区间汇总 ----------
+  // contentRev：本轮 compute 后的内容变更令牌（/state ?since 短路判据）。组成 = list() 各行
+  // id:status:unread:title:lines（'|' 连接）+ 完成队列长度 + 当日请求输入 + 累计总量 + pace 档位
+  // + 警报 id + 审批最大等待分钟（取整），以 '#' 连接。id 进行串（终审修复：纯行内容会把
+  // 不同 id 同内容的两张卡折成同一令牌）；审批等待取 dashState.approvals（与看板同源，
+  // aggregateFold 每轮以当前 now 重算 waitMin）的最大值向下取整——挂起审批期间 rev 每整分钟
+  // 推进一次，客户端 waitMin 门槛（标题闪烁）不再被稳定 rev 冻结。age 刻意不参与（ages 每轮
+  // 都在变的派生量，进 rev 会让短路永不命中）。
+  const contentRev = () => {
+    const rows = list().map((p) => `${p.id}:${p.status}:${p.unread ? 1 : 0}:${p.title || ''}:${(p.lines || []).join('/')}`).join('|')
+    const d = dashState || {}
+    const u = d.usage || {}
+    const alerts = Array.isArray(d.alerts) ? d.alerts : []
+    const approvals = Array.isArray(d.approvals) ? d.approvals : []
+    let maxWaitMin = 0
+    for (const a of approvals) {
+      const w = a && typeof a.waitMin === 'number' && Number.isFinite(a.waitMin) ? Math.floor(a.waitMin) : 0
+      if (w > maxWaitMin) maxWaitMin = w
+    }
+    return [
+      rows,
+      queue.length,
+      // 队列末 seq（review Important#1）：队列帽 8 后长度恒定，零用量补完成若不同时改变行内容，
+      // 仅靠 length 的 rev 会误判 unchanged，completion 被 mergeUnchanged 的 seq 推进永久吞掉。
+      queue.length ? queue[queue.length - 1].seq : 0,
+      u.requestTotal || 0,
+      u.grandTotal || 0,
+      d.pace ? d.pace.tier : '',
+      alerts.map((a) => (a && a.id != null) ? String(a.id) : '').join(','),
+      maxWaitMin,
+    ].join('#')
+  }
+  // rangeSummary（/dashboard/range，R3）：遍历 foldCache 折叠产物交 Task 2 summarizeRange
+  // （usage 三维账 / 工具按日 / 用户输入按日估算）——指纹未变的会话零重扫，直接吃缓存。
+  const rangeSummary = (fromKey, toKey) => {
+    const folds = [], tools = [], ests = []
+    for (const c of foldCache.values()) {
+      folds.push(c.folded.usage)
+      tools.push(c.folded.toolsByDay)
+      ests.push(c.folded.userEstByDay)
+    }
+    return summarizeRange(folds, tools, ests, fromKey, toKey)
+  }
+
   return {
     compute,
     list,
     projects,
     queue,
     dashboard: () => dashState, // 效率看板聚合（首轮 compute 前为 null）
+    get stats() { return stats }, // v2.2 诊断：rescans 重扫计数（测试/Task 6 contentRev 消费）
     ack(agentId) {
       const p = projects.get(agentId)
       if (p) p.unread = false
     },
     nextSeq: () => seq,
+    contentRev, // v2.2 Task 6：内容修订号（/state ?since 短路 + 全量快照顶层 rev）
+    rangeSummary, // v2.2 Task 6：/dashboard/range 的引擎入口（R3）
   }
 }

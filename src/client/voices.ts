@@ -10,8 +10,10 @@ export interface VoiceEntry {
   url: string;
 }
 
-// v2.1：+usage（看板警报三优先级语音组；playable 全集见 validation.PLAY_GROUPS）
-const GROUPS: VoiceGroup[] = ["general", "approval", "done", "error", "usage"];
+// v2.2 R7：四固定组。v2.1 的可选扩展组 usage 退役——看板警报音效链改走
+// general 组宠物语音 > 内置合成 chime（spec 默认裁定：TTS 不参与音效链；
+// 宿主 manifest VOICE_GROUPS 与 groupOfRel 路径校验口径维持四组不变）
+const GROUPS: VoiceGroup[] = ["general", "approval", "done", "error"];
 
 /** 组内随机、不与上次连续重复（spec E3） */
 export function pickIndex(len: number, lastIndex: number): number {

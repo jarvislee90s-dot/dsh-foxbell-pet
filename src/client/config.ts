@@ -2,6 +2,7 @@
 // v2 新增 scale（三档缩放）与 activePetId（激活宠物，默认 foxbell）。
 // 旧保存配置（无 scale/activePetId）加载即得默认值，零报错。
 // localStorage 键沿用 dyn-pet-foxbell-* / dyn-foxbell-pet:* 前缀（不迁移，不碰 MAM 的 mam-* 键）。
+import { POSE_KEYS } from "./animations";
 
 export type PetAction = "jumping" | "waving" | "failed" | "waiting" | "review" | "running";
 export type PetScale = 0.75 | 1 | 1.25;
@@ -30,6 +31,14 @@ export interface PetConfig {
   summaryEntrySec: number;
   boardTtlSec: number;
   ttsEnabled: boolean;
+  // v2.2 用量看板（Task 13 消费；宿主 Config 同名键 dashboardSidebarEntry，默认 false=侧栏不出入口。
+  // Task 14 会补 exportQuote/exportPose 两键与设置卡 UI，本键先行为 sidebar.panellist 注册门）
+  dashboardSidebarEntry: boolean;
+  // v2.2 R8 导出两键（Task 14；宿主 Config 同名键 src/host/index.js L65-66，默认 ''/'random'）：
+  // exportQuote=导出图片评语自定义模板（空=走内置评语池；占位符 {range}/{tokens}/{hitPct}/{models}）
+  exportQuote: string;
+  // exportPose=导出立绘姿态：'random'（ANIM 随机行首帧）或 animations.ANIM 键（白名单 POSE_KEYS）
+  exportPose: string;
 }
 
 export const STORE_KEY = "dyn-pet-foxbell-visible";
@@ -70,6 +79,9 @@ export const CFG_DEFAULT: PetConfig = {
   summaryEntrySec: 15,
   boardTtlSec: 15,
   ttsEnabled: false,
+  dashboardSidebarEntry: false, // v2.2 R6 侧栏看板入口（默认关；宿主 settings 同名键镜像）
+  exportQuote: "", // v2.2 R8 导出评语模板（空=内置评语池；宿主 settings 同名键镜像）
+  exportPose: "random", // v2.2 R8 导出立绘姿态（宿主 settings 同名键镜像）
 };
 
 // ---- v2.1 看板数值键钳制表（v1.4.0 client.js NUM_KEYS/NUM_RANGE/clampNum 原样移植）----
@@ -106,6 +118,9 @@ export function sanitizeValue(k: keyof PetConfig, v: unknown): PetConfig[keyof P
   if ((NUM_KEYS as readonly string[]).includes(k)) return clampNum(k as NumKey, v);
   if (k === "scale") return isScale(v) ? v : 1;
   if (k === "activePetId") return isPetIdStr(v) ? v : "foxbell";
+  // v2.2 R8 字符串键（Task 14）：不得落入末尾的布尔真值化（否则 "模板文本" 会被写成 true 静默丢配）
+  if (k === "exportQuote") return typeof v === "string" ? v.slice(0, 2000) : ""; // 2000 字符上限防误贴长文
+  if (k === "exportPose") return typeof v === "string" && POSE_KEYS.includes(v) ? v : "random";
   return !!v; // booleans（含 paceEnabled/usageEnabled/summaryEnabled/ttsEnabled——v2 以直落布尔真值化代替 v1.4.0 的 BOOL_KEYS 表）
 }
 

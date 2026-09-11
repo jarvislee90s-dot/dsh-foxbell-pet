@@ -227,3 +227,156 @@ describe("state engine", () => {
     expect(order).toEqual(["error", "approval", "running"]);
   });
 });
+
+// v2.2 Task 4（P1 增量缓存）：fp（事件数:末事件 seq）未变 → 复用 scan+folded 不重扫；fp 变化才重扫。
+describe("state engine 指纹增量缓存", () => {
+  it("engine caches per-session folds by fingerprint and rescans only on change", () => {
+    let evts = [{ type: "turn/start", seq: 1, time: 1000, data: { turn: 0 } }];
+    const deps = {
+      roots: () => [{ id: "a" }],
+      getSession: () => ({ snapshotEvents: () => evts }),
+      getTitle: () => "A",
+      now: () => 2000,
+    };
+    const eng = createStateEngine(deps);
+    eng.compute();
+    evts = evts.slice(); // 同长度同末 seq（新数组）：fp 不变
+    eng.compute();
+    expect(eng.stats.rescans).toBe(1); // 第二轮 fp 相同 → 0 次新增重扫（首轮算 1）
+    evts = [...evts, { type: "turn/end", seq: 2, time: 1500, data: { turn: 0, reason: { kind: "stop" } } }];
+    eng.compute();
+    expect(eng.stats.rescans).toBe(2); // fp 变化 → 重扫
+  });
+});
+
+// v2.2 Task 4 引擎侧快照扩展：usage.counts（projects Map 计数并入）+ trend 整点锚定节流。
+describe("state engine v2.2 快照扩展", () => {
+  it("usage.counts 由引擎从 projects Map 并入（approval/running/done 计数；仅 status 非空）", () => {
+    const sessions = new Map([
+      ["a", fakeSession([ev("turn/start", 1, { turn: 1 })])], // root running + 开着 turn → running
+      ["b", fakeSession([ev("approval/asked", 1, { id: "x" })])], // 未决审批 → approval
+    ]);
+    const eng = createStateEngine({
+      roots: () => [{ id: "a", status: "running" }, { id: "b", status: "idle" }],
+      getSession: (id) => sessions.get(id),
+      getTitle: () => undefined,
+      now: () => 1000,
+    });
+    eng.compute();
+    expect(eng.dashboard().usage.counts).toEqual({ approval: 1, running: 1, done: 0 });
+  });
+
+  it("trend 整点锚定节流：fp 与整点未变时复用同一缓存引用，fp 变化才重算", () => {
+    const events = [ev("turn/start", 1, { turn: 1 })];
+    const sessions = new Map([["p1", fakeSession(events)]]);
+    const eng = createStateEngine({
+      roots: () => [{ id: "p1", status: "running" }],
+      getSession: (id) => sessions.get(id),
+      getTitle: () => undefined,
+      now: () => 1000,
+    });
+    eng.compute();
+    const t1 = eng.dashboard().usage.trend;
+    eng.compute(); // fp 未变 + 同整点 → 复用缓存（同引用）
+    expect(eng.dashboard().usage.trend).toBe(t1);
+    events.push({ type: "assistant/message", seq: 2, time: 900, data: { turn: 1, step: 0, usage: { inputTokens: 10, outputTokens: 5 } } });
+    eng.compute(); // fp 变化 → 重算（新引用；形状不变：14 日 + 24 桶）
+    const t2 = eng.dashboard().usage.trend;
+    expect(t2).not.toBe(t1);
+    expect(t2.days).toHaveLength(14);
+    expect(t2.hours).toHaveLength(24);
+  });
+});
+
+// ---- 终审修复：contentRev 补齐审批等待量化 + 项目 id（rows 由 status:unread:title:lines
+// 扩为 id:status:unread:title:lines；末段追加量化 max approval waitMin）。审批挂起期间
+// （agent 阻塞 → 零事件 → 其余 rev 输入全稳）rev 仍每整分钟推进，客户端 waitMin 门槛
+// （标题闪烁）不再被稳定 rev 冻结；age 依旧不参与。
+describe("contentRev 审批等待量化 + 项目 id（终审修复）", () => {
+  function approvalEngine(nowRef) {
+    const events = [
+      { type: "turn/start", seq: 1, time: 1000, data: { turn: 1 } },
+      { type: "approval/asked", seq: 2, time: 60000, data: { id: "a1" } },
+    ];
+    const eng = createStateEngine({
+      roots: () => [{ id: "p1", status: "running" }],
+      // rc.1 冻结数组契约保持：每次快照返回冻结拷贝，源数组可变（decided 用例事后补事件）
+      getSession: () => ({ snapshotEvents: () => Object.freeze(events.slice()) }),
+      getTitle: () => undefined,
+      now: () => nowRef.now,
+      readConfig: () => ({ paceEnabled: false }), // 关 pace：waitMin 成为唯一随钟推进的 rev 输入
+    });
+    return { eng, events };
+  }
+
+  it("pending approval：rev 同一分钟内稳定、跨过下一整分钟后推进（waitMin 量化进 rev）；age 仍不参与", () => {
+    const ref = { now: 61000 };
+    const { eng } = approvalEngine(ref);
+    eng.compute();
+    expect(eng.list()[0].status).toBe("approval");
+    expect(eng.dashboard().approvals).toHaveLength(1);
+    expect(eng.dashboard().approvals[0].waitMin).toBe(0);
+    const rev1 = eng.contentRev();
+    ref.now = 90000; // +30s 仍在同一分钟：waitMin 0→0，ages 推进而 rev 稳定
+    eng.compute();
+    expect(eng.list()[0].age).toBe("30s"); // ages 每轮现算（短路响应的 ages 字段仍刷新）
+    expect(eng.contentRev()).toBe(rev1);
+    ref.now = 121000; // +60s：waitMin 0→1 → rev 推进（挂起期间每整分钟一次）
+    eng.compute();
+    expect(eng.dashboard().approvals[0].waitMin).toBe(1);
+    expect(eng.contentRev()).not.toBe(rev1);
+  });
+
+  it("decided 后审批清除 → 量化 wait 段归 0（rev 末段回 0）", () => {
+    const ref = { now: 61000 };
+    const { eng, events } = approvalEngine(ref);
+    eng.compute();
+    const pendingRev = eng.contentRev();
+    events.push({ type: "approval/decided", seq: 3, time: 70000, data: { id: "a1", outcome: "allowed-once" } });
+    eng.compute();
+    expect(eng.dashboard().approvals).toHaveLength(0);
+    const rev = eng.contentRev();
+    expect(rev).not.toBe(pendingRev);
+    expect(rev.endsWith("#0")).toBe(true); // 末段 = 量化 max waitMin 归 0
+  });
+
+  it("rows 含项目 id：不同 id、同 status/unread/title/lines 的两引擎 rev 不同", () => {
+    const mkRev = (id) => {
+      const eng = createStateEngine({
+        roots: () => [{ id, status: "running" }],
+        getSession: () => ({ snapshotEvents: () => Object.freeze([{ type: "turn/start", seq: 1, time: 1000, data: { turn: 1 } }]) }),
+        getTitle: () => ({ title: "同题" }),
+        now: () => 2000,
+        readConfig: () => ({ paceEnabled: false }),
+      });
+      eng.compute();
+      return eng.contentRev();
+    };
+    expect(mkRev("p1")).not.toBe(mkRev("zz9"));
+  });
+
+  it("队列帽 8 后零用量补完成仍推进 rev（completion 不被 unchanged 短路吞掉）", () => {
+    const ref = { now: 2000 };
+    const events = [];
+    const eng = createStateEngine({
+      roots: () => [{ id: "p1", status: "idle" }],
+      getSession: () => ({ snapshotEvents: () => Object.freeze(events.slice()) }),
+      getTitle: () => undefined,
+      now: () => ref.now,
+      readConfig: () => ({ paceEnabled: false }),
+    });
+    const pushTurn = (n) => {
+      events.push({ type: "turn/start", seq: n * 2 + 1, time: ref.now, data: { turn: n } });
+      events.push({ type: "turn/end", seq: n * 2 + 2, time: ref.now, data: { turn: n, reason: { kind: "completed" } } });
+      ref.now += 1000;
+      eng.compute();
+    };
+    for (let n = 0; n < 9; n++) pushTurn(n); // 9 次完成 → 队列帽：长度恒 8
+    expect(eng.queue).toHaveLength(8);
+    const revBefore = eng.contentRev();
+    pushTurn(9); // 第 10 次：行内容不变（done+unread/同题/已完成）、零用量、pace 关
+    expect(eng.queue).toHaveLength(8);
+    expect(eng.queue[eng.queue.length - 1].seq).toBeGreaterThan(0);
+    expect(eng.contentRev()).not.toBe(revBefore); // review Important#1：队列末 seq 必须推动 rev
+  });
+});

@@ -19,7 +19,7 @@ import path from 'node:path'
 import z from '@deepseek-ai/schemastery'
 import { storeRoot, petsRoot, stagingRoot, trashRoot, codexRoot } from './paths.js'
 import { createStateEngine } from './state.js'
-import { loadManifest, parseManifest, SHEET_FILE } from './manifest.js'
+import { loadManifest, parseManifest, SHEET_FILE, MANIFEST_FILE } from './manifest.js'
 import { BUILTIN_PET_ID, petIdProblem } from './petid.js'
 import { listPets, sweepStaging } from './scan.js'
 import { checkPet } from './guard.js'
@@ -60,10 +60,68 @@ export const Config = z.object({
   summaryEntrySec: z.number().default(15),
   boardTtlSec: z.number().default(15),
   ttsEnabled: z.boolean().default(false),
+  // v2.2 用量看板 3 项（R6 侧栏入口/R8 导出评语与姿态；客户端消费）
+  dashboardSidebarEntry: z.boolean().default(false),
+  exportQuote: z.string().default(''),
+  exportPose: z.string().default('random'),
 })
 
 // 硬依赖注入：与 v1.3.0 相同（settings 为可选注入，见 apply 内 ctx.inject）。
 export const inject = ['webServer', 'fs', 'agents', 'sessions', 'sessionTitle']
+
+// ---- v2.2 P2：宠物目录/清单 mtime 指纹缓存（spec R1，/state 1.5s 轮询降 IO）----
+// petsDirCache：root 目录 mtime 指纹 + 逐宠物 manifest.json mtime 指纹 → 每轮成本仅为
+// 1 次目录 stat + N 次 manifest stat（纯元数据），免去 readdir + N 次 readFileSync+parse。
+// 失效语义（无需路由侧显式失效）：
+//   - 导入 finalize/删除/改名均 rename PETS_ROOT 子目录（父目录 mtime 变）→ 下轮全量重扫；
+//   - manifest 编辑路由在 <PETS_ROOT>/<petId>/ 内 tmp+rename 原子重写 manifest.json —— 只动
+//     manifest 与宠物子目录的 mtime，PETS_ROOT 的 mtime 不变；而 listPets 会把 manifest 派生
+//     字段（displayName/description/…）烤进每个条目（scan.js），故 root 指纹命中时仍逐宠物
+//     复验 manifest.json mtime（含有无状态翻转），任一失配 → 全量重扫，清单编辑即时刷新。
+// 被删宠物的 manifestCache 残留行不可达且自愈（stat 失败 → mtime=-1 必失配 → 重载 null）。
+const petsDirCache = { root: null, rootMtimeMs: -1, pets: [], manifestMtimes: new Map() }
+const manifestMtimeOf = (root, id) => {
+  try { return fs.statSync(path.join(root, id, MANIFEST_FILE)).mtimeMs } catch { return -1 }
+}
+const rescanPets = (root, rootMtimeMs) => {
+  const pets = listPets(root) // 先扫后记账：listPets 半途抛错时旧缓存保持原样（下轮重试）
+  const manifestMtimes = new Map()
+  for (const p of pets) manifestMtimes.set(p.id, manifestMtimeOf(root, p.id))
+  petsDirCache.rootMtimeMs = rootMtimeMs
+  petsDirCache.pets = pets
+  petsDirCache.manifestMtimes = manifestMtimes
+}
+const listPetsCached = (root) => {
+  if (petsDirCache.root !== root) {
+    petsDirCache.root = root
+    petsDirCache.rootMtimeMs = -1
+    petsDirCache.pets = []
+    petsDirCache.manifestMtimes = new Map()
+  }
+  let rootMtime = -1
+  try { rootMtime = fs.statSync(root).mtimeMs } catch { return petsDirCache.rootMtimeMs === -1 ? [] : petsDirCache.pets }
+  let stale = rootMtime !== petsDirCache.rootMtimeMs
+  if (!stale) {
+    // root 指纹命中：清单编辑不移动 PETS_ROOT 的 mtime → 逐宠物复验 manifest.json
+    for (const p of petsDirCache.pets) {
+      if (manifestMtimeOf(root, p.id) !== petsDirCache.manifestMtimes.get(p.id)) { stale = true; break }
+    }
+  }
+  if (stale) rescanPets(root, rootMtime)
+  return petsDirCache.pets
+}
+const manifestCache = new Map() // dir → { mtimeMs, manifest }
+const loadManifestCached = (dir, opts) => {
+  let mtime = -1
+  try { mtime = fs.statSync(path.join(dir, MANIFEST_FILE)).mtimeMs } catch { /* 缺失走原 loadManifest 的 null 路径 */ }
+  const c = manifestCache.get(dir)
+  if (c && c.mtimeMs === mtime) return c.manifest
+  const m = loadManifest(dir, opts)
+  manifestCache.set(dir, { mtimeMs: mtime, manifest: m })
+  return m
+}
+// 测试钩子（test/host-index.test.mjs 断言缓存命中同引用）
+export const __testables = { listPetsCached, loadManifestCached }
 
 export async function apply(ctx, config) {
   // 组合配置非法值不应拖垮整个插件：解析失败回落默认 schema 值
@@ -210,7 +268,7 @@ export async function apply(ctx, config) {
         rev: 'builtin',
       }
     }
-    const m = loadManifest(path.join(PETS_ROOT, id), { id })
+    const m = loadManifestCached(path.join(PETS_ROOT, id), { id })
     const exists = fs.existsSync(path.join(PETS_ROOT, id))
     return {
       id,
@@ -232,13 +290,28 @@ export async function apply(ctx, config) {
     } catch { return [] }
   }
 
+  // ---- v2.2 终审修复：/state ?since 短路的环境指纹（envRev）----
+  // /state 的 rev 拆成两段：引擎 contentRev()（项目行/队列/用量/档位/警报/审批等待）+
+  // '#' + envRev()（非引擎快照部件 activePet/pets——voices 由 activePet id+rev 派生）。
+  // 宠物热切换写配置但不产生引擎事件，纯引擎 rev 稳定会把切换冻在 unchanged 里；
+  // envRev = 激活宠物 id + '/' + 资产修订号（外部=manifest mtime，一次 statSync）+ '|' +
+  // 外部宠物摘要（id:spriteVersionNumber，listPetsCached 全缓存）。guard 刻意不进指纹：
+  // 其问题源自宠物文件本身，已被 activePet.rev 的 manifest mtime 覆盖，纳入反而引入
+  // 每轮 checkPet 的重复 fs 读（P3 skip 的初心）。ages 依旧不参与任何 rev。
+  const envRev = (hint) => {
+    const id = activePetId(hint)
+    // pets 段含 displayName（review Minor#1）：非激活宠物改名只动 manifest（listPetsCached 已按清单
+    // mtime 复验刷新摘要），指纹若只看 id:spriteVersionNumber 会把改名冻在 unchanged 里。
+    return id + '/' + revOf(id) + '|' + listPetsCached(PETS_ROOT).map((s) => s.id + ':' + (s.displayName || '') + ':' + s.spriteVersionNumber).join(',')
+  }
+
   const snapshotExtra = (hint) => {
     engine.compute()
     diag.computeCount += 1
     const active = activePetSnapshot(hint)
     const activeManifest = active.id === BUILTIN_PET_ID
       ? builtinManifest
-      : loadManifest(path.join(PETS_ROOT, active.id), { id: active.id })
+      : loadManifestCached(path.join(PETS_ROOT, active.id), { id: active.id })
     const projects = engine.list()
     return {
       seq: engine.nextSeq(),
@@ -257,7 +330,7 @@ export async function apply(ctx, config) {
           hasVoice: builtinManifest.hasVoice, hasSubtitle: builtinManifest.hasSubtitle,
           manifestExists: true, spritesheetExists: spriteBytes !== null, builtin: true,
         },
-        ...listPets(PETS_ROOT).map((s) => ({ ...s, builtin: false, dir: undefined })),
+        ...listPetsCached(PETS_ROOT).map((s) => ({ ...s, builtin: false, dir: undefined })),
       ],
       guard: guardSnapshot(hint),
       assetDir: ASSET_DIR,
@@ -276,6 +349,7 @@ export async function apply(ctx, config) {
     tmpDir: TMP_DIR,
     stateEngine: engine,
     snapshotExtra,
+    envRev, // v2.2 终审修复：/state rev 的环境段（activePet/pets 指纹，guard/ages 不参与）
     builtin: {
       manifest: builtinManifest,
       assetDir: ASSET_DIR || path.join(PKG_DIR, 'assets'),
@@ -291,6 +365,6 @@ export async function apply(ctx, config) {
   if (webServer !== undefined) {
     console.log('[foxbell-pet] host mounted: sprite=' + (spriteBytes ? spriteBytes.length : 0)
       + ' builtinVoices=' + builtinVoices.length + ' assetDir=' + ASSET_DIR
-      + ' pets=' + listPets(PETS_ROOT).length + ' sweptStaging=' + sweptCount)
+      + ' pets=' + listPetsCached(PETS_ROOT).length + ' sweptStaging=' + sweptCount)
   }
 }

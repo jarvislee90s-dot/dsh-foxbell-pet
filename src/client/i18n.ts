@@ -1,5 +1,6 @@
 // i18n.ts — 插件内部 zh/en 字典（MAM locales pet.* 子树移植 + 本插件特有键）。
 // 语言判定：navigator.language（zh* → zh，其余 → en）；不集成 harness locale service。
+import { fmtTokens } from "./format";
 
 export type Lang = "zh" | "en";
 
@@ -191,6 +192,8 @@ const ZH: Dict = {
   "dash.save": "保存",
   "dash.discard": "放弃",
   "dash.caliberNote": "用量均为纯 token 口径，不折算金额",
+  // L3 大看板脚注（v2.2 自检修复：spec R5 §7 引文逐字——SettingsCard 沿用 dash.caliberNote 不变）
+  "dash.caliber": "纯 token · 含子代理 · 本地聚合",
   // 设置卡 12 键标签（Task 9；zh 沿用 v1.4.0 SettingsCard 行标签语义，886b303 L1155-1172）
   "dash.cfg.paceEnabled": "节奏档位",
   "dash.cfg.usageEnabled": "用量统计",
@@ -207,6 +210,11 @@ const ZH: Dict = {
   "dash.noActive": "暂无进行中会话",
   // 标题闪烁（Task 8；spec 6.3 页外召集：approvalFlickerMin>0 且页面不可见时 document.title 每秒轮换本键/原标题）
   "dash.flickerTitle": "🦊 审批等待中…",
+  // 警报举牌/气泡（Task 9 R10：kind+reached 结构化拼装，{v}=fmtTokens(reached)；
+  // 客户端拼装取代宿主预拼文本——举牌/气泡随界面语言，不再固定宿主语）
+  "dash.alert.dayWarn": "今日 token 已用 80% · {v}",
+  "dash.alert.dayHit": "今日 token 已达阈值 · {v}",
+  "dash.alert.milestone": "里程碑：累计 {v} token",
   // 表盘档位（zh 逐字节 = 宿主 PACE_LABELS，src/host/dashboard.js L18-21；客户端按 pace.tier 查表）
   "dash.tier.intense": "高强度",
   "dash.tier.active": "活跃",
@@ -221,6 +229,13 @@ const ZH: Dict = {
   "dash.countRunning": "运行",
   "dash.countDone": "完成",
   "dash.request": "请求",
+  // 迷你条钻取按钮（Task10 R6：唯一可点元素「详情 »」，点击开黑板）
+  "dash.detail": "详情",
+  // 黑板加料三行（Task 11 R4/R10）：7 日 sparkline 标签 / 模型 Top3 行 / 等余量 / 完整看板入口行
+  "dash.trend7": "7日",
+  "dash.models": "模型",
+  "dash.moreN": "等{n}",
+  "dash.openPanel": "查看完整看板",
   // ---- 小黑板行拼装（Task 7；zh 拼装结果与宿主 summarize zh 字符串逐字节一致，见 boardrows.ts）----
   "dash.boardSessions": "会话",
   "dash.boardTurns": "turn",
@@ -237,6 +252,51 @@ const ZH: Dict = {
   "dash.durSec": "秒",
   "dash.durMs": "毫秒",
   "dash.noSessions": "暂无会话",
+  // ---- Task 12 L3 大看板（R5/R9）：标题/选项卡/hero/趋势卡/工具卡/空态/区间钳制 ----
+  "dash.panelTitle": "用量看板",
+  "dash.tab.5h": "5小时",
+  "dash.tab.7d": "7日",
+  "dash.tab.30d": "30日",
+  "dash.tab.custom": "自定义",
+  "dash.heroTotal": "{range} Token 合计",
+  "dash.weekHit": "本周命中 {a}（上周 {b} · {d}）",
+  "dash.trendTitle": "用量趋势",
+  "dash.loading": "加载中…",
+  "dash.peak": "峰值 {v}",
+  "dash.tools": "工具",
+  "dash.noData": "暂无数据",
+  "dash.rangeClamp": "已截断为最近 31 天",
+  // 五口径网格标签（R5 名词序：用户输入/产出/请求输入(全文累计)/缓存命中/命中率 + 请求次数 + 数据截止；
+  // 「(估)」「含子代理」后缀复用 v2.1 既有键 dash.estimateSuffix / dash.withSubagents，五口径名词不变）
+  "dash.g.userEst": "用户输入",
+  "dash.g.output": "产出",
+  "dash.g.requestTotal": "请求输入(全文累计)",
+  "dash.g.cacheRead": "缓存命中",
+  "dash.g.hitPct": "命中率",
+  "dash.g.requests": "请求次数",
+  "dash.g.asOf": "数据截止时间",
+  // 2×2 工具格标签（数据源随视图：5h/7d→快照 usage.tools，30d/custom→range.tools）
+  "dash.g.toolCalls": "调用总数",
+  "dash.g.toolAvg": "平均耗时",
+  "dash.g.toolTopCount": "Top 工具次数",
+  "dash.g.toolTopDur": "Top 工具总耗时",
+  // ---- Task 14 R8 导出（头部两按钮 + 复制回执；设置卡 3 键标签；姿态下拉 random+ANIM 键）----
+  "dash.export.copyText": "复制文本",
+  "dash.export.exportImage": "导出图片",
+  "dash.export.copied": "已复制",
+  "dash.cfg.dashboardSidebarEntry": "侧栏看板入口",
+  "dash.cfg.exportQuote": "导出评语(空=评语池)",
+  "dash.cfg.exportPose": "导出姿态",
+  "dash.pose.random": "随机",
+  "dash.pose.idle": "待机",
+  "dash.pose.run-right": "向右跑",
+  "dash.pose.run-left": "向左跑",
+  "dash.pose.waving": "挥手",
+  "dash.pose.jumping": "跳跃",
+  "dash.pose.failed": "委屈",
+  "dash.pose.waiting": "等待",
+  "dash.pose.running": "工作",
+  "dash.pose.review": "审查",
   // ---- 通用 ----
   "common.close": "关闭",
   "common.cancel": "取消",
@@ -482,6 +542,7 @@ const EN: Dict = {
   "dash.save": "Save",
   "dash.discard": "Discard",
   "dash.caliberNote": "Usage is token-only, never converted to money",
+  "dash.caliber": "Token-only · includes subagents · local aggregation",
   // Settings card 12-key labels (Task 9; v1.4.0 row-label semantics)
   "dash.cfg.paceEnabled": "Pace tiers",
   "dash.cfg.usageEnabled": "Usage stats",
@@ -498,6 +559,10 @@ const EN: Dict = {
   "dash.noActive": "No active sessions",
   // Title flicker (Task 8; out-of-page recall while approvalFlickerMin > 0 and page hidden)
   "dash.flickerTitle": "🦊 Approval waiting…",
+  // Alert sign/bubble (Task 9 R10: composed client-side from kind+reached, {v}=fmtTokens(reached))
+  "dash.alert.dayWarn": "Daily tokens 80% used · {v}",
+  "dash.alert.dayHit": "Daily token threshold reached · {v}",
+  "dash.alert.milestone": "Milestone: {v} tokens total",
   // Dial tiers (zh byte-exact vs host PACE_LABELS; client looks up label by pace.tier)
   "dash.tier.intense": "Intense",
   "dash.tier.active": "Active",
@@ -512,6 +577,13 @@ const EN: Dict = {
   "dash.countRunning": "running",
   "dash.countDone": "done",
   "dash.request": "Requests",
+  // Mini bar drill-down button (Task 10 R6: the only clickable element, "Details »", opens the board)
+  "dash.detail": "Details",
+  // Board extra rows (Task 11 R4/R10): 7-day sparkline label / model Top3 row / rest count / open-panel entry row
+  "dash.trend7": "7d",
+  "dash.models": "Models",
+  "dash.moreN": "+{n}",
+  "dash.openPanel": "Open full dashboard",
   // ---- Board rows (Task 7; client-side composition from structured summary fields) ----
   "dash.boardSessions": "Sessions",
   "dash.boardTurns": "turns",
@@ -528,6 +600,50 @@ const EN: Dict = {
   "dash.durSec": "s",
   "dash.durMs": "ms",
   "dash.noSessions": "No sessions",
+  // ---- Task 12 L3 dashboard (R5/R9) ----
+  "dash.panelTitle": "Usage dashboard",
+  "dash.tab.5h": "5h",
+  "dash.tab.7d": "7d",
+  "dash.tab.30d": "30d",
+  "dash.tab.custom": "Custom",
+  "dash.heroTotal": "{range} token total",
+  "dash.weekHit": "This week {a} (last week {b} · {d})",
+  "dash.trendTitle": "Usage trend",
+  "dash.loading": "Loading…",
+  "dash.peak": "Peak {v}",
+  "dash.tools": "Tools",
+  "dash.noData": "No data",
+  "dash.rangeClamp": "Clamped to last 31 days",
+  // Five-caliber grid labels (R5 noun order; "(est.)"/"incl. subagents" suffixes reuse v2.1 keys)
+  "dash.g.userEst": "User input",
+  "dash.g.output": "Output",
+  "dash.g.requestTotal": "Request input (cumulative)",
+  "dash.g.cacheRead": "Cache hit",
+  "dash.g.hitPct": "Hit rate",
+  "dash.g.requests": "Requests",
+  "dash.g.asOf": "Data as of",
+  // 2x2 tools grid labels (source follows view: 5h/7d -> snapshot usage.tools; 30d/custom -> range.tools)
+  "dash.g.toolCalls": "Total calls",
+  "dash.g.toolAvg": "Avg time",
+  "dash.g.toolTopCount": "Top tool calls",
+  "dash.g.toolTopDur": "Top tool time",
+  // ---- Task 14 R8 export (header buttons + copy ack; settings card 3 keys; pose dropdown random+ANIM keys) ----
+  "dash.export.copyText": "Copy text",
+  "dash.export.exportImage": "Export image",
+  "dash.export.copied": "Copied",
+  "dash.cfg.dashboardSidebarEntry": "Sidebar dashboard entry",
+  "dash.cfg.exportQuote": "Export quote (empty = pool)",
+  "dash.cfg.exportPose": "Export pose",
+  "dash.pose.random": "Random",
+  "dash.pose.idle": "Idle",
+  "dash.pose.run-right": "Run right",
+  "dash.pose.run-left": "Run left",
+  "dash.pose.waving": "Wave",
+  "dash.pose.jumping": "Jump",
+  "dash.pose.failed": "Sulk",
+  "dash.pose.waiting": "Wait",
+  "dash.pose.running": "Work",
+  "dash.pose.review": "Review",
   "common.close": "Close",
   "common.cancel": "Cancel",
   "common.ok": "OK",
@@ -605,16 +721,29 @@ let currentLang: Lang = detectLang();
 export function setLang(l: Lang): void { currentLang = l; }
 export function getLang(): Lang { return currentLang; }
 
-/** t(key, params)：{name} 风格插值；缺键回退 key 本身（zh 缺失回 en） */
-export function t(key: string, params?: Record<string, string | number>): string {
-  const dict = DICTS[currentLang];
-  let s = dict[key];
-  if (s === undefined && currentLang !== "zh") s = ZH[key];
+/** 查表 + {param} 风格插值；缺键回退 key 本身（非 zh 缺失回 zh 根字典）。
+ *  lang 显式入参（Task 9）：t() 走全局 currentLang，alertText() 走调用方指定语言——
+ *  警报文案拼装不读查表态，避免拼装时刻与全局语言漂移。 */
+function lookup(lang: Lang, key: string, params?: Record<string, string | number>): string {
+  let s = DICTS[lang][key];
+  if (s === undefined && lang !== "zh") s = ZH[key];
   if (s === undefined) return key;
   if (params) {
     for (const [k, v] of Object.entries(params)) s = s.split(`{${k}}`).join(String(v));
   }
   return s;
+}
+
+/** t(key, params)：{name} 风格插值；缺键回退 key 本身（zh 缺失回 en） */
+export function t(key: string, params?: Record<string, string | number>): string {
+  return lookup(currentLang, key, params);
+}
+
+/** 警报举牌/气泡文案（Task 9 R10）：kind+reached 结构化拼装，{v}=fmtTokens(reached)；
+ *  未知 kind 归 milestone 键兜底。旧宿主缺 reached 时由调用方回退下发文本 a.text。 */
+export function alertText(lang: Lang, kind: string, reached: number): string {
+  const key = kind === "day-warn" ? "dash.alert.dayWarn" : kind === "day-hit" ? "dash.alert.dayHit" : "dash.alert.milestone";
+  return lookup(lang, key, { v: fmtTokens(reached) });
 }
 
 /** 字典完整性自证（测试用）：两份字典键集必须一致 */

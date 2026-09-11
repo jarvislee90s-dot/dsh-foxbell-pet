@@ -1,5 +1,13 @@
 // styles.ts — 样式 CSS 内联注入（构建时经 esbuild 打进 bundle，运行时 <style> 落地）。
 // v1.3.0 类名全部保留（dyn-pet-*），新增对话框/管理/切换/守卫系列。
+
+/* ---- v2.2 迷你条钻取按钮（Task10 R6 铁律修订最小实现）：容器 .dyn-pet-mini 保持 pointer-events:none
+   不动（区域外点击照旧穿透），仅此子元素开 auto——迷你条内唯一可点元素，点击展开黑板 ---- */
+export const MINI_DETAIL_CSS = `
+.dyn-pet-mini-detail { pointer-events: auto; cursor: pointer; margin-top: 2px; text-align: right; font-size: 11px; color: #8a6d3b; opacity: .85; }
+.dyn-pet-mini-detail:hover { opacity: 1; text-decoration: underline; }
+`;
+
 const CSS = `
 .dyn-pet-root { position: fixed; z-index: 2147483000; pointer-events: auto; user-select: none; -webkit-user-select: none; touch-action: none; }
 .dyn-pet-sprite { width: 192px; height: 208px; background-repeat: no-repeat; cursor: grab; }
@@ -78,6 +86,8 @@ const CSS = `
 .dyn-pet-settings-save { background: #16a34a; color: #fff; border: none; border-radius: 8px; padding: 5px 18px; font-size: 13px; cursor: pointer; }
 .dyn-pet-settings-save:disabled { background: #c9bdae; cursor: default; }
 .dyn-pet-settings-row.bad input { border: 1px solid #ef4444; border-radius: 4px; }
+/* ---- v2.2 R8 设置卡导出评语文本域（Task 14）---- */
+.dyn-pet-settings-quote { flex: 1; max-width: 220px; border: 1px solid rgba(122,74,43,.35); border-radius: 6px; padding: 4px 6px; font-size: 12px; color: #3b2f23; background: #fff; font-family: inherit; line-height: 1.4; resize: vertical; box-sizing: border-box; }
 .dyn-pet-settings-actions { justify-content: flex-start; flex-wrap: wrap; }
 .dyn-pet-scale-group { display: inline-flex; gap: 4px; }
 .dyn-pet-scale-btn { border:1px solid rgba(122,74,43,.35); background:#fff; color:#7a4a2b; border-radius:8px; font-size:12px; padding:2px 10px; cursor:pointer; }
@@ -159,6 +169,7 @@ const CSS = `
 .dyn-pet-mini-tier { font-weight: 700; white-space: nowrap; }
 .dyn-pet-mini-row { white-space: normal; word-break: break-word; }
 .dyn-pet-mini-dim { color: #a07050; font-size: 11px; }
+${MINI_DETAIL_CSS}
 /* ---- v2.1 小黑板 + 📖 限时入口（v1.4.0 client.js L1118-1123 原样移植；行 normal 换行 per 7e16d62）----
    黑板为 310px 固定版式（fixed 右下挂点与 scale 缩放由 Pet.tsx boardLayer 内联下发） */
 .dyn-pet-board { width: 310px; background: #2f2a26; color: #f3e9dc; border-radius: 12px; padding: 10px 12px; font-size: 12.5px; line-height: 1.7; box-shadow: 0 6px 20px rgba(0,0,0,0.35); }
@@ -166,7 +177,57 @@ const CSS = `
 .dyn-pet-board-head { display: flex; justify-content: space-between; align-items: center; font-weight: 700; margin-bottom: 4px; }
 .dyn-pet-board-x { background: transparent; border: none; color: #d6c7b2; cursor: pointer; font-size: 13px; padding: 0 2px; }
 .dyn-pet-board-row { white-space: normal; word-break: break-word; }
+/* ---- v2.2 黑板加料（Task 11 R4）：sparkline 行（行内 flex：灰字 11px 标签 + 趋势图占余宽）；
+   入口行右对齐——.dyn-pet-board 非 flex 容器，用 text-align 而非 align-self（Task10 教训）；
+   入口行是黑板内第二个可点元素（容器无 pointer-events 限制，显式 auto 保点击） */
+.dyn-pet-board-spark { display: flex; align-items: center; gap: 6px; }
+.dyn-pet-board-spark-label { flex: none; color: #d6c7b2; font-size: 11px; }
+.dyn-pet-board-open { text-align: right; pointer-events: auto; cursor: pointer; color: #d6c7b2; }
+.dyn-pet-board-open:hover { text-decoration: underline; }
 .dyn-pet-entry { position: absolute; right: -8px; top: -6px; background: #fffbe8; border: 1px solid rgba(122,74,43,0.5); color: #7a4a2b; font-size: 12px; font-weight: 600; border-radius: 999px; padding: 3px 10px; cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,0.15); z-index: 3; }
+/* ---- v2.2 L3 大看板（Task 12，spec R5 Codex++ 排版：padding 16 / hero 28px 加粗 / 网格两列 /
+   card 圆角 10px 次级背景 / model-bar 通栏 5px 圆角 / 胶囊选项卡）。
+   面板语义（6.6 规则 7）：面板自滚——overflow:auto + height:100%，滚动不穿透外层 ---- */
+.dyn-pet-dash { padding: 16px; overflow: auto; height: 100%; box-sizing: border-box; color: #3b2f23; font-size: 13px; line-height: 1.5; }
+.dyn-pet-dash-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.dyn-pet-dash-head h2 { margin: 0; font-size: 15px; font-weight: 700; color: #7a4a2b; }
+.dyn-pet-dash-tabs { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.dyn-pet-dash-tab { border: 1px solid rgba(122,74,43,.35); background: #fff; color: #7a4a2b; border-radius: 999px; padding: 3px 12px; font-size: 12px; cursor: pointer; }
+.dyn-pet-dash-tab.is-active { background: #7a4a2b; color: #fff; border-color: #7a4a2b; }
+.dyn-pet-dash-dates { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: #7a4a2b; }
+.dyn-pet-dash-dates input { border: 1px solid rgba(122,74,43,.35); border-radius: 6px; padding: 2px 4px; font-size: 12px; color: #3b2f23; background: #fff; }
+.dyn-pet-dash-rangehint { color: #b45309; font-style: normal; font-size: 11px; }
+/* ---- v2.2 R8 大看板头部导出按钮（Task 14）：复制文本 / 导出图片 ---- */
+.dyn-pet-dash-actions { display: flex; align-items: center; gap: 6px; }
+.dyn-pet-dash-actbtn { border: 1px solid rgba(122,74,43,.35); background: #fff; color: #7a4a2b; border-radius: 999px; padding: 3px 12px; font-size: 12px; cursor: pointer; }
+.dyn-pet-dash-actbtn:hover { background: rgba(122,74,43,.08); }
+.dyn-pet-dash-hero { padding: 10px 2px 6px; }
+.dyn-pet-dash-hero-label { font-size: 12px; color: #a07050; }
+.dyn-pet-dash-hero-num { font-size: 28px; font-weight: 700; color: #7a4a2b; line-height: 1.25; }
+.dyn-pet-dash-weekhit { font-size: 12px; color: #a07050; }
+.dyn-pet-dash-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0 12px; }
+.dyn-pet-dash-cell { border: 1px solid rgba(122,74,43,.18); border-radius: 10px; background: rgba(255,252,248,.65); padding: 7px 10px; display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.dyn-pet-dash-cell span { font-size: 11px; color: #a07050; }
+.dyn-pet-dash-cell strong { font-size: 14px; font-weight: 700; color: #7a4a2b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dyn-pet-dash-card { border: 1px solid rgba(122,74,43,.2); border-radius: 10px; background: rgba(255,252,248,.8); padding: 10px 12px; margin-bottom: 12px; }
+.dyn-pet-dash-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; font-size: 12.5px; font-weight: 700; color: #7a4a2b; }
+.dyn-pet-dash-meta { font-size: 11px; font-weight: 400; color: #a07050; }
+.dyn-pet-dash-trendwrap { position: relative; }
+.dyn-pet-dash-trendhit { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.dyn-pet-dash-tooltip { position: absolute; transform: translate(-50%, -130%); background: rgba(47,42,38,.94); color: #f3e9dc; font-size: 11px; padding: 3px 8px; border-radius: 6px; pointer-events: none; white-space: nowrap; z-index: 2; }
+.dyn-pet-dash-model { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 12px; }
+.dyn-pet-dash-model-name { flex: none; width: 104px; color: #7a4a2b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dyn-pet-dash-model-val { flex: none; width: 56px; text-align: right; color: #a07050; font-variant-numeric: tabular-nums; }
+.dyn-pet-dash-model-bar { flex: 1; height: 5px; border-radius: 999px; background: rgba(122,74,43,.12); overflow: hidden; }
+.dyn-pet-dash-model-bar i { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg,#3BA7FF,#8D6BFF); }
+.dyn-pet-dash-tools { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.dyn-pet-dash-toolcell { border: 1px solid rgba(122,74,43,.15); border-radius: 10px; background: rgba(255,252,248,.65); padding: 6px 10px; display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.dyn-pet-dash-toolcell span { font-size: 11px; color: #a07050; }
+.dyn-pet-dash-toolcell strong { font-size: 13px; font-weight: 700; color: #7a4a2b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dyn-pet-dash-empty { color: #a07050; font-size: 12px; padding: 4px 0; }
+.dyn-pet-dash-foot { color: #a07050; font-size: 11px; padding-top: 2px; }
+/* ---- v2.2 侧栏看板入口图标（Task 13 R6）：sidebar.panellist 条目（dashboardSidebarEntry 门控注册）---- */
+.dyn-pet-sideicon { font-size: 20px; text-align: center; padding: 6px 0; cursor: pointer; user-select: none; -webkit-user-select: none; }
 `;
 
 const STYLE_ID = "dyn-pet-styles";

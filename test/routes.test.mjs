@@ -33,7 +33,9 @@ function makeCtx() {
   const dispatch = async (method, url, { body = null, headers = {} } = {}) => {
     const u = new URL(url, "http://localhost:3080");
     const handler = routes.exact.get(u.pathname)
-      ?? routes.prefix.find((p) => u.pathname === p.path || u.pathname.startsWith(p.path + "/") || u.pathname.startsWith(p.path))?.handler;
+      // 与真实 harness matcher 同语义：p === pathname 或 p/ 前缀（deepseek-harness
+      // packages/host/webserver/src/index.ts:322-324——prefix 路由裸 startsWith 会误派发）
+      ?? routes.prefix.find((p) => u.pathname === p.path || u.pathname.startsWith(p.path + "/"))?.handler;
     if (!handler) return { status: 404, body: null, headers: {} };
     const req = Object.assign(Readable.from(body ? [Buffer.isBuffer(body) ? body : Buffer.from(body)] : []), {
       method,
@@ -551,6 +553,149 @@ describe("空商店首启三态（R2 边界自查 3a）", () => {
   });
 });
 
+// ---- Task 6：/state ?since 短路（P3）+ /dashboard/range（R3）+ /sounds 静态（R7 前置）----
+
+/** Task 6 专用 env：可控时钟 + 可变假会话（共享 env roots 为空，无法驱动 rev 变化）。
+ *  时钟冻结保证 ages/pace 断言确定；state.status/events 可变以驱动 rev 失配。 */
+function makeStateEnv() {
+  const root2 = fs.mkdtempSync(path.join(os.tmpdir(), "foxbell-t6-state-"));
+  const clock = { now: new Date("2026-09-11T10:00:00").getTime() };
+  const state = {
+    status: "running",
+    events: [
+      { type: "user/message", seq: 1, time: clock.now - 3000, data: { content: [{ type: "text", text: "帮我把测试跑绿" }] } },
+      { type: "assistant/message", seq: 2, time: clock.now - 2000, data: { message: { content: [{ type: "text", text: "收到，开始处理" }] } } },
+    ],
+  };
+  const engine = createStateEngine({
+    roots: () => [{ id: "agent-1", status: state.status }],
+    getSession: () => ({ snapshotEvents: () => Object.freeze(state.events.map((e) => Object.freeze(e))) }),
+    getTitle: () => undefined,
+    now: () => clock.now,
+  });
+  const diag = { computeCount: 0, clientVisible: null };
+  const env2 = {
+    pkgDir: root2,
+    petsRoot: path.join(root2, "pets"),
+    stagingRoot: path.join(root2, "pets", ".import-staging"),
+    trashRoot: path.join(root2, ".trash"),
+    codexRoot: path.join(root2, "codex-pets"),
+    tmpDir: path.join(root2, "tmp"),
+    stateEngine: engine,
+    diag,
+    builtin: { manifest: null, assetDir: root2, spriteBytes: null },
+    getActivePetId: () => "foxbell",
+    snapshotExtra: () => {
+      engine.compute();
+      diag.computeCount += 1;
+      const projects = engine.list();
+      return {
+        seq: engine.nextSeq(),
+        completions: engine.queue,
+        runningSessions: projects.filter((p) => p.status === "running").length,
+        projects,
+        voices: [],
+        activePet: { id: "foxbell", name: "Foxbell", hasVoice: false, hasSubtitle: false, spriteVersionNumber: 0, spriteUrl: null, rev: "test" },
+        pets: [],
+        guard: [],
+      };
+    },
+  };
+  return { env: env2, engine, clock, state };
+}
+
+describe("Task 6 /state ?since 短路（P3）", () => {
+  it("首启无 since → 全量快照（数值 seq + 附加字符串 rev）；两次无变化轮 rev 稳定", async () => {
+    const made = makeStateEnv();
+    const made2 = makeCtx();
+    registerRoutes(made2.ctx, made.env);
+    const r1 = await made2.dispatch("GET", `${ROUTE_PREFIX}/state`);
+    expect(r1.status).toBe(200);
+    expect(typeof r1.body.seq).toBe("number"); // 既有数值 seq 保持（snap.seq typeof 校验兼容）
+    expect(typeof r1.body.rev).toBe("string"); // 附加 rev（additive，不改既有形状）
+    expect(r1.body.projects).toHaveLength(1);
+    expect(r1.body.projects[0].status).toBe("running");
+    const r2 = await made2.dispatch("GET", `${ROUTE_PREFIX}/state`);
+    expect(r2.body.rev).toBe(r1.body.rev); // 无变化两轮 rev 恒定（ages 不参与指纹）
+  });
+  it("since 命中 → 微型响应 {rev, unchanged, ages, seq}；ages 来自本轮 compute 且不进 rev", async () => {
+    const made = makeStateEnv();
+    const made2 = makeCtx();
+    registerRoutes(made2.ctx, made.env);
+    const full = await made2.dispatch("GET", `${ROUTE_PREFIX}/state`);
+    const rev = full.body.rev;
+    const tiny = await made2.dispatch("GET", `${ROUTE_PREFIX}/state?since=${encodeURIComponent(rev)}`);
+    expect(tiny.status).toBe(200);
+    expect(tiny.body.unchanged).toBe(true);
+    expect(Object.keys(tiny.body).sort()).toEqual(["ages", "rev", "seq", "unchanged"]);
+    expect(tiny.body.rev).toBe(rev);
+    expect(typeof tiny.body.seq).toBe("number");
+    expect(tiny.body.ages).toEqual(["2s"]); // 最后事件在 now-2s（冻结时钟，与全量 projects 顺序一致）
+    // 时钟推进 10s：ages 必须刷新（本轮 compute 现算），rev 不变（age 不参与指纹）
+    made.clock.now += 10000;
+    const tiny2 = await made2.dispatch("GET", `${ROUTE_PREFIX}/state?since=${encodeURIComponent(rev)}`);
+    expect(tiny2.body.unchanged).toBe(true);
+    expect(tiny2.body.ages).toEqual(["12s"]);
+    expect(tiny2.body.rev).toBe(rev);
+  });
+  it("状态变化后旧 since 失配 → 回落全量快照（rev 更新、done 完成入队）", async () => {
+    const made = makeStateEnv();
+    const made2 = makeCtx();
+    registerRoutes(made2.ctx, made.env);
+    const full1 = await made2.dispatch("GET", `${ROUTE_PREFIX}/state`);
+    const oldRev = full1.body.rev;
+    made.state.status = "done";
+    made.state.events.push({ type: "turn/end", seq: 3, time: made.clock.now - 500, data: { turn: 1, reason: { kind: "completed" } } });
+    const r = await made2.dispatch("GET", `${ROUTE_PREFIX}/state?since=${encodeURIComponent(oldRev)}`);
+    expect(r.status).toBe(200);
+    expect(r.body.unchanged).toBeUndefined(); // 非短路：全量形态
+    expect(r.body.rev).not.toBe(oldRev);
+    expect(r.body.projects[0].status).toBe("done");
+    expect(r.body.projects[0].unread).toBe(true);
+    expect(r.body.seq).toBe(1); // completions 数值 seq 语义不变
+  });
+});
+
+describe("Task 6 /dashboard/range（R3）", () => {
+  it("合法跨度返回 Task 2 汇总形状（from/to/days/totals/models/tools）", async () => {
+    const r = await get("/dashboard/range?from=2026-09-01&to=2026-09-11");
+    expect(r.status).toBe(200);
+    expect(r.body.from).toBe("2026-09-01");
+    expect(r.body.to).toBe("2026-09-11");
+    expect(r.body.days).toHaveLength(11);
+    expect(r.body.days[0].key).toBe("2026-09-01");
+    expect(typeof r.body.totals.requestTotal).toBe("number");
+    expect(Array.isArray(r.body.models)).toBe(true);
+    expect(Array.isArray(r.body.tools)).toBe(true);
+  });
+  it("31 天为上限；>31 天/非法格式/非法日历日/from>to/缺参 → 400", async () => {
+    const edge = await get("/dashboard/range?from=2026-08-12&to=2026-09-11");
+    expect(edge.status).toBe(200);
+    expect(edge.body.days).toHaveLength(31);
+    expect((await get("/dashboard/range?from=2026-08-01&to=2026-09-11")).status).toBe(400);
+    expect((await get("/dashboard/range?from=2026-9-1&to=2026-09-11")).status).toBe(400);
+    expect((await get("/dashboard/range?from=2026-02-30&to=2026-09-11")).status).toBe(400);
+    expect((await get("/dashboard/range?from=2026-09-11&to=2026-09-01")).status).toBe(400);
+    expect((await get("/dashboard/range")).status).toBe(400);
+  });
+});
+
+describe("Task 6 /sounds 静态（R7 前置）", () => {
+  it("白名单 wav 伺服（audio/wav + 长缓存）；穿越/缺失/非 wav/白名单外字符拒绝", async () => {
+    fs.mkdirSync(path.join(root, "assets", "sounds"), { recursive: true }); // env.pkgDir 指向临时 root，仓库 assets 不动
+    fs.writeFileSync(path.join(root, "assets", "sounds", "alert-1.wav"), "RIFF-fake-wav-bytes");
+    const ok = await get("/sounds/alert-1.wav");
+    expect(ok.status).toBe(200);
+    expect(ok.raw.toString()).toBe("RIFF-fake-wav-bytes");
+    expect(ok.headers["content-type"]).toBe("audio/wav");
+    expect(ok.headers["cache-control"]).toBe("public, max-age=86400");
+    expect((await get("/sounds/..%2Fpet.json")).status).toBe(400); // 穿越（解码后出现路径分隔）
+    expect((await get("/sounds/nope.wav")).status).toBe(404); // 白名单内但文件缺失 → not-found
+    expect((await get("/sounds/alert-1.mp3")).status).toBe(400); // 扩展名白名单外
+    expect((await get("/sounds/Big WAV.wav")).status).toBe(400); // 大写/空格不合白名单
+  });
+});
+
 // ---- R3 验收补链：TUI/无 webServer 降级（registerRoutes 面）----
 describe("无 webServer 降级（回归项，任务目标 6/8）", () => {
   it("ctx.get('webServer') 缺席 → registerRoutes 静默返回，零路由注册、不抛错", () => {
@@ -565,5 +710,41 @@ describe("无 webServer 降级（回归项，任务目标 6/8）", () => {
     registerRoutes(made.ctx, env);
     expect(made.routes.exact.size).toBeGreaterThanOrEqual(3); // /state /ack /client-diag 起步
     expect(made.routes.prefix.length).toBeGreaterThanOrEqual(2); // /pets /staging
+  });
+});
+
+// ---- 终审修复：/state rev 组合环境段（envRev）——引擎聚合面零事件时（审批挂起/空闲系统），
+// env 面变化（宠物热切换/外部清单变化）仍须打穿 unchanged 回落全量快照 ----
+describe("Task 6 /state ?since + envRev（终审修复）", () => {
+  it("rev = 引擎 rev + '#' + envRev；envRev 变化 → 旧组合 since 失配回落全量快照", async () => {
+    const made = makeStateEnv();
+    let envFp = "foxbell/builtin|"; // 模拟 index.js envRev：activePet id/rev + '|' + 宠物摘要
+    made.env.envRev = () => envFp;
+    const made2 = makeCtx();
+    registerRoutes(made2.ctx, made.env);
+    const full1 = await made2.dispatch("GET", `${ROUTE_PREFIX}/state`);
+    const rev1 = full1.body.rev;
+    expect(typeof rev1).toBe("string");
+    expect(rev1.endsWith("#" + envFp)).toBe(true); // 组合 rev 末段 = 环境指纹
+    const tiny = await made2.dispatch("GET", `${ROUTE_PREFIX}/state?since=${encodeURIComponent(rev1)}`);
+    expect(tiny.body.unchanged).toBe(true); // 引擎与 env 均未变 → 短路命中（响应形状 {rev,unchanged,ages,seq} 不变）
+    expect(Object.keys(tiny.body).sort()).toEqual(["ages", "rev", "seq", "unchanged"]);
+    expect(tiny.body.rev).toBe(rev1);
+    // env 面变化（宠物热切换：activePet id/rev 变），引擎聚合面零事件（引擎 rev 分量不变）
+    envFp = "mochi/1750000000000|foxbell:2";
+    const r = await made2.dispatch("GET", `${ROUTE_PREFIX}/state?since=${encodeURIComponent(rev1)}`);
+    expect(r.status).toBe(200);
+    expect(r.body.unchanged).toBeUndefined(); // 不再短路：回落全量快照
+    expect(r.body.rev.endsWith("#" + envFp)).toBe(true);
+    expect(r.body.rev).not.toBe(rev1);
+    expect(r.body.activePet).toBeDefined(); // 全量快照携带 envRev 覆盖的非引擎部件（activePet/pets/voices）
+  });
+  it("env 无 envRev（旧假 env）→ 回退纯引擎 rev（与 engine.contentRev() 逐字节一致，既有契约不变）", async () => {
+    const made = makeStateEnv(); // makeStateEnv 不带 envRev
+    const made2 = makeCtx();
+    registerRoutes(made2.ctx, made.env);
+    const r = await made2.dispatch("GET", `${ROUTE_PREFIX}/state`);
+    expect(typeof r.body.rev).toBe("string");
+    expect(r.body.rev).toBe(made.env.stateEngine.contentRev()); // 无组合段
   });
 });

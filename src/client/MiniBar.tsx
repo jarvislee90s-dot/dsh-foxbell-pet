@@ -1,5 +1,8 @@
 // MiniBar.tsx — 五口径迷你条 + 节奏表盘（v1.4.0 client.js MiniBar 组件逐行移植，L996-1028）。
-// 纯只读：容器 CSS pointer-events:none、零可点元素（spec 6.6 纯读取，点击全部穿透）。
+// 只读为主：容器 CSS pointer-events:none（区域外点击照旧穿透）；v2.2 R6 铁律修订——唯一例外
+// 是尾部 .dyn-pet-mini-detail「详情 »」钻取按钮（pointer-events:auto，onDetail 在位时渲染，
+// 点击开黑板 = L2 主链）。状态计数走 countsFromDash（宿主 dash.usage.counts 全量口径优先，
+// 缺省/畸形回退本地 cards 计数；Task10 R10 follow-up）。
 // 行文案经 t()（五口径名词逐字 = dash.* 键）；表盘档位标签由客户端按 pace.tier 查 dash.tier.*，
 // 宿主下发的 zh pace.label 仅作未知档位兜底（v2.1 契约：PACE_LABELS 不再直发到 UI）。
 // usageOn（Fix E 语义）只门控用量行（今日/缓存/你的输入/本会话标题），表盘行与状态计数行不受它管。
@@ -8,6 +11,7 @@ import type { ReactElement } from "react";
 import { fmtTokens } from "./format";
 import { t } from "./i18n";
 import type { DashboardSnapshot, PaceSnapshot, PaceTier, ProjectCard } from "./api";
+import { countsFromDash } from "./statuscards";
 import type { PetScale } from "./config";
 
 export type MiniMode = "hover" | "manual";
@@ -30,6 +34,8 @@ export function MiniBar(props: {
   scale: PetScale;
   /** cfg.usageEnabled（Fix E）：只门控用量行 */
   usageOn: boolean;
+  /** v2.2 R6：提供时渲染尾部「详情 »」钻取按钮行（迷你条唯一可点元素 → 开黑板） */
+  onDetail?: () => void;
 }): ReactElement {
   const { dash, cards, mode, scale, usageOn } = props;
   const px = (v: number) => Math.round(v * scale);
@@ -43,8 +49,8 @@ export function MiniBar(props: {
   const sessReq = sess
     ? (sess.requestTotal !== undefined ? sess.requestTotal : (sess.inputTokens || 0) + (sess.cacheReadTokens || 0))
     : null;
-  const counts: Record<string, number> = { approval: 0, running: 0, done: 0 };
-  for (const p of cards || []) { if (counts[p.status] !== undefined) counts[p.status] += 1 }
+  // 状态计数（v2.2 R10 follow-up 函数化）：宿主 usage.counts 优先，缺省回退本地 cards 计数
+  const counts = countsFromDash(dash, cards);
   // 状态计数行（源拼接结构原样：计数为 0 的段整体省略，全 0 → dash.noActive）
   const countsText =
     (counts.approval ? counts.approval + " " + t("dash.countApproval") + " · " : "")
@@ -86,6 +92,17 @@ export function MiniBar(props: {
         <div className="dyn-pet-mini-row dyn-pet-mini-dim" style={{ fontSize: px(11) }}>
           {t("dash.sessionReq") + " " + t("dash.request") + " "
             + (sessReq !== null ? fmtTokens(sessReq) : "—") + " · " + sess.title}
+        </div>
+      ) : null}
+      {/* v2.2 R6 钻取按钮（迷你条唯一可点元素）：pointerdown 亦拦下（与 .dyn-pet-entry 同模式）——
+          否则冒泡到 root 的 onPointerDown 会先关掉 hover 迷你条/起拖拽，click 永不落地 */}
+      {props.onDetail ? (
+        <div
+          className="dyn-pet-mini-detail"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => { e.stopPropagation(); props.onDetail!(); }}
+        >
+          {t("dash.detail")} »
         </div>
       ) : null}
       {/* 二期预留（issue #4 F10）：sparkline 迷你趋势行挂此（spec §9） */}

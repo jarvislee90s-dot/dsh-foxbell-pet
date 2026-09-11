@@ -1,6 +1,6 @@
 // 客户端纯逻辑测试（TS 直测）：动画表/物理积分/语音选择/校验函数/色彩映射/配置兼容/i18n 完整性。
-import { describe, expect, it } from "vitest";
-import { ANIM, FRAME_H, FRAME_W, frameStyle, LOOK_FRAMES, SHEET_COLS } from "../src/client/animations";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { ANIM, FRAME_H, FRAME_W, frameStyle, LOOK_FRAMES, POSE_KEYS, SHEET_COLS } from "../src/client/animations";
 import {
   clampPos, dragDirection, GRAVITY, DAMP, MIN_VX, pushSample, stepFall, throwVelocity,
   viewportBounds, SQUASH_TIMING,
@@ -11,19 +11,27 @@ import {
   nameFromRel, petNameProblem, petNameProblemKey, rowsFromSize, spriteVersionOf, voiceRowProblem,
   MAX_AUDIO_BYTES, MIN_DURATION_MS, MAX_DURATION_MS, type PetManifestView, type PetScan,
 } from "../src/client/validation";
-import { DOT_COLOR, lightOf, taskPoseOf, truncate } from "../src/client/statuscards";
+import { DOT_COLOR, lightOf, taskPoseOf, truncate, countsFromDash } from "../src/client/statuscards";
 import {
   CFG_DEFAULT, CFG_SCALES, NUM_KEYS, NUM_RANGE, sanitizeConfig, sanitizeValue, guardSignature, type PetConfig,
 } from "../src/client/config";
-import { dictKeys, t, setLang } from "../src/client/i18n";
+import { dictKeys, t, setLang, alertText } from "../src/client/i18n";
 import {
-  DASH_BOOL_KEYS, DASH_NUM_ROWS, SETTINGS_ALL_KEYS,
+  ALL_DRAFT_KEYS, DASH_BOOL_KEYS, DASH_NUM_ROWS, SETTINGS_ALL_KEYS, SETTINGS_V22_KEYS,
   buildSavePatch, isBadNumValue, isDraftDirty, type DraftConfig,
 } from "../src/client/settingsdraft";
-import { fmtTokens } from "../src/client/format";
+import { fmtPct, fmtTokens, shortModel } from "../src/client/format";
+import { clampRangeFrom, hitDeltaText, hourPoints, toolsMetrics, trendDirection, viewWindow, weekHit } from "../src/client/DashboardPanel";
+import { maxAnimCols, resolvePoseRow } from "../src/client/exportimage";
+import { lastN } from "../src/client/TrendChart";
 import { boardRows, fmtDur, fmtLongest } from "../src/client/boardrows";
 import { KNOWN_RPC_CODES, PetError, isPetRpcError } from "../src/client/errors";
+import { fillQuote, pickQuote } from "../src/client/quotes";
 import { petErrMsg, type DashboardSummary, type ProjectCard } from "../src/client/api";
+import {
+  appStore, mergeUnchanged, openDashboardPanel, PANEL_ID, POLL_INTERVAL_HIDDEN_MS, POLL_INTERVAL_MS,
+  schedulePoll, setPanelSwitcher,
+} from "../src/client/store";
 // 宿主 ESM 纯函数（allowJs:false 无声明；vitest 运行时直解）——用于客户端/宿主逐值恒等契约校验
 // @ts-expect-error 宿主 JS 模块无类型声明
 import { formatTokens as hostFormatTokens, PACE_LABELS as HOST_PACE_LABELS, summarize as hostSummarize } from "../src/host/dashboard.js";
@@ -491,13 +499,15 @@ describe("i18n 字典完整性", () => {
     expect(t("rpc.pet-exists", { name: "abc" })).toBe("Pet already exists: abc");
     setLang("zh");
   });
-  it("dash.* 效率看板键 zh/en 成对、60 键在位、五口径名词逐字（行为不变量）", () => {
+  it("dash.* 效率看板键 zh/en 成对、63 键在位、五口径名词逐字（行为不变量）", () => {
     const expectedDash = [
       "dash.today", "dash.requestInput", "dash.hit", "dash.cacheHit", "dash.output",
       "dash.yourInput", "dash.estimateSuffix", "dash.withSubagents", "dash.sessionReq",
       "dash.summaryTitle", "dash.farewellTitle", "dash.summaryEntry", "dash.menuUsage",
       "dash.menuSummary", "dash.menuSessions", "dash.unsaved", "dash.saved",
       "dash.invalidNums", "dash.save", "dash.discard", "dash.caliberNote", "dash.noActive",
+      // v2.2 自检修复：L3 脚注对齐 spec R5 §7 引文（新键；SettingsCard 仍用 dash.caliberNote）
+      "dash.caliber",
       // Task 6 迷你条：表盘档位（tier→label 客户端查表）+ 状态计数短词 + 本会话行「请求」
       "dash.tier.intense", "dash.tier.active", "dash.tier.longrun", "dash.tier.idle",
       "dash.tier.loaf1", "dash.tier.loaf2", "dash.tier.loaf3", "dash.tier.loaf4",
@@ -513,8 +523,26 @@ describe("i18n 字典完整性", () => {
       "dash.cfg.dayLimitTokens", "dash.cfg.milestoneUnit", "dash.cfg.paceIntenseEvents",
       "dash.cfg.paceLongrunMin", "dash.cfg.paceLoafStartMin", "dash.cfg.approvalFlickerMin",
       "dash.cfg.summaryEntrySec", "dash.cfg.boardTtlSec",
+      // Task 9 警报举牌/气泡：kind+reached 结构化拼装（R10；{v}=fmtTokens(reached)）
+      "dash.alert.dayWarn", "dash.alert.dayHit", "dash.alert.milestone",
+      // Task 10 迷你条钻取按钮（R6）：唯一可点元素的按钮文案
+      "dash.detail",
+      // Task 11 黑板加料（R4/R10）：sparkline 标签 / 模型行 / 等余量 / 完整看板入口行
+      "dash.trend7", "dash.models", "dash.moreN", "dash.openPanel",
+      // Task 12 L3 大看板（R5/R9）：标题/四选项卡/hero/周命中/趋势卡/工具卡/空态/区间钳制
+      "dash.panelTitle", "dash.tab.5h", "dash.tab.7d", "dash.tab.30d", "dash.tab.custom",
+      "dash.heroTotal", "dash.weekHit", "dash.trendTitle", "dash.loading", "dash.peak",
+      "dash.tools", "dash.noData", "dash.rangeClamp",
+      // Task 12 五口径网格 + 2×2 工具格标签（R5 名词序：用户输入/产出/请求输入(全文累计)/缓存命中/命中率/请求次数/数据截止）
+      "dash.g.userEst", "dash.g.output", "dash.g.requestTotal", "dash.g.cacheRead", "dash.g.hitPct",
+      "dash.g.requests", "dash.g.asOf", "dash.g.toolCalls", "dash.g.toolAvg", "dash.g.toolTopCount", "dash.g.toolTopDur",
+      // Task 14 R8 导出：头部两按钮 + 复制回执 / 设置卡 3 键标签 / 姿态下拉（random + ANIM 键）
+      "dash.export.copyText", "dash.export.exportImage", "dash.export.copied",
+      "dash.cfg.dashboardSidebarEntry", "dash.cfg.exportQuote", "dash.cfg.exportPose",
+      "dash.pose.random", "dash.pose.idle", "dash.pose.run-right", "dash.pose.run-left", "dash.pose.waving",
+      "dash.pose.jumping", "dash.pose.failed", "dash.pose.waiting", "dash.pose.running", "dash.pose.review",
     ];
-    expect(expectedDash).toHaveLength(60); // 标题计数防再次失真（原 47 系陈旧值）
+    expect(expectedDash).toHaveLength(109); // 标题计数防再次失真（原 47 系陈旧值；Task9 警报三键 +3；Task10 钻取按钮 +1；Task11 黑板加料四键 +4；Task12 大看板 24 键 +24；Task14 导出 16 键 +16；自检修复 dash.caliber +1）
     const zhDash = dictKeys("zh").filter((k) => k.startsWith("dash.")).sort();
     expect(zhDash).toEqual([...expectedDash].sort());
     const en = new Set(dictKeys("en"));
@@ -715,5 +743,437 @@ describe("旧配置迁移完整回环（R2 边界自查 3e）", () => {
     expect(junk.scale).toBe(1);
     expect(junk.activePetId).toBe("foxbell");
     expect(junk.doneAction).toBe("jumping");
+  });
+});
+
+describe("v2.2 P3 unchanged merge", () => {
+  it("merges ages into current snapshot and keeps rest", () => {
+    const snap = { seq: 5, rev: "R1", projects: [{ id: "a", age: "1s" }, { id: "b", age: "2s" }] } as any;
+    const out = mergeUnchanged(snap, { rev: "R1", unchanged: true, ages: ["9s", "8s"], seq: 5 });
+    expect(out.projects[0].age).toBe("9s");
+    expect(out.projects[1].age).toBe("8s");
+    expect(out.rev).toBe("R1");
+  });
+  it("ages 短于 projects 时缺位回落原 age；seq/rev 随响应刷新，其余字段原样保留", () => {
+    const snap = {
+      seq: 5, rev: "R1", runningSessions: 2, dashboard: { tier: "active" },
+      projects: [{ id: "a", age: "1s" }, { id: "b", age: "2s" }, { id: "c", age: "3s" }],
+    } as any;
+    const out = mergeUnchanged(snap, { rev: "R2", unchanged: true, ages: ["7s"], seq: 6 });
+    expect(out.projects[0].age).toBe("7s");
+    expect(out.projects[1].age).toBe("2s"); // ages 缺位 → 原值兜底
+    expect(out.projects[2].age).toBe("3s");
+    expect(out.seq).toBe(6);
+    expect(out.rev).toBe("R2");
+    expect(out.runningSessions).toBe(2); // 非 ages 字段沿用旧快照
+    expect(out.dashboard).toEqual({ tier: "active" });
+  });
+  it("轮询间隔常量：可见 1.5s / 不可见 5s（P4 降频）", () => {
+    expect(POLL_INTERVAL_MS).toBe(1500);
+    expect(POLL_INTERVAL_HIDDEN_MS).toBe(5000);
+  });
+});
+
+describe("schedulePoll 代数守卫（Task8 评审修复：重入/stop 不产生双链）", () => {
+  // 恒量：任一时刻全模块恰一条自续轮询链。复现评审场景——旧链 tick 已触发、
+  // .finally 未跑（in-flight 窗口）时 visibilitychange 重入 schedulePoll：
+  // clearTimeout 清的是已触发的陈旧句柄，旧链 .finally 若不设防会用自身下一轮
+  // 覆写 pollTimer → 2× 频率双链，stop() 也停不掉。fetch 全 mock 为可控
+  // deferred（不 resolve 即 in-flight），poll 响应无 seq → pollOnce 静默返回。
+  it("in-flight 链未决时重入 schedulePoll：旧链 .finally 不得续排，始终恰一条链", async () => {
+    vi.useFakeTimers();
+    const origFetch = globalThis.fetch;
+    const pending: Array<(v: unknown) => void> = [];
+    let calls = 0;
+    (globalThis as unknown as Record<string, unknown>).fetch = (async () => {
+      calls += 1;
+      return new Promise((resolve) => pending.push(resolve));
+    }) as unknown as typeof fetch;
+    const settle = (i: number) => { pending[i]?.({ ok: true, status: 200, json: async () => ({}) }); };
+    try {
+      schedulePoll(); // 立即 pollOnce #1（in-flight）+ 首个 tick 定时器
+      expect(calls).toBe(1);
+      await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS); // 旧链 tick 触发 → pollOnce #2 in-flight（.finally 未跑）
+      expect(calls).toBe(2);
+      schedulePoll(); // 重入（同 visibilitychange）：代数 +1；立即 pollOnce #3
+      expect(calls).toBe(3);
+      settle(1); // 旧链 pollOnce #2 完成 → 其 .finally 不得再排下一轮
+      await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS); // 新链首个 tick → pollOnce #4
+      expect(calls, "旧链复活则此处为 5（双链 2×频率）").toBe(4);
+      settle(3); // 新链 #4 完成（gen 未变）→ 正常续排
+      await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+      expect(calls, "每个间隔恰 1 次调用（单链不变量）").toBe(5);
+      settle(4);
+      await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+      expect(calls).toBe(6);
+      appStore.stop(); // in-flight 链未决时 stop：.finally 不得复活轮询
+      settle(2); settle(5); // 冲刷在途 poll（#3 为重入立即轮、#6 为停止前的链上 tick）
+      await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS * 2);
+      expect(calls, "stop 后零调用（stop 亦作废 in-flight 链的 .finally）").toBe(6);
+    } finally {
+      vi.useRealTimers();
+      globalThis.fetch = origFetch;
+      appStore.stop();
+    }
+  });
+});
+
+describe("v2.2 alert i18n（Task 9 R10：警报文案 kind+reached 结构化拼装）", () => {
+  it("builds zh/en alert text from kind+reached", () => {
+    expect(alertText("zh", "day-warn", 1234567)).toContain("80%");
+    expect(alertText("en", "day-hit", 100)).toContain("threshold");
+    expect(alertText("zh", "milestone", 2000000)).toContain("200万");
+  });
+  it("lang 参数独立于全局 currentLang（举牌/气泡不随查表态漂移）；未知 kind 归 milestone 键", () => {
+    setLang("en");
+    expect(alertText("zh", "day-hit", 100)).toContain("已达阈值"); // 全局 en 时不影响 zh 请求
+    expect(alertText("en", "day-hit", 100)).toBe("Daily token threshold reached · 100");
+    expect(alertText("zh", "milestone", 12345)).toContain("1.2万"); // fmtTokens 与看板同一格式化器
+    setLang("zh");
+    expect(alertText("en", "unknown-kind", 7)).toContain("Milestone"); // 兜底键
+    setLang("zh");
+  });
+});
+
+// ---- Task 10：MiniBar 计数口径（R10 follow-up）——宿主全量计数 dash.usage.counts 优先
+//      （Task 4 引擎并入，宿主真实形状：counts 挂在 usage 之下），缺省/畸形回退本地 cards 计数 ----
+describe("v2.2 MiniBar counts (Task10 countsFromDash：宿主 usage.counts 优先 + 本地回退)", () => {
+  it("prefers host counts and falls back to local cards", () => {
+    const cards = [{ status: "approval" }, { status: "running" }, { status: "running" }, { status: "done" }] as never[];
+    expect(countsFromDash(null, cards)).toEqual({ approval: 1, running: 2, done: 1 });
+    expect(countsFromDash({ usage: { counts: { approval: 3, running: 0, done: 2 } } } as never, cards)).toEqual({ approval: 3, running: 0, done: 2 });
+  });
+  it("malformed host counts（缺 counts / 三键非全数字）→ 回退本地 cards 计数（error 卡不计）", () => {
+    const cards = [{ status: "approval" }, { status: "error" }, { status: "done" }] as never[];
+    expect(countsFromDash({ usage: {} } as never, cards)).toEqual({ approval: 1, running: 0, done: 1 });
+    expect(countsFromDash({ usage: { counts: { approval: 1, running: "x", done: 2 } } } as never, cards)).toEqual({ approval: 1, running: 0, done: 1 });
+  });
+});
+
+// ---- Task 11：黑板 sparkline 数据切片（R4/R10）----
+// 数据构造注（Task 11 预裁定）：brief 原稿用 `2026-08-${29+i}` 拼键 → 2026-08-42 等非法日期，
+// 其 label 数学算出「8/42」与断言自身期望的 { label: "9/11", value: 13 }（滚动跨月、末日 2026-09-11）自相矛盾。
+// 按裁定以断言为钉住意图：改用 new Date(2026, 7, 29 + i) 构造合法滚动键（YYYY-MM-DD），断言逐字节不动。
+describe("v2.2 TrendChart data", () => {
+  it("lastN slices tail with short labels and zero-fill to n", () => {
+    const days = Array.from({ length: 14 }, (_, i) => {
+      const d = new Date(2026, 7, 29 + i); // 2026-08-29 起滚动 14 天 → 末日 2026-09-11
+      const mm = String(d.getMonth() + 1).padStart(2, "0");
+      const dd = String(d.getDate()).padStart(2, "0");
+      return { key: `${d.getFullYear()}-${mm}-${dd}`, dayTotal: i };
+    });
+    const out = lastN(days as never, 7);
+    expect(out).toHaveLength(7);
+    expect(out[6]).toMatchObject({ label: "9/11", value: 13 });
+  });
+  it("lastN fewer than n → 头部零值补位（key/label 空串）；非数组入参安全归空切片", () => {
+    const days = [{ key: "2026-09-10", dayTotal: 3 }, { key: "2026-09-11", dayTotal: 5 }];
+    const out = lastN(days as never, 7);
+    expect(out).toHaveLength(7);
+    expect(out[0]).toEqual({ key: "", label: "", value: 0 });
+    expect(out[5]).toEqual({ key: "2026-09-10", label: "9/10", value: 3 });
+    expect(out[6]).toEqual({ key: "2026-09-11", label: "9/11", value: 5 });
+    expect(lastN(undefined as never, 7)).toHaveLength(7); // 非数组归空切片后仍零值补位到 n（实现口径）
+    expect(lastN(undefined as never, 7)[0]).toEqual({ key: "", label: "", value: 0 });
+  });
+});
+
+// ---- Task 11：shortModel（format.ts 导出；模型行 Top3 截断：>12 字符取前 10 + '…'）----
+describe("v2.2 shortModel (Task11 模型行截断)", () => {
+  it("truncates >12 chars to first 10 + ellipsis, keeps short names intact", () => {
+    expect(shortModel("gpt-5.2")).toBe("gpt-5.2");
+    expect(shortModel("exactly12chr")).toBe("exactly12chr"); // 12 字符边界：不截
+    expect(shortModel("deepseek-chat-v3.2-exp")).toBe("deepseek-c…");
+    expect(shortModel("")).toBe("");
+  });
+});
+
+// ---- Task 11：黑板加料 i18n 四键（R4/R10；moreN 走 t() {param} 插值）----
+describe("v2.2 board extra rows i18n (Task11)", () => {
+  it("dash.trend7/models/moreN/openPanel zh/en 成对且插值正确", () => {
+    setLang("zh");
+    expect(t("dash.trend7")).toBe("7日");
+    expect(t("dash.models")).toBe("模型");
+    expect(t("dash.moreN", { n: 2 })).toBe("等2");
+    expect(t("dash.openPanel")).toBe("查看完整看板");
+    setLang("en");
+    expect(t("dash.trend7")).toBe("7d");
+    expect(t("dash.models")).toBe("Models");
+    expect(t("dash.moreN", { n: 2 })).toBe("+2");
+    expect(t("dash.openPanel")).toBe("Open full dashboard");
+    setLang("zh");
+  });
+});
+
+// ---- Task 12：L3 大看板纯函数（R5/R9）。TDD：本组测试先于实现写入并确认失败 ----
+// 数据注（Task 12 预裁定）：2026-09-11 为周五（锚点日）。周界裁定 = 周一为一周之始的日历周，
+// 锚点取快照内最新一天（数据驱动，纯函数不读时钟）：
+//   本周(0) = 2026-09-07(一)…2026-09-11(五)；上周(1) = 2026-08-31(一)…2026-09-06(日)。
+describe("v2.2 viewWindow (Task12 选项卡→窗口)", () => {
+  it("maps tabs to hour/day windows", () => {
+    expect(viewWindow("5h")).toEqual({ kind: "hours", n: 5 });
+    expect(viewWindow("7d")).toEqual({ kind: "days", n: 7 });
+    expect(viewWindow("30d")).toEqual({ kind: "days", n: 30 });
+    expect(viewWindow("custom")).toEqual({ kind: "days", n: 30 }); // custom 实际区间由 apiGetRange(from,to) 决定，此处仅兜底口径
+  });
+});
+
+describe("v2.2 fmtPct (Task12 (x*100).toFixed(1)+'%'，入参为 0-1 分数)", () => {
+  it("formats fraction to percent with 1 decimal", () => {
+    expect(fmtPct(0.71428)).toBe("71.4%");
+    expect(fmtPct(0)).toBe("0.0%");
+    expect(fmtPct(1)).toBe("100.0%");
+  });
+});
+
+describe("v2.2 weekHit/hitDeltaText (Task12 周一始日历周，锚=快照最新日；返回 0-1 分数供 fmtPct)", () => {
+  // [key, requestTotal(请求输入口径), cacheRead]；宿主 hitRate 为 0-1 分数（分母 0 记 0）
+  const trend = {
+    days: [
+      { key: "2026-08-31", requestTotal: 100, cacheRead: 50 }, // 上周一
+      { key: "2026-09-01", requestTotal: 100, cacheRead: 25 }, // 上周二
+      { key: "2026-09-07", requestTotal: 200, cacheRead: 200 }, // 本周一
+      { key: "2026-09-08", requestTotal: 0, cacheRead: 0 }, // 本周二：分母 0，不影响聚合
+      { key: "2026-09-10", requestTotal: 100, cacheRead: 50 }, // 本周四
+      { key: "2026-09-11", requestTotal: 100, cacheRead: 75 }, // 锚点日（本周五）
+    ],
+  };
+  it("aggregates ΣcacheRead/ΣrequestTotal within Mon-start calendar weeks", () => {
+    expect(weekHit(trend as never, 0)).toBeCloseTo(325 / 400, 6); // 本周 9/07+9/10+9/11（9/08 分母 0 不计分子权重）
+    expect(weekHit(trend as never, 1)).toBeCloseTo(75 / 200, 6); // 上周 8/31+9/01
+  });
+  it("hitDeltaText formats ±pt（百分点差）", () => {
+    expect(hitDeltaText(trend as never)).toBe("+43.8pt"); // (0.8125-0.375)*100
+  });
+  it("null/空快照 → 0 / ±0.0pt；缺 hitPct 字段不参与（聚合只用原始分账）", () => {
+    expect(weekHit(null, 0)).toBe(0);
+    expect(weekHit({ days: [] } as never, 1)).toBe(0);
+    expect(hitDeltaText(null)).toBe("±0.0pt");
+  });
+});
+
+describe("v2.2 hourPoints (Task12 5h=最近 5 个「完整」整点桶，排除进行中小时)", () => {
+  const hours = Array.from({ length: 24 }, (_, h) => ({
+    key: `2026-09-11T${String(h).padStart(2, "0")}`,
+    dayTotal: h * 10,
+    requestTotal: 0,
+    requestCount: 0,
+  }));
+  it("5 buckets ending at last complete hour, wraps past midnight", () => {
+    const pts = hourPoints(hours as never, 3); // 当前 03 点（进行中）→ 完整桶 22,23,0,1,2
+    expect(pts.map((p) => p.label)).toEqual(["22:00", "23:00", "00:00", "01:00", "02:00"]);
+    expect(pts.map((p) => p.value)).toEqual([220, 230, 0, 10, 20]);
+  });
+  it("hour buckets carry no hitPct（小时桶无命中率，tooltip 省略该段）", () => {
+    expect(hourPoints(hours as never, 12).every((p) => p.hitPct === undefined)).toBe(true);
+  });
+  it("null/缺桶 → 0 值容错且仍出 5 点", () => {
+    expect(hourPoints(null, 5)).toHaveLength(5);
+    expect(hourPoints(null, 5)[0]).toMatchObject({ label: "00:00", value: 0 });
+    expect(hourPoints(hours as never, 0)[0]).toMatchObject({ label: "19:00", value: 190 }); // 跨午夜回绕
+  });
+});
+
+describe("v2.2 toolsMetrics (Task12 2×2 工具格：调用总数/平均耗时/Top 工具次数/Top 工具总耗时)", () => {
+  it("sums calls, avg=dur/calls, top = max-count tool (并列取先)", () => {
+    const m = toolsMetrics([{ name: "Bash", count: 3, durMs: 90000 }, { name: "Read", count: 5, durMs: 4000 }]);
+    expect(m).toEqual({ calls: 8, avgMs: 94000 / 8, topCount: 5, topDurMs: 4000 });
+    const tie = toolsMetrics([{ name: "A", count: 2, durMs: 10 }, { name: "B", count: 2, durMs: 20 }]);
+    expect(tie.topDurMs).toBe(10); // 并列保序取首个
+  });
+  it("zero calls → avg 0；null/非数组容错", () => {
+    expect(toolsMetrics([])).toEqual({ calls: 0, avgMs: 0, topCount: 0, topDurMs: 0 });
+    expect(toolsMetrics(null)).toEqual({ calls: 0, avgMs: 0, topCount: 0, topDurMs: 0 });
+  });
+});
+
+// ---- Task 12：大看板 i18n 键（R5/R9；tab.* 动态查表 `dash.tab.${x}`）----
+describe("v2.2 dashboard panel i18n (Task12)", () => {
+  it("tabs/hero/grid/weekHit/rangeClamp zh/en 成对且插值正确", () => {
+    setLang("zh");
+    expect(t("dash.panelTitle")).toBe("用量看板");
+    expect(t("dash.tab.5h")).toBe("5小时");
+    expect(t("dash.tab.7d")).toBe("7日");
+    expect(t("dash.tab.30d")).toBe("30日");
+    expect(t("dash.tab.custom")).toBe("自定义");
+    expect(t("dash.heroTotal", { range: "7日" })).toBe("7日 Token 合计");
+    expect(t("dash.g.userEst")).toBe("用户输入");
+    expect(t("dash.g.requestTotal")).toBe("请求输入(全文累计)");
+    expect(t("dash.g.hitPct")).toBe("命中率");
+    expect(t("dash.g.asOf")).toBe("数据截止时间");
+    expect(t("dash.g.toolCalls")).toBe("调用总数");
+    expect(t("dash.g.toolAvg")).toBe("平均耗时");
+    expect(t("dash.g.toolTopCount")).toBe("Top 工具次数");
+    expect(t("dash.g.toolTopDur")).toBe("Top 工具总耗时");
+    expect(t("dash.trendTitle")).toBe("用量趋势");
+    expect(t("dash.peak", { v: "1.2万" })).toBe("峰值 1.2万");
+    expect(t("dash.weekHit", { a: "81.3%", b: "37.5%", d: "+43.8pt" })).toBe("本周命中 81.3%（上周 37.5% · +43.8pt）");
+    expect(t("dash.rangeClamp")).toBe("已截断为最近 31 天");
+    expect(t("dash.tools")).toBe("工具");
+    expect(t("dash.noData")).toBe("暂无数据");
+    setLang("en");
+    expect(t("dash.panelTitle")).toBe("Usage dashboard");
+    expect(t("dash.tab.custom")).toBe("Custom");
+    expect(t("dash.heroTotal", { range: "7d" })).toBe("7d token total");
+    expect(t("dash.g.requestTotal")).toBe("Request input (cumulative)");
+    expect(t("dash.rangeClamp")).toBe("Clamped to last 31 days");
+    expect(t("dash.tools")).toBe("Tools");
+    setLang("zh");
+  });
+});
+
+// ---- Task 12 评审修复：31 天钳制决策提为纯函数（R9「超限前端截断提示」）----
+// 口径：区间含首尾；from < to-30d（含首尾 >31 天）→ from 收敛到 to-30d（恰 31 天）并标记 clamped。
+// effect 以同一钳后值拉取（绝不发越界请求）；提示常驻至用户下次编辑日期。锚点日沿用 2026-09-11。
+describe("v2.2 clampRangeFrom (Task12 评审修复：31 天前端钳制决策)", () => {
+  it(">31 天跨度 → from = to-30d 且 clamped true", () => {
+    expect(clampRangeFrom("2026-07-01", "2026-09-11")).toEqual({ from: "2026-08-12", clamped: true });
+  });
+  it("7 天跨度（from=to-6d）→ 原样返回且 clamped false", () => {
+    expect(clampRangeFrom("2026-09-05", "2026-09-11")).toEqual({ from: "2026-09-05", clamped: false });
+  });
+  it("边界：含首尾恰 31 天 → 原样返回（不钳）；32 天才钳", () => {
+    // 8/12-8/31 共 20 天 + 9/1-9/11 共 11 天 = 恰 31 天
+    expect(clampRangeFrom("2026-08-12", "2026-09-11")).toEqual({ from: "2026-08-12", clamped: false });
+    expect(clampRangeFrom("2026-08-11", "2026-09-11")).toEqual({ from: "2026-08-12", clamped: true }); // 32 天
+  });
+});
+
+// ---- Task 13：panelSwitcher 纯逻辑（R6 钻取链闭合的开关闸）----
+// 无注入 → openDashboardPanel() 返回 false（调用方静默降级，console.warn）；
+// setPanelSwitcher 注入后 → true 且以 PANEL_ID 调用（index.tsx 注入 ctx.layout.selectPanel）。
+describe("v2.2 panel switcher (Task13)", () => {
+  // 测试卫生（Task 14 预裁定补充）：注入的 switcher 是模块级状态，leave clean 防跨 describe 泄漏
+  afterEach(() => setPanelSwitcher(null));
+  it("returns false without switcher, true and calls after set", () => {
+    expect(PANEL_ID).toBe("foxbell-dashboard");
+    expect(openDashboardPanel()).toBe(false);
+    let called = "";
+    setPanelSwitcher((id) => { called = id; });
+    expect(openDashboardPanel()).toBe(true);
+    expect(called).toBe("foxbell-dashboard");
+  });
+});
+
+// ---- Task 14：导出评语池（R8 纯规则匹配，无 LLM；自定义模板优先）----
+// 预裁定（控制器 resolution #1）：brief Step 1 片段的 {hit} 占位符系笔误——fillQuote 实现
+// {range}/{tokens}/{hitPct}/{models}（spec R8 + plan Self-Review ⑦），变量键名为 hit（QuoteVars）。
+describe("v2.2 quotes (Task14 R8)", () => {
+  it("custom template wins with placeholders filled", () => {
+    expect(fillQuote("今日 {tokens}，命中 {hitPct}", { range: "", tokens: "12.3万", hit: "90%", models: "" })).toBe("今日 12.3万，命中 90%");
+  });
+  it("rule pool picks by priority (hit>total>trend>multi>loaf)", () => {
+    const q = pickQuote({ total: 500, hitPct: 0.95, trendUp: true, multiModel: true, loaf: false }, "zh");
+    expect(q).toContain("缓存");
+  });
+  it("custom 非空优先于规则池（trim 后判空；vars 缺省回空串占位）", () => {
+    const agg = { total: 500, hitPct: 0.95, trendUp: true, multiModel: true, loaf: false };
+    expect(pickQuote(agg, "zh", "  ")).toContain("缓存"); // 空白模板=未自定义 → 走池
+    expect(pickQuote(agg, "zh", "自定义 {models}")).toBe("自定义 "); // vars 缺省 → 空串占位
+    expect(pickQuote(agg, "zh", "自定义", { range: "7日", tokens: "1万", hit: "90%", models: "3" })).toBe("自定义");
+  });
+  it("fillQuote 四占位符全替换（{range}/{tokens}/{hitPct}/{models}；未出现的占位符原样保留语义=split/join 直替）", () => {
+    expect(fillQuote("{range}·{tokens}·{hitPct}·{models}", { range: "30日", tokens: "5.0亿", hit: "37.5%", models: "2" }))
+      .toBe("30日·5.0亿·37.5%·2");
+  });
+  it("en 池同规则；优先级顺序（总量档在趋势前：中档总量才落到 trend>multi>loaf>兜底）", () => {
+    expect(pickQuote({ total: 500, hitPct: 0.95, trendUp: true, multiModel: true, loaf: false }, "en")).toContain("Cache");
+    expect(pickQuote({ total: 500, hitPct: 0.2, trendUp: null, multiModel: false, loaf: true }, "zh")).toContain("缓存");
+    expect(pickQuote({ total: 2_000_000, hitPct: 0.7, trendUp: null, multiModel: false, loaf: true }, "zh")).toContain("百万");
+    expect(pickQuote({ total: 0, hitPct: 0, trendUp: null, multiModel: false, loaf: false }, "zh")).toContain("没开工");
+    // 中档总量（10万..100万）+ 中段命中 → 依次 trend 连升/连降 → 多模型 → 摸鱼 → 兜底
+    expect(pickQuote({ total: 500_000, hitPct: 0.7, trendUp: true, multiModel: true, loaf: true }, "zh")).toContain("爬坡");
+    expect(pickQuote({ total: 500_000, hitPct: 0.7, trendUp: false, multiModel: true, loaf: true }, "zh")).toContain("收敛");
+    expect(pickQuote({ total: 500_000, hitPct: 0.7, trendUp: null, multiModel: true, loaf: true }, "zh")).toContain("多线");
+    expect(pickQuote({ total: 500_000, hitPct: 0.7, trendUp: null, multiModel: false, loaf: true }, "zh")).toContain("摸鱼");
+    expect(pickQuote({ total: 500_000, hitPct: 0.7, trendUp: null, multiModel: false, loaf: false }, "zh")).toContain("干活");
+  });
+});
+
+// ---- Task 14：R8 导出三键的配置契约 + 姿态/趋势纯函数（测试全部为追加）----
+describe("v2.2 export config keys (Task14 R8)", () => {
+  it("CFG_DEFAULT 导出 3 键与宿主 Config schema 逐字一致（false/''/'random'）", () => {
+    expect(CFG_DEFAULT.dashboardSidebarEntry).toBe(false);
+    expect(CFG_DEFAULT.exportQuote).toBe("");
+    expect(CFG_DEFAULT.exportPose).toBe("random");
+  });
+  it("sanitizeValue：exportQuote 字符串直存（不得布尔真值化）、2000 字符钳制、非串回空", () => {
+    expect(sanitizeValue("exportQuote", "今日 {tokens}，命中 {hitPct}")).toBe("今日 {tokens}，命中 {hitPct}");
+    expect(sanitizeValue("exportQuote", "x".repeat(2500))).toHaveLength(2000);
+    expect(sanitizeValue("exportQuote", 42)).toBe("");
+    expect(sanitizeValue("exportQuote", undefined)).toBe("");
+  });
+  it("sanitizeValue：exportPose 白名单（random + ANIM 键），越界回 random", () => {
+    expect(sanitizeValue("exportPose", "waving")).toBe("waving");
+    expect(sanitizeValue("exportPose", "look")).toBe("random"); // look 是内部扫视，非姿态
+    expect(sanitizeValue("exportPose", "bogus")).toBe("random");
+    expect(sanitizeValue("exportPose", 42)).toBe("random");
+    expect(sanitizeValue("exportPose", undefined)).toBe("random");
+  });
+  it("sanitizeConfig JSON 存档回环保真（字符串键布尔化回归）", () => {
+    const edited = sanitizeConfig({ ...CFG_DEFAULT, exportQuote: "今日 {tokens}", exportPose: "jumping" } as PetConfig);
+    const round2 = sanitizeConfig(JSON.parse(JSON.stringify(edited)) as PetConfig);
+    expect(round2.exportQuote).toBe("今日 {tokens}");
+    expect(round2.exportPose).toBe("jumping");
+  });
+  it("SETTINGS_V22_KEYS 3 键并入草稿层：buildSavePatch 字符串原值透传（无 Number 转换）、dirty 可判", () => {
+    expect([...SETTINGS_V22_KEYS]).toEqual(["dashboardSidebarEntry", "exportQuote", "exportPose"]);
+    expect(ALL_DRAFT_KEYS).toHaveLength(SETTINGS_ALL_KEYS.length + 3);
+    const draft = { ...CFG_DEFAULT, exportQuote: "自定义 {models}", dashboardSidebarEntry: true } as DraftConfig;
+    const patch = buildSavePatch(draft, CFG_DEFAULT);
+    expect(patch.exportQuote).toBe("自定义 {models}");
+    expect(patch.dashboardSidebarEntry).toBe(true);
+    expect(patch.exportPose).toBeUndefined(); // 未变更不入 patch
+    expect(isDraftDirty({ ...CFG_DEFAULT }, CFG_DEFAULT)).toBe(false);
+    expect(isDraftDirty(draft, CFG_DEFAULT)).toBe(true);
+  });
+  it("新 i18n 键 zh/en 成对取值（按钮/设置卡标签/姿态）", () => {
+    setLang("zh");
+    expect(t("dash.export.copyText")).toBe("复制文本");
+    expect(t("dash.export.exportImage")).toBe("导出图片");
+    expect(t("dash.export.copied")).toBe("已复制");
+    expect(t("dash.cfg.dashboardSidebarEntry")).toBe("侧栏看板入口");
+    expect(t("dash.cfg.exportQuote")).toBe("导出评语(空=评语池)");
+    expect(t("dash.cfg.exportPose")).toBe("导出姿态");
+    expect(t("dash.pose.random")).toBe("随机");
+    expect(t("dash.pose.run-right")).toBe("向右跑");
+    setLang("en");
+    expect(t("dash.export.copyText")).toBe("Copy text");
+    expect(t("dash.export.exportImage")).toBe("Export image");
+    expect(t("dash.cfg.exportQuote")).toBe("Export quote (empty = pool)");
+    expect(t("dash.pose.random")).toBe("Random");
+    expect(t("dash.pose.run-left")).toBe("Run left");
+    setLang("zh");
+  });
+});
+
+describe("v2.2 pose + trend helpers (Task14 R8)", () => {
+  it("POSE_KEYS = random + ANIM 全键（无 look），与 sanitizeValue/设置卡下拉共用", () => {
+    expect(POSE_KEYS).toEqual([
+      "random", "idle", "run-right", "run-left", "waving", "jumping", "failed", "waiting", "running", "review",
+    ]);
+  });
+  it("maxAnimCols = ANIM 最长 d 数组（8 列图集）", () => {
+    expect(maxAnimCols()).toBe(8);
+    expect(maxAnimCols()).toBe(Math.max(...Object.values(ANIM).map((a) => a.d.length)));
+  });
+  it("resolvePoseRow：已知键→行号；未知键→0 兜底；random→ANIM 行域内", () => {
+    expect(resolvePoseRow("waving")).toBe(3);
+    expect(resolvePoseRow("failed")).toBe(5);
+    expect(resolvePoseRow("no-such")).toBe(0);
+    const rows = new Set(Object.values(ANIM).map((a) => a.row));
+    const spy = vi.spyOn(Math, "random").mockReturnValue(0);
+    expect(resolvePoseRow("random")).toBe(ANIM.idle.row);
+    spy.mockReturnValue(0.999);
+    expect(rows.has(resolvePoseRow("random"))).toBe(true);
+    spy.mockRestore();
+  });
+  it("trendDirection：末两日升 true/降 false/等或不足 null", () => {
+    expect(trendDirection([{ dayTotal: 1 }, { dayTotal: 2 }])).toBe(true);
+    expect(trendDirection([{ dayTotal: 3 }, { dayTotal: 2 }])).toBe(false);
+    expect(trendDirection([{ dayTotal: 2 }, { dayTotal: 2 }])).toBe(null);
+    expect(trendDirection([{ dayTotal: 5 }])).toBe(null);
+    expect(trendDirection(null)).toBe(null);
+    expect(trendDirection([{ dayTotal: 1 }, { dayTotal: 9 }, { dayTotal: 4 }])).toBe(false); // 只看末两日
   });
 });

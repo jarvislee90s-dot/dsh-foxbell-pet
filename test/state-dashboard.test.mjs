@@ -56,13 +56,17 @@ describe('buildDashboard（4 会话假事件直喂）', () => {
     expect(onlyStale.pace.tier).toBe('loaf3') // 关 turn + 58min 静默：无 turnOpen 不进 active 带
   })
 
-  it('usage 今日桶累加（昨日样本不入日桶）+ grandTotal + requestTotal + 命中率 + models 空桶', () => {
+  it('usage 今日桶累加（昨日样本不入日桶）+ grandTotal + requestTotal + 命中率 + models 当日切片', () => {
     const dash = buildDashboard(fourSessions(), {}, NOW)
     expect(dash.usage.day).toEqual({ inputTokens: 1600, outputTokens: 1050, cacheReadTokens: 4000, cacheWriteTokens: 200 })
     expect(dash.usage.grandTotal).toBe(24850) // 6700 (s1) + 18000 (s2 含昨日) + 150 (s4)
     expect(dash.usage.requestTotal).toBe(5600) // input + cacheRead
     expect(dash.usage.cacheHitRate).toBeCloseTo(4000 / 5600, 12)
-    expect(dash.usage.models).toEqual({})
+    // v2.2 Task 4：usage.models 由 {} 二期占位桶转正为当日 RouteAgg[]（byDayRoute 日切片）。
+    // 本例样本均无 message.source → 「未知」单桶；requestTotal=input+cacheRead=5600 与上断言同源。
+    expect(dash.usage.models).toEqual([
+      { route: '未知', provider: '', model: '', requestTotal: 5600, cacheRead: 4000, outputTokens: 1050 },
+    ])
   })
 
   it('usage.session = 最后活跃会话的今日分账（含 requestTotal 派生）', () => {
@@ -226,7 +230,8 @@ describe('createStateEngine dashboard()', () => {
     expect(dash).not.toBe(null)
     expect(dash.approvals).toEqual([{ id: 'g:x', title: 'g', waitMin: 2 }])
     expect(dash.summary.sessions).toBe(1)
-    expect(dash.usage.models).toEqual({})
+    // v2.2 Task 4：usage.models 由 {} 占位转正为 RouteAgg[]（本会话无用量样本 → 空数组）
+    expect(dash.usage.models).toEqual([])
   })
 
   it('alerts 跨 compute：日阈值首次越过时发一次（id 带 day key），基线推进后不重复', () => {
@@ -247,5 +252,33 @@ describe('createStateEngine dashboard()', () => {
     const eng = harness([{ id: 'p1', status: 'idle' }], sessions, { readConfig: () => { throw new Error('cfg boom') } })
     eng.compute()
     expect(eng.dashboard()).not.toBe(null)
+  })
+})
+
+// ---- v2.2 Task 4：models/trend 快照字段（经 buildDashboard 兼容入口） ----
+describe('buildDashboard v2.2 快照扩展（usage.models/tools/trend）', () => {
+  it('buildDashboard emits usage.models top6 and trend 14d/24h', () => {
+    const t = new Date(2026, 8, 11, 15, 0).getTime()
+    const evts = [
+      { type: 'assistant/message', time: t, data: { turn: 0, step: 0, usage: { inputTokens: 100, outputTokens: 40, cacheReadTokens: 60 }, message: { source: { provider: 'p', model: 'm1' } } } },
+    ]
+    const dash = buildDashboard([{ id: 'a', title: 'A', events: evts }], {}, t, { dayTotal: 0, grandTotal: 0 })
+    expect(dash.usage.models[0]).toMatchObject({ route: 'p/m1', requestTotal: 160 })
+    expect(dash.usage.trend.days).toHaveLength(14)
+    expect(dash.usage.trend.days[13].key).toBe('2026-09-11')
+    expect(dash.usage.trend.hours).toHaveLength(24)
+  })
+
+  it('usage.tools：当日工具账（foldToolsByDay 日切片；计数=带名 tool/call，durMs=正 durationMs 累加）', () => {
+    const evts = [
+      { type: 'tool/call', seq: 1, time: NOW - MIN, data: { name: 'Bash', callId: 'c1' } },
+      { type: 'tool/result', seq: 2, time: NOW - MIN + 5000, data: { name: 'Bash', durationMs: 5000 } },
+      { type: 'tool/call', seq: 3, time: NOW - 2 * MIN, data: { name: 'Read', callId: 'c2' } },
+    ]
+    const dash = buildDashboard([{ id: 't', title: 'T', events: evts }], {}, NOW)
+    expect(dash.usage.tools).toEqual([
+      { name: 'Bash', count: 1, durMs: 5000 },
+      { name: 'Read', count: 1, durMs: 0 },
+    ])
   })
 })

@@ -15,10 +15,10 @@ import {
 } from "./config";
 import { MIN_SPEECH_MS } from "./voices";
 import type { VoiceGroup } from "./validation";
-import { appStore, ackProject, cfgStore, petStore, voicePlayer, type ActivePetRuntime } from "./store";
+import { appStore, ackProject, cfgStore, openDashboardPanel, petStore, playDefaultAlertSound, voicePlayer, type ActivePetRuntime } from "./store";
 import { apiPost, type ActivateResult, type GuardIssue, type PaceTier, type ProjectCard } from "./api";
 import { DOT_COLOR, DOT_HALO, lightOf, taskPoseOf } from "./statuscards";
-import { t } from "./i18n";
+import { t, alertText, getLang } from "./i18n";
 import { PetMenu, type MenuPage } from "./PetMenu";
 import { Sign } from "./Sign";
 import { MiniBar, type MiniMode } from "./MiniBar";
@@ -31,6 +31,9 @@ const LOOK_IDLE_MS = 6000;
 const TRANSIENT_WAVE_MS = 1700;
 const APPROVAL_THROTTLE_MS = 10_000;
 const MINI_HOVER_MS = 500; // 悬停 0.5s 出迷你条（源 client.js L888 定时时长）
+const BOARD_W = 310; // 黑板固定版式宽（与 styles.ts .dyn-pet-board 同源；锚定跟随偏移用）
+const BOARD_GAP = 12; // 黑板与宠物本体间距
+const BOARD_EDGE = 8; // 左侧锚定越界阈值（left < 8 → 翻宠物右侧）
 
 interface PetProps {
   ctx: { get(name: string): unknown };
@@ -301,40 +304,37 @@ export function Pet(props: PetProps): React.ReactElement | null {
         playVoiceRef.current("done", cfgRef.current.doneAction);
       }
     }
-    // ---- v2.1 警报举牌/气泡 + 语音三优先级（源 refresh 警报段原样移植）：
-    // usage 语音组 > TTS 兜底 > 静默；先按 id 去重（usageEnabled=false 时也记 seen，开启瞬间不补发旧警报）
+    // ---- v2.2 警报举牌/气泡 + 音效链（R7/R10）：
+    // 四组配齐 → general 组宠物语音 > 内置合成 chime（spec 默认裁定②：TTS 不参与音效链）；
+    // 先按 id 去重（usageEnabled=false 时也记 seen，开启瞬间不补发旧警报）
     if (dash && Array.isArray(dash.alerts)) {
       for (const a of dash.alerts) {
         if (!a || typeof a.id !== "string" || seenAlertsRef.current.has(a.id)) continue;
         seenAlertsRef.current.add(a.id);
         if (!cfgRef.current.usageEnabled) continue;
-        // 里程碑一句话走气泡容器（spec 6.2 表现面3；一句话→气泡），数字类警报仍举牌
-        if (a.kind === "milestone") showBubble(a.text, 4200);
-        else { setSign(a.text); if (signTimerRef.current) { try { signTimerRef.current(); } catch { /* ignore */ } } signTimerRef.current = later(() => setSign(null), 4200); }
+        // 里程碑一句话走气泡容器（spec 6.2 表现面3；一句话→气泡），数字类警报仍举牌。
+        // v2.2 R10：文案结构化拼装 t(kind→键)+fmtTokens(reached)（随界面语言）；
+        // 旧宿主缺 reached 时回退下发文本 a.text（防御陈旧拼装）
+        const txt = typeof a.reached === "number" ? alertText(getLang(), a.kind, a.reached) : a.text;
+        if (a.kind === "milestone") showBubble(txt || a.text, 4200);
+        else { setSign(txt || a.text); if (signTimerRef.current) { try { signTimerRef.current(); } catch { /* ignore */ } } signTimerRef.current = later(() => setSign(null), 4200); }
         playTransient("jumping", 1600);
         if (cfgRef.current.muted) continue;
-        // 三优先级①：usage 组语音命中即播（pick 组空返回 null，语义同源 pickVoice('usage')）
-        const v = voicePlayer.pick("usage");
-        if (v) {
-          // 里程碑：气泡即容器，语音时长对齐刷新气泡；数字警报：举牌即容器，不叠加字幕气泡（spec 6.2 容器分工）
-          voicePlayer.play(v, {
-            muted: cfgRef.current.muted,
-            onSubtitle: a.kind === "milestone"
-              ? (name, ms) => {
-                  if (!cfgRef.current.muted && cfgRef.current.talkative && runtimeRef.current.hasSubtitle) showBubble(a.text || name, ms);
-                }
-              : undefined,
-          });
-          continue;
+        // v2.2 R7 音效链：四组配齐 → general 组宠物语音命中即播；否则内置合成 chime（语音组 > 默认音效；TTS 不参与）
+        if (runtimeRef.current.hasVoice) {
+          const v = voicePlayer.pick("general");
+          if (v) {
+            // 里程碑：气泡即容器，语音时长对齐刷新气泡；数字警报：举牌即容器，不叠加字幕气泡（spec 6.2 容器分工）
+            voicePlayer.play(v, {
+              muted: cfgRef.current.muted,
+              onSubtitle: a.kind === "milestone"
+                ? (name, ms) => { if (!cfgRef.current.muted && cfgRef.current.talkative && runtimeRef.current.hasSubtitle) showBubble(txt || name, ms); }
+                : undefined,
+            });
+            continue;
+          }
         }
-        // 三优先级②：TTS 兜底（zh-CN）；③静默
-        if (cfgRef.current.ttsEnabled && typeof window !== "undefined" && window.speechSynthesis) {
-          try {
-            const u = new window.SpeechSynthesisUtterance(a.text);
-            u.lang = "zh-CN";
-            window.speechSynthesis.speak(u);
-          } catch { /* ignore */ }
-        }
+        playDefaultAlertSound();
       }
     }
     // error / approval / running 差分
@@ -700,20 +700,33 @@ export function Pet(props: PetProps): React.ReactElement | null {
   }, [snap]);
 
   // 小黑板：fragment 层渲染（源 L924-926：farewell 要在宠物隐藏后仍显示；无 summary 时 Board 自身返回 null）。
-  // 定位/层级与源一致：fixed 右下（bottom 与宠物默认落点同 76）、zIndex 与宠物 root 同层
-  const boardLayer = board !== null ? (
-    <div
-      ref={boardRef}
-      style={{ position: "fixed", right: 24, bottom: BOTTOM_MARGIN, zIndex: 2147483000, transform: `scale(${scale})`, transformOrigin: "bottom right" }}
-    >
-      <Board
-        dash={snap?.dashboard ?? null}
-        mode={board.mode}
-        ttlSec={cfg.boardTtlSec}
-        onClose={closeBoard}
-      />
-    </div>
-  ) : null;
+  // 定位（Task 11 R4 重锚定；终审修复：黑板层经 transform:scale 缩放，锚点须用缩放后宽度
+  // BOARD_W*scale，否则 1.25 档下黑板右缘压住宠物 ~65px）——左优先 left = petX - BOARD_W*scale - 12，
+  // 越界（<8）翻右侧 petX + frameW + 12（frameW=px(FRAME_W) 已缩放）；y 对齐宠物顶部；随拖拽
+  // （pos 变更重渲染）跟随。pos 未落定（首次默认右下锚）时按
+  // right:24/bottom:BOTTOM_MARGIN 反推虚拟锚点。三档 scale 沿用 boardLayer transform（origin 随锚点改 top left）。
+  // 层级 zIndex 与宠物 root 同层
+  const boardLayer = board !== null ? (() => {
+    const p = posRef.current;
+    const petX = p ? p.x : window.innerWidth - 24 - frameW;
+    const petY = p ? p.y : window.innerHeight - BOTTOM_MARGIN - frameH;
+    let left = petX - BOARD_W * scale - BOARD_GAP;
+    if (left < BOARD_EDGE) left = petX + frameW + BOARD_GAP; // 左侧放不下 → 翻宠物右侧
+    return (
+      <div
+        ref={boardRef}
+        style={{ position: "fixed", top: petY, left, zIndex: 2147483000, transform: `scale(${scale})`, transformOrigin: "top left" }}
+      >
+        <Board
+          dash={snap?.dashboard ?? null}
+          mode={board.mode}
+          ttlSec={cfg.boardTtlSec}
+          onClose={closeBoard}
+          onOpenPanel={() => { closeBoard(); openDashboardPanel(); }} // v2.2 R6 入口行：关黑板 + 开 L3 大看板（钻取链 L2→L3；Task 13 落地真切换，layout 缺席时静默降级）
+        />
+      </div>
+    );
+  })() : null;
 
   if (!visible) return boardLayer; // 关宠后黑板仍在（ttl 到点自动消失；✕/点外部/ESC 可关）
 
@@ -809,6 +822,7 @@ export function Pet(props: PetProps): React.ReactElement | null {
               mode={miniMode}
               scale={scale}
               usageOn={cfg.usageEnabled}
+              onDetail={() => openBoard("manual")} // v2.2 R6：详情 » 钻取 → 黑板（L2 主链；hover/manual 共用此挂载点）
             />
           </div>
         ) : null}
@@ -859,6 +873,7 @@ export function Pet(props: PetProps): React.ReactElement | null {
             onSwitchPet={(id) => { closeMenu(); void switchTo(id); }}
             onMiniUsage={() => { closeMenu(); setMiniMode("manual"); }} // 🏷 今日用量：手动迷你条（源 miniOpen）
             onBoardSummary={() => { closeMenu(); openBoard("manual"); }} // 📊 查看最近总结：关菜单 + 开黑板（源 boardOpen）
+            onOpenDashboard={() => { closeMenu(); openDashboardPanel(); }} // 📈 用量看板：关菜单 + 开 L3 大看板（v2.2 R6；Task 13）
             onSessionPick={(p) => { closeMenu(); onProjectClick(p); }} // 🗂 会话一览点选：关菜单 + 跳会话（源 SessionsPage onPick）
             sessions={snap?.projects ?? []}
           />
