@@ -14,7 +14,7 @@
 import {
   sessionEvents, PACE_LABELS, derivePaceTier, dateKeyOf, zeroUsage, foldUsage,
   evaluateAlerts, summarize, summarizeStructured, estimateUserTokensByDay, hitRate, ageLabel,
-  buildTrend, foldToolsByDay, hourKeyOf,
+  buildTrend, foldToolsByDay, hourKeyOf, summarizeRange,
 } from './dashboard.js'
 
 /** 文本助手（与 v1.3.0 相同：词元感知截断，CJK 每字 1 词元） */
@@ -380,6 +380,9 @@ export function createStateEngine(deps) {
   let alertPrev = { dayTotal: 0, grandTotal: 0 } // 警报基线：无论 usageEnabled 与否每轮都推进，避免开启瞬间补发旧警报
   let dashState = null // dashboard() 在首轮 compute 前为 null
   // ---------- v2.2 Task 4（R1/P1 增量缓存）----------
+  // 已知边界（fp 缓存设计取舍，接受）：缓存行内的 scan 指标（turns/errors/tool 计数）按采集
+  // 时刻的「今日」算好随 fp 缓存——空闲会话跨零点后这些当日计数保持午夜前的旧值，直到该会话
+  // 下一个事件（fp 变化触发重扫）才刷新。当日性随会话活动即时自愈，不为跨零点空闲专门重扫。
   const foldCache = new Map() // agentId → { fp, scan, folded, recent: number[] }；fp=事件数:末事件 seq
   const stats = { rescans: 0 } // 诊断计数：累计实际重扫次数（含首轮；fp 未变的轮次复用缓存不计数）
   let trendCache = { hourKey: null, value: null } // trend 整点锚定节流（R3）
@@ -488,6 +491,36 @@ export function createStateEngine(deps) {
     return out
   }
 
+  // ---------- v2.2 Task 6（P3/R3）：内容修订号 + 跨日区间汇总 ----------
+  // contentRev：本轮 compute 后的内容变更令牌（/state ?since 短路判据）。组成 = list() 各行
+  // status:unread:title:lines（'|' 连接）+ 完成队列长度 + 当日请求输入 + 累计总量 + pace 档位
+  // + 警报 id，以 '#' 连接。age 刻意不参与（ages 每轮都在变的派生量，进 rev 会让短路永不命中）。
+  const contentRev = () => {
+    const rows = list().map((p) => `${p.status}:${p.unread ? 1 : 0}:${p.title || ''}:${(p.lines || []).join('/')}`).join('|')
+    const d = dashState || {}
+    const u = d.usage || {}
+    const alerts = Array.isArray(d.alerts) ? d.alerts : []
+    return [
+      rows,
+      queue.length,
+      u.requestTotal || 0,
+      u.grandTotal || 0,
+      d.pace ? d.pace.tier : '',
+      alerts.map((a) => (a && a.id != null) ? String(a.id) : '').join(','),
+    ].join('#')
+  }
+  // rangeSummary（/dashboard/range，R3）：遍历 foldCache 折叠产物交 Task 2 summarizeRange
+  // （usage 三维账 / 工具按日 / 用户输入按日估算）——指纹未变的会话零重扫，直接吃缓存。
+  const rangeSummary = (fromKey, toKey) => {
+    const folds = [], tools = [], ests = []
+    for (const c of foldCache.values()) {
+      folds.push(c.folded.usage)
+      tools.push(c.folded.toolsByDay)
+      ests.push(c.folded.userEstByDay)
+    }
+    return summarizeRange(folds, tools, ests, fromKey, toKey)
+  }
+
   return {
     compute,
     list,
@@ -500,5 +533,7 @@ export function createStateEngine(deps) {
       if (p) p.unread = false
     },
     nextSeq: () => seq,
+    contentRev, // v2.2 Task 6：内容修订号（/state ?since 短路 + 全量快照顶层 rev）
+    rangeSummary, // v2.2 Task 6：/dashboard/range 的引擎入口（R3）
   }
 }
