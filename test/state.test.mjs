@@ -227,3 +227,63 @@ describe("state engine", () => {
     expect(order).toEqual(["error", "approval", "running"]);
   });
 });
+
+// v2.2 Task 4（P1 增量缓存）：fp（事件数:末事件 seq）未变 → 复用 scan+folded 不重扫；fp 变化才重扫。
+describe("state engine 指纹增量缓存", () => {
+  it("engine caches per-session folds by fingerprint and rescans only on change", () => {
+    let evts = [{ type: "turn/start", seq: 1, time: 1000, data: { turn: 0 } }];
+    const deps = {
+      roots: () => [{ id: "a" }],
+      getSession: () => ({ snapshotEvents: () => evts }),
+      getTitle: () => "A",
+      now: () => 2000,
+    };
+    const eng = createStateEngine(deps);
+    eng.compute();
+    evts = evts.slice(); // 同长度同末 seq（新数组）：fp 不变
+    eng.compute();
+    expect(eng.stats.rescans).toBe(1); // 第二轮 fp 相同 → 0 次新增重扫（首轮算 1）
+    evts = [...evts, { type: "turn/end", seq: 2, time: 1500, data: { turn: 0, reason: { kind: "stop" } } }];
+    eng.compute();
+    expect(eng.stats.rescans).toBe(2); // fp 变化 → 重扫
+  });
+});
+
+// v2.2 Task 4 引擎侧快照扩展：usage.counts（projects Map 计数并入）+ trend 整点锚定节流。
+describe("state engine v2.2 快照扩展", () => {
+  it("usage.counts 由引擎从 projects Map 并入（approval/running/done 计数；仅 status 非空）", () => {
+    const sessions = new Map([
+      ["a", fakeSession([ev("turn/start", 1, { turn: 1 })])], // root running + 开着 turn → running
+      ["b", fakeSession([ev("approval/asked", 1, { id: "x" })])], // 未决审批 → approval
+    ]);
+    const eng = createStateEngine({
+      roots: () => [{ id: "a", status: "running" }, { id: "b", status: "idle" }],
+      getSession: (id) => sessions.get(id),
+      getTitle: () => undefined,
+      now: () => 1000,
+    });
+    eng.compute();
+    expect(eng.dashboard().usage.counts).toEqual({ approval: 1, running: 1, done: 0 });
+  });
+
+  it("trend 整点锚定节流：fp 与整点未变时复用同一缓存引用，fp 变化才重算", () => {
+    const events = [ev("turn/start", 1, { turn: 1 })];
+    const sessions = new Map([["p1", fakeSession(events)]]);
+    const eng = createStateEngine({
+      roots: () => [{ id: "p1", status: "running" }],
+      getSession: (id) => sessions.get(id),
+      getTitle: () => undefined,
+      now: () => 1000,
+    });
+    eng.compute();
+    const t1 = eng.dashboard().usage.trend;
+    eng.compute(); // fp 未变 + 同整点 → 复用缓存（同引用）
+    expect(eng.dashboard().usage.trend).toBe(t1);
+    events.push({ type: "assistant/message", seq: 2, time: 900, data: { turn: 1, step: 0, usage: { inputTokens: 10, outputTokens: 5 } } });
+    eng.compute(); // fp 变化 → 重算（新引用；形状不变：14 日 + 24 桶）
+    const t2 = eng.dashboard().usage.trend;
+    expect(t2).not.toBe(t1);
+    expect(t2.days).toHaveLength(14);
+    expect(t2.hours).toHaveLength(24);
+  });
+});

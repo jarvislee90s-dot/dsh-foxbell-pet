@@ -102,7 +102,7 @@ describe("GET /state 下发 dashboard（默认配置，无会话）", () => {
     expect(r.body.dashboard.alerts).toEqual([]);
     expect(r.body.dashboard.approvals).toEqual([]);
   });
-  it("usage 四桶零值：day/requestTotal/cacheHitRate/userEst/grandTotal + session + models {}", async () => {
+  it("usage 四桶零值：day/requestTotal/cacheHitRate/userEst/grandTotal + session + models 空数组", async () => {
     const r = await d("/state");
     const u = r.body.dashboard.usage;
     expect(u.day).toEqual({ inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 });
@@ -111,7 +111,8 @@ describe("GET /state 下发 dashboard（默认配置，无会话）", () => {
     expect(u.userEst).toBe(0);
     expect(u.grandTotal).toBe(0);
     expect(u.session).toBe(null);
-    expect(u.models).toEqual({});
+    // v2.2 Task 4：usage.models 由 {} 二期占位桶转正为 RouteAgg[]（无会话 → 空数组）
+    expect(u.models).toEqual([]);
   });
   it("summary.tokensText 含「请求输入 0（缓存命中 0 · 0.0%）」", async () => {
     const r = await d("/state");
