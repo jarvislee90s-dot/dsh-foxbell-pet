@@ -21,7 +21,7 @@ import {
   buildSavePatch, isBadNumValue, isDraftDirty, type DraftConfig,
 } from "../src/client/settingsdraft";
 import { fmtPct, fmtTokens, shortModel } from "../src/client/format";
-import { hitDeltaText, hourPoints, toolsMetrics, viewWindow, weekHit } from "../src/client/DashboardPanel";
+import { clampRangeFrom, hitDeltaText, hourPoints, toolsMetrics, viewWindow, weekHit } from "../src/client/DashboardPanel";
 import { lastN } from "../src/client/TrendChart";
 import { boardRows, fmtDur, fmtLongest } from "../src/client/boardrows";
 import { KNOWN_RPC_CODES, PetError, isPetRpcError } from "../src/client/errors";
@@ -1007,5 +1007,22 @@ describe("v2.2 dashboard panel i18n (Task12)", () => {
     expect(t("dash.rangeClamp")).toBe("Clamped to last 31 days");
     expect(t("dash.tools")).toBe("Tools");
     setLang("zh");
+  });
+});
+
+// ---- Task 12 评审修复：31 天钳制决策提为纯函数（R9「超限前端截断提示」）----
+// 口径：区间含首尾；from < to-30d（含首尾 >31 天）→ from 收敛到 to-30d（恰 31 天）并标记 clamped。
+// effect 以同一钳后值拉取（绝不发越界请求）；提示常驻至用户下次编辑日期。锚点日沿用 2026-09-11。
+describe("v2.2 clampRangeFrom (Task12 评审修复：31 天前端钳制决策)", () => {
+  it(">31 天跨度 → from = to-30d 且 clamped true", () => {
+    expect(clampRangeFrom("2026-07-01", "2026-09-11")).toEqual({ from: "2026-08-12", clamped: true });
+  });
+  it("7 天跨度（from=to-6d）→ 原样返回且 clamped false", () => {
+    expect(clampRangeFrom("2026-09-05", "2026-09-11")).toEqual({ from: "2026-09-05", clamped: false });
+  });
+  it("边界：含首尾恰 31 天 → 原样返回（不钳）；32 天才钳", () => {
+    // 8/12-8/31 共 20 天 + 9/1-9/11 共 11 天 = 恰 31 天
+    expect(clampRangeFrom("2026-08-12", "2026-09-11")).toEqual({ from: "2026-08-12", clamped: false });
+    expect(clampRangeFrom("2026-08-11", "2026-09-11")).toEqual({ from: "2026-08-12", clamped: true }); // 32 天
   });
 });

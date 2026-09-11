@@ -83,6 +83,17 @@ export function toolsMetrics(tools: ToolAgg[] | null | undefined): { calls: numb
   return { calls, avgMs: calls > 0 ? dur / calls : 0, topCount: top ? top.count || 0 : 0, topDurMs: top ? top.durMs || 0 : 0 };
 }
 
+const dayKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+/** 31 天前端钳制决策（spec R9「超限前端截断提示」；宿主 400 之外的第二道闸）：
+ *  区间含首尾超过 31 天（from < to-30d）→ from 收敛到 to-30d（恰 31 天）。
+ *  clamped=true 时 effect 于同一 pass 以钳后 from 拉取（绝不发越界请求）并置常驻提示（至用户下次编辑日期）。 */
+export function clampRangeFrom(from: string, to: string): { from: string; clamped: boolean } {
+  const toMs = new Date(to + "T00:00:00").getTime();
+  const maxFrom = dayKey(new Date(toMs - 30 * 86400000));
+  return from < maxFrom ? { from: maxFrom, clamped: true } : { from, clamped: false };
+}
+
 // ---- 区间拉取（30d/自定义；60s 内存缓存，Map key `from:to`）----
 
 const rangeCache = new Map<string, { at: number; data: RangeSummary }>();
@@ -94,8 +105,6 @@ async function fetchRange(from: string, to: string): Promise<RangeSummary> {
   rangeCache.set(key, { at: Date.now(), data });
   return data;
 }
-
-const dayKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 // ---- 同文件小组件 ----
 
@@ -172,13 +181,13 @@ export function DashboardPanel(): ReactElement {
   useEffect(() => {
     if (tab !== "30d" && tab !== "custom") return;
     let live = true; setBusy(true);
-    // 31 天前端钳制（spec R9「超限前端截断提示」；宿主 400 之外的第二道闸）
-    const toMs = new Date(custom.to + "T00:00:00").getTime();
-    const maxFrom = dayKey(new Date(toMs - 30 * 86400000));
-    if (custom.from < maxFrom) { setCustom((c) => ({ ...c, from: maxFrom })); setRangeHint(t("dash.rangeClamp")); }
-    else setRangeHint("");
-    const from = tab === "30d" ? dayKey(new Date(Date.now() - 29 * 86400000)) : custom.from;
+    // 31 天前端钳制（spec R9「超限前端截断提示」；宿主 400 之外的第二道闸）：
+    // clampRangeFrom 先行裁定，同 pass 以钳后 from 拉取（绝不发越界请求）；
+    // 提示常驻至用户下次编辑日期（两处 onChange 复位）——此处不设 else 清除（旧实现提示一帧即逝）。
     const to = tab === "custom" ? custom.to : dayKey(new Date());
+    const rawFrom = tab === "30d" ? dayKey(new Date(Date.now() - 29 * 86400000)) : custom.from;
+    const { from, clamped } = clampRangeFrom(rawFrom, to);
+    if (clamped) { setCustom((c) => ({ ...c, from })); setRangeHint(t("dash.rangeClamp")); }
     fetchRange(from, to)
       .then((r) => { if (live) setRange(r); })
       .catch(() => { if (live) setRange(null); })
@@ -224,9 +233,9 @@ export function DashboardPanel(): ReactElement {
           ))}
           {tab === "custom" ? (
             <span className="dyn-pet-dash-dates">
-              <input type="date" value={custom.from} max={custom.to} onChange={(e) => setCustom((c) => ({ ...c, from: e.target.value }))} />
+              <input type="date" value={custom.from} max={custom.to} onChange={(e) => { setRangeHint(""); setCustom((c) => ({ ...c, from: e.target.value })); }} />
               <span>–</span>
-              <input type="date" value={custom.to} min={custom.from} max={dayKey(new Date())} onChange={(e) => setCustom((c) => ({ ...c, to: e.target.value }))} />
+              <input type="date" value={custom.to} min={custom.from} max={dayKey(new Date())} onChange={(e) => { setRangeHint(""); setCustom((c) => ({ ...c, to: e.target.value })); }} />
               {rangeHint ? <em className="dyn-pet-dash-rangehint">{rangeHint}</em> : null}
             </span>
           ) : null}
