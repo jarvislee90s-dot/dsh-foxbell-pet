@@ -255,8 +255,13 @@ export function Pet(props: PetProps): React.ReactElement | null {
   // 渲染守卫见 JSX 处 miniVisible 条件（拖拽强制隐藏 + 黑板优先挂钩点）。
   const [miniMode, setMiniMode] = useState<MiniMode | null>(null);
   const hoverTimerRef = useRef<(() => void) | null>(null);
+  const miniLeaveTimerRef = useRef<(() => void) | null>(null); // v2.2.1：离开精灵的宽限期定时器（悬浮条可抵达性）
   const clearHoverTimer = () => {
     if (hoverTimerRef.current) { const d = hoverTimerRef.current; hoverTimerRef.current = null; try { d(); } catch { /* ignore */ } }
+  };
+  /** 取消「离开精灵」宽限期：指针进入悬浮条/回到精灵时调用（v2.2.1 hover 桥接） */
+  const cancelMiniLeave = () => {
+    if (miniLeaveTimerRef.current) { const d = miniLeaveTimerRef.current; miniLeaveTimerRef.current = null; try { d(); } catch { /* ignore */ } }
   };
   const rootRef = useRef<HTMLDivElement | null>(null); // 手动迷你条「点外部关闭」的宠物本体 contains 判定
 
@@ -631,6 +636,7 @@ export function Pet(props: PetProps): React.ReactElement | null {
       cancelStep();
       stopLook();
       clearHoverTimer(); // 迷你条 hover 定时器随卸载清掉（源 clearHoverTimer 卫生）
+      cancelMiniLeave(); // v2.2.1：hover 桥接宽限定时器随卸载清掉
       if (boardTimerRef.current) { const d = boardTimerRef.current; boardTimerRef.current = null; try { d(); } catch { /* ignore */ } } // 黑板 ttl 随卸载清掉
       if (entryTimerRef.current) { const d = entryTimerRef.current; entryTimerRef.current = null; try { d(); } catch { /* ignore */ } } // 入口 ttl 随卸载清掉（review Minor1）
       if (signTimerRef.current) { const d = signTimerRef.current; signTimerRef.current = null; try { d(); } catch { /* ignore */ } } // 举牌清除随卸载清掉（review Minor1）
@@ -815,7 +821,10 @@ export function Pet(props: PetProps): React.ReactElement | null {
             渲染守卫：拖拽激活（dragging 于 pointerdown 置位，覆盖按下→方向阈值窗口；stateRef.drag 为方向动画段）
             强制隐藏 + 黑板优先（board !== null 时不渲染迷你条——源 L884 miniMode !== null && board === null 原样）。 */}
         {miniMode !== null && board === null && !dragging && stateRef.current.drag === null ? (
-          <div className="dyn-pet-mini-wrap">
+          <div
+            className="dyn-pet-mini-wrap"
+            onPointerEnter={cancelMiniLeave} // v2.2.1：指针抵达悬浮条 → 取消宽限卸载（可点击「详情 »」）
+          >
             <MiniBar
               dash={snap?.dashboard ?? null}
               cards={cards}
@@ -830,9 +839,19 @@ export function Pet(props: PetProps): React.ReactElement | null {
           ref={spriteRef}
           className={"dyn-pet-sprite " + (dragging ? "dragging" : "")}
           onPointerEnter={() => { // 悬停 0.5s 出迷你条（源 L888；手动模式不重设定时器）
+            cancelMiniLeave(); // v2.2.1：回到精灵 → 取消宽限卸载
             if (miniMode !== "manual") { clearHoverTimer(); hoverTimerRef.current = later(() => setMiniMode("hover"), MINI_HOVER_MS); }
           }}
-          onPointerLeave={() => { clearHoverTimer(); if (miniMode === "hover") setMiniMode(null); }} // 源 L889
+          onPointerLeave={() => {
+            // v2.2.1 hover 桥接：离开精灵不再立即卸载，留 200ms 宽限——
+            // 真人鼠标连续移动穿过分隔空隙进入悬浮条（wrap onPointerEnter 取消宽限），
+            // 「详情 »」才可点（Playwright 瞬移式 click 曾掩盖此 bug）。manual 模式不受影响。
+            clearHoverTimer();
+            if (miniMode === "hover") {
+              cancelMiniLeave();
+              miniLeaveTimerRef.current = later(() => setMiniMode(null), 200);
+            }
+          }} // 源 L889（v2.2.1 改宽限卸载）
           style={{
             width: frameW, height: frameH,
             backgroundImage: runtime.spriteUrl ? `url('${runtime.spriteUrl}')` : undefined,
