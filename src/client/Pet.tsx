@@ -16,6 +16,7 @@ import {
 import { MIN_SPEECH_MS } from "./voices";
 import type { VoiceGroup } from "./validation";
 import { appStore, ackProject, cfgStore, openDashboardPanel, petStore, playDefaultAlertSound, voicePlayer, type ActivePetRuntime } from "./store";
+import { isVoiceOwner } from "./voiceowner";
 import { apiPost, type ActivateResult, type GuardIssue, type PaceTier, type ProjectCard } from "./api";
 import { DOT_COLOR, DOT_HALO, lightOf, taskPoseOf } from "./statuscards";
 import { t, alertText, getLang } from "./i18n";
@@ -221,11 +222,14 @@ export function Pet(props: PetProps): React.ReactElement | null {
 
   /** 播一组语音 + 动作 + 字幕（MAM playVoice 闸门链）：
    *  可见性 → 动作先播（无语音宠物也有动作）→ hasVoice → pick → 字幕（talkative && hasSubtitle）→
-   *  muted 只拦声音。审批语音 10s 限流在差分调用侧。 */
-  const playVoice = (group: VoiceGroup, action: PetAnimKey) => {
+   *  muted 只拦声音。审批语音 10s 限流在差分调用侧。
+   *  v2.2.1 唯一发声方：opts.auto = true 的调用（状态差分自动播报）仅由持锁页出声，
+   *  非发声方动画照常、语音/字幕静默（多标签页重叠修复）；用户手势（双击）不传 auto 不受仲裁。 */
+  const playVoice = (group: VoiceGroup, action: PetAnimKey, opts?: { auto?: boolean }) => {
     if (!loadVisible()) return;
     playTransient(action, TRANSIENT_WAVE_MS);
     if (!runtimeRef.current.hasVoice) return; // 无语音宠物：只播动画不出声
+    if (opts?.auto === true && !isVoiceOwner()) return; // 非发声方：动画照常，声音/字幕由发声方页负责
     const entry = voicePlayer.pick(group);
     if (!entry) return; // 空组静默跳过
     if (cfgRef.current.talkative && runtimeRef.current.hasSubtitle) showBubble(entry.name, MIN_SPEECH_MS);
@@ -306,7 +310,7 @@ export function Pet(props: PetProps): React.ReactElement | null {
           setEntry(true);
           entryTimerRef.current = later(() => setEntry(false), (cfgRef.current.summaryEntrySec || 15) * 1000);
         }
-        playVoiceRef.current("done", cfgRef.current.doneAction);
+        playVoiceRef.current("done", cfgRef.current.doneAction, { auto: true });
       }
     }
     // ---- v2.2 警报举牌/气泡 + 音效链（R7/R10）：
@@ -325,6 +329,7 @@ export function Pet(props: PetProps): React.ReactElement | null {
         else { setSign(txt || a.text); if (signTimerRef.current) { try { signTimerRef.current(); } catch { /* ignore */ } } signTimerRef.current = later(() => setSign(null), 4200); }
         playTransient("jumping", 1600);
         if (cfgRef.current.muted) continue;
+        if (!isVoiceOwner()) continue; // v2.2.1 唯一发声方：非持锁页不发声（举牌/气泡视觉已在上完成）
         // v2.2 R7 音效链：四组配齐 → general 组宠物语音命中即播；否则内置合成 chime（语音组 > 默认音效；TTS 不参与）
         if (runtimeRef.current.hasVoice) {
           const v = voicePlayer.pick("general");
@@ -358,18 +363,18 @@ export function Pet(props: PetProps): React.ReactElement | null {
     prevStatusRef.current = statuses;
     if (errAppeared) {
       // 出错 → error 组语音 + errorAction 动作；无语音宠物只播动作（playVoice 闸门链）
-      playVoiceRef.current("error", cfgRef.current.errorAction);
+      playVoiceRef.current("error", cfgRef.current.errorAction, { auto: true });
     }
     if (approvalAppeared) {
       const now = Date.now();
       if (now - lastApprovalAtRef.current > APPROVAL_THROTTLE_MS) {
         lastApprovalAtRef.current = now;
-        playVoiceRef.current("approval", cfgRef.current.approvalAction);
+        playVoiceRef.current("approval", cfgRef.current.approvalAction, { auto: true });
       }
     }
     if (runningAppeared) {
       // 开始运行 → general 组语音 + runningAction 动作（黄灯差分；无语音宠物只播动作）
-      playVoiceRef.current("general", cfgRef.current.runningAction);
+      playVoiceRef.current("general", cfgRef.current.runningAction, { auto: true });
     }
     // 任务姿态（MAM 口径）：waiting > running；全绿/无卡回落
     const task = taskPoseOf(cards);

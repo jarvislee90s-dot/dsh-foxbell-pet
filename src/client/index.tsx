@@ -11,6 +11,7 @@ import { SettingsCard } from "./SettingsCard";
 import { DialogHost } from "./dialogs/DialogHost";
 import { DashboardPanel } from "./DashboardPanel";
 import { appStore, cfgStore, PANEL_ID, petStore, reportVisible, schedulePoll, setPanelSwitcher } from "./store";
+import { startVoiceOwnership } from "./voiceowner";
 import { t } from "./i18n";
 import { adoptStyles } from "./styles";
 
@@ -74,6 +75,7 @@ export function apply(ctx: ClientCtx): void {
   adoptStyles();
   reportVisible(petStore.visible);
   appStore.start();
+  startVoiceOwnership(); // v2.2.1：唯一发声方选主（多标签页仅持锁页播放自动播报，防语音重叠）
   // P4：页签显隐切换立刻重排轮询节奏（可见回 1.5s / 隐藏降 5s）；无 document 环境（TUI/测试）守卫
   if (typeof document !== "undefined") {
     document.addEventListener("visibilitychange", schedulePoll);

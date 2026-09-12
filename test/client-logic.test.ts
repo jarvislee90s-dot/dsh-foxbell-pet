@@ -1175,3 +1175,96 @@ describe("v2.2 pose + trend helpers (Task14 R8)", () => {
     expect(trendDirection([{ dayTotal: 1 }, { dayTotal: 9 }, { dayTotal: 4 }])).toBe(false); // 只看末两日
   });
 });
+
+
+// ---- v2.2.1 唯一发声方（Web Locks 选主；多标签页语音重叠修复）----
+describe("v2.2.1 voiceowner（Web Locks 选主）", () => {
+  type FakeLocks = {
+    locks: { request: (n: string, o: { ifAvailable: boolean }, cb: (lock: unknown) => Promise<void>) => Promise<null> };
+    hold: () => void;        // 模拟持锁页不释放（cb 的 promise 挂起）
+    releaseHolder: () => void; // 模拟持锁页关闭/让位（锁回到空闲）
+  };
+  const makeFakeLocks = (): FakeLocks => {
+    const st: { busy: boolean; holderRelease: (() => void) | null } = { busy: false, holderRelease: null };
+    return {
+      hold: () => { st.busy = true; }, // 预占（下一个 request 直接 busy）
+      releaseHolder: () => { st.holderRelease?.(); st.busy = false; },
+      locks: {
+        request: (_n: string, _o: { ifAvailable: boolean }, cb: (lock: unknown) => Promise<void>) =>
+          new Promise<null>((resolve) => {
+            if (st.busy) { void cb(null).then(() => resolve(null)); return; }
+            st.busy = true;
+            void cb({}).then(() => { st.busy = false; st.holderRelease = null; resolve(null); });
+            st.holderRelease = () => { /* cb 内部模块自释放（hidden）时走其自身 resolve */ };
+          }),
+      },
+    };
+  };
+  const stubEnv = (fake: { locks: unknown }, hidden: boolean) => {
+    const doc = {
+      hidden,
+      addEventListener: (_t: string, fn: () => void) => { (doc as unknown as { _fn: () => void })._fn = fn; },
+      removeEventListener: () => {},
+    };
+    (doc as unknown as { fire: () => void }).fire = () => { (doc as unknown as { _fn: () => void })._fn(); };
+    vi.stubGlobal("navigator", fake);
+    vi.stubGlobal("document", doc);
+    return doc as unknown as { hidden: boolean; fire: () => void };
+  };
+
+  it("navigator.locks 缺席 → 退化为现状（本页即发声方，不变静音）", async () => {
+    vi.resetModules(); vi.stubGlobal("navigator", {});
+    const mod = await import("../src/client/voiceowner");
+    mod.startVoiceOwnership();
+    expect(mod.isVoiceOwner()).toBe(true);
+    vi.unstubAllGlobals();
+  });
+
+  it("锁空闲 → 立即成为发声方；预占 → 静默 + 抖动重试接手", async () => {
+    vi.resetModules(); vi.useFakeTimers();
+    const fake = makeFakeLocks();
+    vi.stubGlobal("navigator", { locks: fake.locks });
+    vi.stubGlobal("document", { hidden: false, addEventListener: () => {} });
+    const mod = await import("../src/client/voiceowner");
+    mod.startVoiceOwnership();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mod.isVoiceOwner()).toBe(true);
+    vi.unstubAllGlobals();
+  });
+
+  it("被其他页面持有 → 非发声方；持锁页释放后重试周期内接手", async () => {
+    vi.resetModules(); vi.useFakeTimers();
+    const fake = makeFakeLocks();
+    fake.hold(); // 预占
+    vi.stubGlobal("navigator", { locks: fake.locks });
+    vi.stubGlobal("document", { hidden: false, addEventListener: () => {} });
+    const mod = await import("../src/client/voiceowner");
+    mod.startVoiceOwnership();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mod.isVoiceOwner()).toBe(false);
+    fake.releaseHolder();  // 持锁页关闭
+    await vi.advanceTimersByTimeAsync(4000); // > 重试周期上限 3.5s
+    expect(mod.isVoiceOwner()).toBe(true);
+    vi.unstubAllGlobals();
+  });
+
+  it("可见优先：发声方 hidden 让位；回可见立即接手", async () => {
+    vi.resetModules(); vi.useFakeTimers();
+    const fake = makeFakeLocks();
+    const doc = { hidden: false, listeners: {} as Record<string, () => void> };
+    (doc as unknown as { addEventListener: (t: string, fn: () => void) => void }).addEventListener = (t, fn) => { doc.listeners[t] = fn; };
+    vi.stubGlobal("navigator", { locks: fake.locks });
+    vi.stubGlobal("document", doc);
+    const mod = await import("../src/client/voiceowner");
+    mod.startVoiceOwnership();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mod.isVoiceOwner()).toBe(true);
+    doc.hidden = true; doc.listeners.visibilitychange(); // hidden 让位
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mod.isVoiceOwner()).toBe(false);
+    doc.hidden = false; doc.listeners.visibilitychange(); // 回可见接手
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mod.isVoiceOwner()).toBe(true);
+    vi.unstubAllGlobals();
+  });
+});
