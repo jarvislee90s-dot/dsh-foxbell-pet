@@ -11,11 +11,14 @@ import { t, getLang } from "./i18n";
 import { fmtPct, fmtTokens, shortModel } from "./format";
 import { fmtDur } from "./boardrows";
 import { exportDashboardImage, loadSprite, maxAnimCols, resolvePoseRow } from "./exportimage";
-import { pickQuote, type QuoteVars } from "./quotes";
+import { pickQuote, fillQuote, type QuoteVars } from "./quotes";
 
 // ---- 纯函数（test/client-logic.test.ts 直测）----
 
 export type DashTab = "5h" | "7d" | "30d" | "custom";
+
+/** v2.2.1：自定义评语草稿的 localStorage 键（面板切走不丢；非宿主配置键） */
+const EXPORT_QUOTE_DRAFT_KEY = "dyn-foxbell-pet:export-quote";
 
 /** 选项卡→数据窗口（custom 实际区间由 apiGetRange(from,to) 决定，此处仅兜底口径） */
 export function viewWindow(tab: DashTab): { kind: "hours" | "days"; n: number } {
@@ -73,16 +76,18 @@ export function hitDeltaText(trend: { days: { key: string; requestTotal: number;
 export interface ToolAgg { name: string; count: number; durMs: number }
 
 /** 2×2 工具格指标：调用总数 / 平均耗时(totalDurMs/count，守零) / Top 工具次数 / Top 工具总耗时。
- *  Top = count 最大者（并列保序取首个，不依赖宿主排序约定）。 */
-export function toolsMetrics(tools: ToolAgg[] | null | undefined): { calls: number; avgMs: number; topCount: number; topDurMs: number } {
+ *  Top 次数 = count 最大者、Top 总耗时 = durMs 最大者（并列保序取首个，不依赖宿主排序约定）。
+ *  v2.2.1 增 topName/topDurName 供导出 2×2 标注。 */
+export function toolsMetrics(tools: ToolAgg[] | null | undefined): { calls: number; avgMs: number; topCount: number; topDurMs: number; topName: string; topDurName: string } {
   const list = Array.isArray(tools) ? tools : [];
-  let calls = 0, dur = 0, top: ToolAgg | null = null;
+  let calls = 0, dur = 0, top: ToolAgg | null = null, topDur: ToolAgg | null = null;
   for (const x of list) {
     calls += x.count || 0;
     dur += x.durMs || 0;
     if (!top || (x.count || 0) > (top.count || 0)) top = x;
+    if (!topDur || (x.durMs || 0) > (topDur.durMs || 0)) topDur = x;
   }
-  return { calls, avgMs: calls > 0 ? dur / calls : 0, topCount: top ? top.count || 0 : 0, topDurMs: top ? top.durMs || 0 : 0 };
+  return { calls, avgMs: calls > 0 ? dur / calls : 0, topCount: top ? top.count || 0 : 0, topDurMs: topDur ? topDur.durMs || 0 : 0, topName: top ? top.name : "—", topDurName: topDur ? topDur.name : "—" };
 }
 
 const dayKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -187,6 +192,15 @@ export function DashboardPanel(): ReactElement {
   const [rangeHint, setRangeHint] = useState("");
   const [hover, setHover] = useState<Hover | null>(null);
   const [copiedFlash, setCopiedFlash] = useState(false);
+  // v2.2.1：自定义评语内联（设置卡「导出评语」迁移至此）；草稿存 localStorage，面板切走不丢
+  const [quoteOpen, setQuoteOpen] = useState(false);
+  const [quoteDraft, setQuoteDraft] = useState<string>(() => {
+    try { return localStorage.getItem(EXPORT_QUOTE_DRAFT_KEY) ?? ""; } catch { return ""; }
+  });
+  const setQuoteDraftPersisted = (v: string): void => {
+    setQuoteDraft(v);
+    try { localStorage.setItem(EXPORT_QUOTE_DRAFT_KEY, v); } catch { /* ignore */ }
+  };
 
   const dash = snap ? snap.dashboard : null;
   const trend = dash && dash.usage && dash.usage.trend ? dash.usage.trend : null;
@@ -252,8 +266,8 @@ export function DashboardPanel(): ReactElement {
     hit: fmtPct(hitRate),
     models: String(models.length),
   };
-  const buildQuote = (): string =>
-    pickQuote({ total: hero, hitPct: hitRate, trendUp, multiModel: models.length > 1, loaf }, getLang(), cfg.exportQuote, quoteVars);
+  const buildQuote = (custom?: string): string =>
+    pickQuote({ total: hero, hitPct: hitRate, trendUp, multiModel: models.length > 1, loaf }, getLang(), custom, quoteVars);
 
   // 复制文本：grid + models 多行纯文本；clipboard API 优先，失败回退 execCommand，再失败静默（toast-less，ManageDialog 同款）
   const onCopyText = async (): Promise<void> => {
@@ -281,21 +295,34 @@ export function DashboardPanel(): ReactElement {
     setCopiedFlash(true);
   };
 
-  // 导出图片：sprite 从 runtime.spriteUrl 现场加载（失败 → null，无立绘继续导出）；
-  // frameCols=ANIM 最长 d 数组；frameW=sheet 宽/cols，frameH=sheet 高/行数（runtime.rows 自适应 v1/v2 图集）
-  const onExportImage = async (): Promise<void> => {
+  // 导出图片（v2.2.1 竖版卡）：sprite 从 runtime.spriteUrl 现场加载（失败 → null，无立绘继续导出）；
+  // customQuote 非空 → 按自定义评语模板填充（占位符 {range}/{tokens}/{hitPct}/{models}），否则走评语池。
+  // 模型名导出全名（v2.2.1：不再 shortModel 截断）。
+  const rangeLabel = tab === "custom" ? `${custom.from} ~ ${custom.to}` : t(`dash.tab.${tab}`);
+  const onExportImage = async (customQuote?: string): Promise<void> => {
     const rt = appStore.getRuntime();
     const sprite = await loadSprite(rt.spriteUrl);
     const frameCols = maxAnimCols();
     const blob = await exportDashboardImage({
-      title: `${t("dash.panelTitle")} · ${t(`dash.tab.${tab}`)}`,
-      hero: fmtTokens(hero),
-      grid,
-      models: models.map((m) => ({ name: shortModel(m.model || m.route), val: fmtTokens(m.requestTotal) })),
+      rangeLabel,
+      hero: hero.toLocaleString("en-US"),
+      heroSub: `${t("dash.g.asOf")} ${new Date().toLocaleTimeString()}`,
+      metrics: grid.slice(0, 6),
+      trendTitle: t("dash.trendTitle"),
+      peakLabel: t("dash.peak", { v: fmtTokens(Math.max(0, ...points.map((p) => p.value))) }),
       points: points.map((p) => ({ label: p.label, value: p.value })),
-      quote: buildQuote(),
+      models: models.map((m) => ({ name: m.model || m.route, val: fmtTokens(m.requestTotal), share: maxModel > 0 ? m.requestTotal / maxModel : 0 })),
+      tools2x2: (() => {
+        const m = toolsMetrics(tools);
+        return [
+          [t("dash.g.toolCalls"), String(m.calls)],
+          [t("dash.g.toolAvg"), fmtDur(m.avgMs)],
+          [t("dash.g.toolTopCount"), `${m.topName} ${m.topCount}`],
+          [t("dash.g.toolTopDur"), `${m.topDurName} ${fmtDur(m.topDurMs)}`],
+        ] as [string, string][];
+      })(),
+      quote: customQuote && customQuote.trim() ? fillQuote(customQuote.trim(), quoteVars) : buildQuote(),
       poseRow: resolvePoseRow(cfg.exportPose),
-      frameCols,
       sprite,
       frameW: sprite ? sprite.naturalWidth / frameCols : 0,
       frameH: sprite ? sprite.naturalHeight / rt.rows : 0,
@@ -332,12 +359,24 @@ export function DashboardPanel(): ReactElement {
             </span>
           ) : null}
         </div>
-        {/* v2.2 R8 导出（Task 14）：复制文本 / 导出图片 */}
+        {/* v2.2 R8 导出 + v2.2.1 自定义评语内联：复制文本 / 导出图片 / 按自定义评语导出 */}
         <div className="dyn-pet-dash-actions">
           <button className="dyn-pet-dash-actbtn" onClick={() => void onCopyText()}>{copiedFlash ? t("dash.export.copied") : t("dash.export.copyText")}</button>
           <button className="dyn-pet-dash-actbtn" onClick={() => void onExportImage()}>{t("dash.export.exportImage")}</button>
+          <button className={"dyn-pet-dash-actbtn" + (quoteOpen ? " is-active" : "")} onClick={() => setQuoteOpen((o) => !o)}>{t("dash.export.exportCustom")}</button>
         </div>
       </div>
+      {quoteOpen ? (
+        <div className="dyn-pet-dash-quotebar">
+          <input
+            type="text"
+            value={quoteDraft}
+            placeholder={t("dash.export.quotePlaceholder")}
+            onChange={(e) => setQuoteDraftPersisted(e.target.value)}
+          />
+          <button className="dyn-pet-dash-actbtn" onClick={() => void onExportImage(quoteDraft)}>{t("dash.export.export")}</button>
+        </div>
+      ) : null}
 
       <div className="dyn-pet-dash-hero">
         <div className="dyn-pet-dash-hero-label">{t("dash.heroTotal", { range: t(`dash.tab.${tab}`) })}</div>

@@ -140,18 +140,17 @@ describe("readConfig 接线（引擎消费 live 配置）", () => {
   });
 });
 
-// ---- v2.2 Config 新增 3 键（R6 侧栏入口 / R8 导出评语与姿态；客户端 Task 10/13/14 消费同名键）----
-describe("Config v2.2 新增 3 键（键名与默认值契约）", () => {
-  it("dashboardSidebarEntry/exportQuote/exportPose 默认值", () => {
+// ---- v2.2 Config 新增键（R6 侧栏入口 / R8 导出姿态；客户端消费同名键）。
+// v2.2.1：exportQuote 移除（自定义评语内联看板头部，localStorage 草稿）----
+describe("Config v2.2 新增键（键名与默认值契约）", () => {
+  it("dashboardSidebarEntry/exportPose 默认值", () => {
     const resolved = Config({});
     expect(resolved.dashboardSidebarEntry).toBe(false);
-    expect(resolved.exportQuote).toBe("");
     expect(resolved.exportPose).toBe("random");
   });
   it("旧配置无新键 → schema default 自动补齐，既有键不受影响", () => {
     const resolved = Config({ muted: true, ttsEnabled: true });
     expect(resolved.dashboardSidebarEntry).toBe(false);
-    expect(resolved.exportQuote).toBe("");
     expect(resolved.exportPose).toBe("random");
     expect(resolved.muted).toBe(true);
     expect(resolved.ttsEnabled).toBe(true);

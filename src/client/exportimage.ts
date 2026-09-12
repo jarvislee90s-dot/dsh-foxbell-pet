@@ -1,19 +1,27 @@
-// exportimage.ts — v2.2 R8 canvas 导出（1200×675 PNG）：标题/hero/趋势折线/口径网格/模型行/宠物立绘+评语。
-// 绘制顺序固定（brief 骨架）：暖纸底 → 标题 → hero → 蓝紫渐变趋势折线（#3BA7FF→#8D6BFF）→
-// 网格前 4 行 → 模型前 3 行 → 底部立绘（sprite 为空时静默跳过，headless/图集缺失不崩）→ 气泡评语。
+// exportimage.ts — v2.2.1 导出卡（720×1600 竖版浅色，对齐 Codex++ 导出卡版式）：
+// 头部（标题+日期范围）→ hero 累计 Token（完整千分位）→ 指标行（label/value）→ 趋势卡 →
+// 按 Model 分布（全名+进度条，不截断）→ 工具调用 2×2 → 聊天式底部（评语气泡在左、宠物立绘右下完整可见）→ 页脚。
+// 金额/价格元素一律不出现。sprite 为空时静默跳过立绘（headless/图集缺失不崩）。
 import { ANIM } from "./animations";
 
 export interface ExportInput {
-  title: string; hero: string; grid: [string, string][]; models: { name: string; val: string }[];
+  rangeLabel: string;                              // 近 7 日 · 09/06–09/12
+  hero: string;                                    // 累计 Token 完整千分位
+  heroSub: string;                                 // 请求 N 次 · 命中率 Z% · 更新 HH:MM:SS
+  metrics: [string, string][];                     // 五口径指标行（不含金额）
+  trendTitle: string;                              // 近 7 日趋势
+  peakLabel: string;                               // 峰值 X
   points: { label: string; value: number }[];
-  quote: string; poseRow: number; frameCols: number;
-  sprite: HTMLImageElement | null; frameW: number; frameH: number;
+  models: { name: string; val: string; share: number }[]; // share 0..1（≤6，全名）
+  tools2x2: [string, string][];                    // [调用总数, X][平均耗时, X][Top 工具次数, X][Top 工具总耗时, X]
+  quote: string;
+  poseRow: number; frameW: number; frameH: number;
+  sprite: HTMLImageElement | null;
 }
 
 // ---- 姿态/精灵装配（DashboardPanel 调用；resolvePoseRow/maxAnimCols 纯函数可直测）----
 
-/** pose 配置 → 图集行号：'random' → 按 ANIM 键随机行首帧；未知键兜底第 0 行（idle）。
- *  注：姿态选择作用于行号（spec R8 的 per-pet 变体清单为规格级 nicety，plan 钉死 ANIM 键集）。 */
+/** pose 配置 → 图集行号：'random' → 按 ANIM 键随机行首帧；未知键兜底第 0 行（idle）。 */
 export function resolvePoseRow(pose: string): number {
   const keys = Object.keys(ANIM) as (keyof typeof ANIM)[];
   if (pose === "random") return ANIM[keys[Math.floor(Math.random() * keys.length)]].row;
@@ -37,42 +45,24 @@ export function loadSprite(url: string | null): Promise<HTMLImageElement | null>
   });
 }
 
+/** 工具 2×2 指标由 DashboardPanel 的 toolsMetrics 装配后传入（本文件只负责绘制）。 */
+
+// ---- 版式常量（720×1600 竖版）----
+const W = 720, H = 1600;
+const M = 24;                 // 页边距
+const CARD = { x: M, y: M, w: W - M * 2, h: H - M * 2, r: 24 };
+const INK = "#1f2937";        // 主文字
+const SUB = "#6b7280";        // 次文字
+const FAINT = "#9ca3af";      // 页脚
+const LINE = "#eceef2";       // 分隔线
+const ACCENT_A = "#3BA7FF";   // 蓝紫渐变（与页内趋势图同源）
+const ACCENT_B = "#8D6BFF";
+const PAD = 32;               // 卡内左右留白
+const CW = CARD.w - PAD * 2;  // 卡内容宽
+
 // ---- 绘制工具 ----
 
-/** 趋势折线：#3BA7FF→#8D6BFF 水平渐变 stroke + 同渐变淡面积 + 数据点（少于 2 点不画） */
-function drawTrend(c: CanvasRenderingContext2D, points: { label: string; value: number }[], x: number, y: number, w: number, h: number): void {
-  if (points.length < 2) return;
-  const max = Math.max(1, ...points.map((p) => p.value));
-  const pts = points.map((p, i) => ({ px: x + (w * i) / (points.length - 1), py: y + h * (1 - p.value / max) }));
-  const grad = c.createLinearGradient(x, 0, x + w, 0);
-  grad.addColorStop(0, "#3BA7FF");
-  grad.addColorStop(1, "#8D6BFF");
-  c.beginPath();
-  c.moveTo(pts[0].px, y + h);
-  for (const p of pts) c.lineTo(p.px, p.py);
-  c.lineTo(pts[pts.length - 1].px, y + h);
-  c.closePath();
-  c.globalAlpha = 0.12;
-  c.fillStyle = grad;
-  c.fill();
-  c.globalAlpha = 1;
-  c.beginPath();
-  pts.forEach((p, i) => (i === 0 ? c.moveTo(p.px, p.py) : c.lineTo(p.px, p.py)));
-  c.strokeStyle = grad;
-  c.lineWidth = 3;
-  c.lineJoin = "round";
-  c.lineCap = "round";
-  c.stroke();
-  for (const p of pts) {
-    c.beginPath();
-    c.arc(p.px, p.py, 3, 0, Math.PI * 2);
-    c.fillStyle = "#8D6BFF";
-    c.fill();
-  }
-}
-
-/** 圆角矩形路径（气泡底） */
-function roundRect(c: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
+function roundRectPath(c: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
   c.beginPath();
   c.moveTo(x + r, y);
   c.arcTo(x + w, y, x + w, y + h, r);
@@ -82,7 +72,58 @@ function roundRect(c: CanvasRenderingContext2D, x: number, y: number, w: number,
   c.closePath();
 }
 
-/** 按宽折行（逐字符度量，CJK 友好；显式 \n 强制换行） */
+function drawTrendCard(c: CanvasRenderingContext2D, points: { label: string; value: number }[], x: number, y: number, w: number, h: number): void {
+  c.fillStyle = "#f7f8fa";
+  roundRectPath(c, x - 16, y - 24, w + 32, h + 52, 14);
+  c.fill();
+  if (points.length < 2) {
+    c.fillStyle = SUB;
+    c.font = "400 15px system-ui";
+    c.fillText("暂无趋势数据", x, y + h / 2);
+    return;
+  }
+  const max = Math.max(1, ...points.map((p) => p.value));
+  const pts = points.map((p, i) => ({ px: x + (w * i) / (points.length - 1), py: y + h * (1 - p.value / max) }));
+  const grad = c.createLinearGradient(x, 0, x + w, 0);
+  grad.addColorStop(0, ACCENT_A);
+  grad.addColorStop(1, ACCENT_B);
+  // 面积
+  c.beginPath();
+  c.moveTo(pts[0].px, y + h);
+  for (const p of pts) c.lineTo(p.px, p.py);
+  c.lineTo(pts[pts.length - 1].px, y + h);
+  c.closePath();
+  c.globalAlpha = 0.12;
+  c.fillStyle = grad;
+  c.fill();
+  c.globalAlpha = 1;
+  // 折线
+  c.beginPath();
+  pts.forEach((p, i) => (i === 0 ? c.moveTo(p.px, p.py) : c.lineTo(p.px, p.py)));
+  c.strokeStyle = grad;
+  c.lineWidth = 3;
+  c.lineJoin = "round";
+  c.lineCap = "round";
+  c.stroke();
+  // 数据点 + x 轴标签
+  c.textAlign = "center";
+  pts.forEach((p, i) => {
+    c.beginPath();
+    c.arc(p.px, p.py, i === pts.length - 1 ? 4.5 : 3.2, 0, Math.PI * 2);
+    c.fillStyle = "#ffffff";
+    c.fill();
+    c.strokeStyle = grad;
+    c.lineWidth = 1.6;
+    c.stroke();
+    if (points.length <= 31 || i % 5 === 0 || i === pts.length - 1) {
+      c.fillStyle = SUB;
+      c.font = "400 12px system-ui";
+      c.fillText(points[i].label, Math.min(Math.max(p.px, x + 12), x + w - 12), y + h + 22);
+    }
+  });
+  c.textAlign = "left";
+}
+
 function wrapText(c: CanvasRenderingContext2D, text: string, x: number, y: number, maxW: number, lineH: number): void {
   let line = "";
   let cy = y;
@@ -99,27 +140,153 @@ function wrapText(c: CanvasRenderingContext2D, text: string, x: number, y: numbe
 }
 
 export async function exportDashboardImage(input: ExportInput): Promise<Blob> {
-  const W = 1200, H = 675;
   const cv = document.createElement("canvas"); cv.width = W; cv.height = H;
   const c = cv.getContext("2d")!;
-  c.fillStyle = "#fdf9f3"; c.fillRect(0, 0, W, H);            // 暖纸底
-  c.fillStyle = "#2b2b2b"; c.font = "600 30px system-ui"; c.fillText(input.title, 48, 64);
-  c.font = "700 64px system-ui"; c.fillText(input.hero, 48, 160);
-  c.font = "400 15px system-ui"; c.fillStyle = "#7a6a58";
-  drawTrend(c, input.points, 48, 200, W - 96, 150);           // 蓝紫渐变折线（createLinearGradient #3BA7FF→#8D6BFF）
-  let y = 400;
-  c.fillStyle = "#2b2b2b";
-  for (const [k, v] of input.grid.slice(0, 4)) { c.font = "400 16px system-ui"; c.fillText(k, 48, y); c.font = "600 16px system-ui"; c.fillText(v, 300, y); y += 30; }
-  y += 8;
-  for (const m of input.models.slice(0, 3)) { c.font = "500 15px system-ui"; c.fillText(`${m.name}  ${m.val}`, 48, y); y += 26; }
-  // 底部立绘 + 气泡评语（sprite 为 null 时静默跳过——图集缺失/加载失败不阻塞导出）
-  if (input.sprite && input.frameW > 0 && input.frameH > 0) {
-    const scale = Math.min(200 / input.frameH, 1);
-    const dw = input.frameW * scale, dh = input.frameH * scale;
-    c.drawImage(input.sprite, 0, input.poseRow * input.frameH, input.frameW, input.frameH, W - dw - 64, H - dh - 48, dw, dh);
+
+  // 背景 + 白卡
+  c.fillStyle = "#f5f6f8"; c.fillRect(0, 0, W, H);
+  c.fillStyle = "#ffffff";
+  roundRectPath(c, CARD.x, CARD.y, CARD.w, CARD.h, CARD.r);
+  c.fill();
+  c.strokeStyle = "#e8e5df"; c.lineWidth = 1; c.stroke();
+
+  // —— 头部：标题 + 日期范围 ——
+  c.fillStyle = INK; c.font = "700 26px system-ui";
+  c.fillText("用量看板", PAD, 76);
+  c.font = "500 15px system-ui"; c.fillStyle = SUB;
+  c.textAlign = "right";
+  c.fillText(input.rangeLabel, W - PAD, 74);
+  c.textAlign = "left";
+  c.strokeStyle = LINE; c.beginPath(); c.moveTo(PAD, 98); c.lineTo(W - PAD, 98); c.stroke();
+
+  // —— hero：累计 Token（完整千分位）——
+  c.fillStyle = SUB; c.font = "500 16px system-ui";
+  c.fillText("累计 Token", PAD, 134);
+  c.fillStyle = INK;
+  const heroSize = input.hero.length > 12 ? 52 : input.hero.length > 9 ? 62 : 72;
+  c.font = `750 ${heroSize}px system-ui`;
+  c.fillText(input.hero, PAD - 2, 208);
+  c.fillStyle = SUB; c.font = "400 15px system-ui";
+  c.fillText(input.heroSub, PAD, 244);
+  c.strokeStyle = LINE; c.beginPath(); c.moveTo(PAD, 272); c.lineTo(W - PAD, 272); c.stroke();
+
+  // —— 指标行（label 左 / value 右）——
+  let y = 300;
+  for (const [k, v] of input.metrics) {
+    c.fillStyle = "#4b5563"; c.font = "400 16px system-ui";
+    c.fillText(k, PAD, y);
+    c.fillStyle = INK; c.font = "600 16px system-ui";
+    c.textAlign = "right";
+    c.fillText(v, W - PAD, y);
+    c.textAlign = "left";
+    y += 36;
   }
-  roundRect(c, W - 560, H - 160, 440, 88, 16); c.fillStyle = "#ffffff"; c.fill();
-  c.fillStyle = "#4a3b2a"; c.font = "500 18px system-ui";
-  wrapText(c, input.quote, W - 544, H - 128, 400, 24);
+  c.strokeStyle = LINE; c.beginPath(); c.moveTo(PAD, y - 14); c.lineTo(W - PAD, y - 14); c.stroke();
+  y += 6;
+
+  // —— 趋势卡 ——
+  c.fillStyle = INK; c.font = "600 17px system-ui";
+  c.fillText(input.trendTitle, PAD, y + 26);
+  c.fillStyle = SUB; c.font = "400 13px system-ui";
+  c.textAlign = "right"; c.fillText(input.peakLabel, W - PAD, y + 26); c.textAlign = "left";
+  drawTrendCard(c, input.points, PAD + 16, y + 58, CW - 32, 120);
+  y += 176;
+  c.strokeStyle = LINE; c.beginPath(); c.moveTo(PAD, y + 2); c.lineTo(W - PAD, y + 2); c.stroke();
+  y += 34;
+
+  // —— 按 Model 分布（全名不截断）——
+  c.fillStyle = INK; c.font = "600 17px system-ui";
+  c.fillText("按 Model 分布", PAD, y);
+  y += 30;
+  if (input.models.length === 0) {
+    c.fillStyle = SUB; c.font = "400 15px system-ui";
+    c.fillText("暂无数据", PAD, y + 16);
+    y += 48;
+  } else {
+    for (const m of input.models) {
+      c.fillStyle = INK; c.font = "600 15px system-ui";
+      c.fillText(m.name, PAD, y + 14);                       // 全名（宽度 720 足够，不截断）
+      c.fillStyle = "#374151"; c.font = "500 14px system-ui";
+      c.textAlign = "right"; c.fillText(m.val, W - PAD, y + 14); c.textAlign = "left";
+      const barY = y + 24, barW = CW;
+      c.fillStyle = "#eceef2";
+      roundRectPath(c, PAD, barY, barW, 8, 4); c.fill();
+      const fillW = Math.max(barW * 0.04, barW * Math.min(1, Math.max(0, m.share)));
+      if (fillW > 0) {
+        const bg = c.createLinearGradient(PAD, 0, PAD + barW, 0);
+        bg.addColorStop(0, ACCENT_A); bg.addColorStop(1, ACCENT_B);
+        c.fillStyle = bg;
+        roundRectPath(c, PAD, barY, fillW, 8, 4); c.fill();
+      }
+      y += 46;
+    }
+  }
+  c.strokeStyle = LINE; c.beginPath(); c.moveTo(PAD, y + 2); c.lineTo(W - PAD, y + 2); c.stroke();
+  y += 34;
+
+  // —— 工具调用 2×2 ——
+  c.fillStyle = INK; c.font = "600 17px system-ui";
+  c.fillText("工具调用", PAD, y);
+  y += 28;
+  const cellW = (CW - 12) / 2, cellH = 58;
+  input.tools2x2.forEach(([k, v], i) => {
+    const cx = PAD + (i % 2) * (cellW + 12), cy = y + Math.floor(i / 2) * (cellH + 10);
+    c.fillStyle = "#f7f8fa";
+    roundRectPath(c, cx, cy, cellW, cellH, 10); c.fill();
+    c.fillStyle = SUB; c.font = "400 13px system-ui";
+    c.fillText(k, cx + 14, cy + 22);
+    c.fillStyle = INK; c.font = "600 17px system-ui";
+    c.fillText(v, cx + 14, cy + 46);
+  });
+  y += (cellH + 10) * 2 + 18;
+
+  // —— 聊天式底部：评语气泡（左） + 宠物立绘（右下，完整全身）——
+  const petH = Math.min(340, H - y - 56);
+  const petW = input.sprite && input.frameH > 0 && input.frameW > 0 ? petH * (input.frameW / input.frameH) : 0;
+  const petX = W - PAD - petW;
+  const petY = H - M - 24 - petH;
+  // 气泡：白底圆角 + 左侧小尾巴，右缘与宠物保持 ≥24px
+  const bubbleRight = petX - 24;
+  const bubbleW = Math.min(300, bubbleRight - PAD - 8);
+  const bubbleX = PAD;
+  const bubbleLines = (() => {
+    c.font = "500 17px system-ui";
+    const lines: string[] = [];
+    let line = "";
+    for (const ch of input.quote) {
+      if (ch === "\n" || c.measureText(line + ch).width > bubbleW - 40) { lines.push(line); line = ch === "\n" ? "" : ch; }
+      else line += ch;
+    }
+    if (line) lines.push(line);
+    return lines.length > 0 ? lines : [""];
+  })();
+  const bubbleH = Math.max(56, 28 + bubbleLines.length * 24);
+  const bubbleY = petY + petH * 0.22;
+  c.fillStyle = "#ffffff";
+  roundRectPath(c, bubbleX, bubbleY, bubbleW, bubbleH, 14);
+  c.fill();
+  c.strokeStyle = "#ece5da"; c.lineWidth = 1; c.stroke();
+  // 尾巴（指向宠物）
+  c.beginPath();
+  c.moveTo(bubbleX + bubbleW, bubbleY + bubbleH / 2 - 9);
+  c.lineTo(bubbleX + bubbleW + 12, bubbleY + bubbleH / 2);
+  c.lineTo(bubbleX + bubbleW, bubbleY + bubbleH / 2 + 9);
+  c.closePath();
+  c.fillStyle = "#ffffff"; c.fill();
+  c.strokeStyle = "#ece5da"; c.stroke();
+  c.fillStyle = "#4a3b2a"; c.font = "500 17px system-ui";
+  bubbleLines.forEach((line, i) => c.fillText(line, bubbleX + 20, bubbleY + 34 + i * 24));
+  // 立绘最后画（在气泡之上层，且布局上已保证不相交）
+  if (input.sprite && input.frameW > 0 && input.frameH > 0 && petW > 0) {
+    c.drawImage(input.sprite, 0, input.poseRow * input.frameH, input.frameW, input.frameH, petX, petY, petW, petH);
+  }
+
+  // —— 页脚 ——
+  c.fillStyle = FAINT; c.font = "400 13px system-ui";
+  c.fillText("纯 token · 含子代理 · 本地聚合", PAD, H - M - 16);
+  c.textAlign = "right";
+  c.fillText("DSH · Foxbell 用量看板", W - PAD, H - M - 16);
+  c.textAlign = "left";
+
   return await new Promise<Blob>((res, rej) => cv.toBlob((b) => (b ? res(b) : rej(new Error("canvas toBlob returned null"))), "image/png"));
 }

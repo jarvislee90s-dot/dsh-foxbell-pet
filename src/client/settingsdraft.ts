@@ -28,10 +28,11 @@ export const SETTINGS_ALL_KEYS = [
  *  纯布尔/字符串键，不在 NUM_KEYS（无 Number 转换）；与 SETTINGS_ALL_KEYS 共用草稿/save 机制，
  *  单列的原因：既有 21 键键集契约测试不动（append-only），新键以增量清单并入迭代。 */
 export const SETTINGS_V22_KEYS = [
-  "dashboardSidebarEntry", "exportQuote", "exportPose",
+  "dashboardSidebarEntry", "exportPose",
 ] as const satisfies readonly (keyof PetConfig)[];
 
-/** 草稿层实际迭代的全键集（v2.2 起 = 21 键 + 3 导出键；dirty 判定与 save patch 收集均遍历此表） */
+/** 草稿层实际迭代的全键集（v2.2.1 起 = 21 键 + 2 导出键；dirty 判定与 save patch 收集均遍历此表。
+ *  exportQuote 于 v2.2.1 移出配置键——自定义评语内联到看板头部，localStorage 草稿） */
 export const ALL_DRAFT_KEYS: readonly (keyof PetConfig)[] = [...SETTINGS_ALL_KEYS, ...SETTINGS_V22_KEYS];
 
 /** v1.4.0 isBadNum："" / null / 非有限数。Number("") = 0 是有限数，故空串必须先判 */

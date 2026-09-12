@@ -199,6 +199,10 @@ ${MINI_DETAIL_CSS}
 .dyn-pet-dash-rangehint { color: #b45309; font-style: normal; font-size: 11px; }
 /* ---- v2.2 R8 大看板头部导出按钮（Task 14）：复制文本 / 导出图片 ---- */
 .dyn-pet-dash-actions { display: flex; align-items: center; gap: 6px; }
+.dyn-pet-dash-actbtn.is-active { background: rgba(122,74,43,.14); }
+.dyn-pet-dash-quotebar { display: flex; align-items: center; gap: 8px; padding: 8px 2px 2px; }
+.dyn-pet-dash-quotebar input { flex: 1; min-width: 0; height: 30px; border: 1px solid rgba(122,74,43,.35); border-radius: 8px; padding: 0 10px; font-size: 13px; background: #fff; color: inherit; }
+.dyn-pet-dash-quotebar input:focus { outline: none; border-color: rgba(122,74,43,.6); }
 .dyn-pet-dash-actbtn { border: 1px solid rgba(122,74,43,.35); background: #fff; color: #7a4a2b; border-radius: 999px; padding: 3px 12px; font-size: 12px; cursor: pointer; }
 .dyn-pet-dash-actbtn:hover { background: rgba(122,74,43,.08); }
 .dyn-pet-dash-hero { padding: 10px 2px 6px; }

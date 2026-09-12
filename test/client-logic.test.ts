@@ -538,11 +538,12 @@ describe("i18n 字典完整性", () => {
       "dash.g.requests", "dash.g.asOf", "dash.g.toolCalls", "dash.g.toolAvg", "dash.g.toolTopCount", "dash.g.toolTopDur",
       // Task 14 R8 导出：头部两按钮 + 复制回执 / 设置卡 3 键标签 / 姿态下拉（random + ANIM 键）
       "dash.export.copyText", "dash.export.exportImage", "dash.export.copied",
-      "dash.cfg.dashboardSidebarEntry", "dash.cfg.exportQuote", "dash.cfg.exportPose",
+      "dash.export.exportCustom", "dash.export.quotePlaceholder", "dash.export.export",
+      "dash.cfg.dashboardSidebarEntry", "dash.cfg.exportPose",
       "dash.pose.random", "dash.pose.idle", "dash.pose.run-right", "dash.pose.run-left", "dash.pose.waving",
       "dash.pose.jumping", "dash.pose.failed", "dash.pose.waiting", "dash.pose.running", "dash.pose.review",
     ];
-    expect(expectedDash).toHaveLength(109); // 标题计数防再次失真（原 47 系陈旧值；Task9 警报三键 +3；Task10 钻取按钮 +1；Task11 黑板加料四键 +4；Task12 大看板 24 键 +24；Task14 导出 16 键 +16；自检修复 dash.caliber +1）
+    expect(expectedDash).toHaveLength(111); // 标题计数防再次失真（v2.2.1：导出三键 +3、cfg.exportQuote −1；此前 109）
     const zhDash = dictKeys("zh").filter((k) => k.startsWith("dash.")).sort();
     expect(zhDash).toEqual([...expectedDash].sort());
     const en = new Set(dictKeys("en"));
@@ -977,13 +978,14 @@ describe("v2.2 hourPoints (Task12 5h=最近 5 个「完整」整点桶，排除�
 describe("v2.2 toolsMetrics (Task12 2×2 工具格：调用总数/平均耗时/Top 工具次数/Top 工具总耗时)", () => {
   it("sums calls, avg=dur/calls, top = max-count tool (并列取先)", () => {
     const m = toolsMetrics([{ name: "Bash", count: 3, durMs: 90000 }, { name: "Read", count: 5, durMs: 4000 }]);
-    expect(m).toEqual({ calls: 8, avgMs: 94000 / 8, topCount: 5, topDurMs: 4000 });
+    // v2.2.1：topDurMs 语义修正为「总耗时最大者」(90000, Bash)，topName/topDurName 供导出 2×2 标注
+    expect(m).toEqual({ calls: 8, avgMs: 94000 / 8, topCount: 5, topDurMs: 90000, topName: "Read", topDurName: "Bash" });
     const tie = toolsMetrics([{ name: "A", count: 2, durMs: 10 }, { name: "B", count: 2, durMs: 20 }]);
-    expect(tie.topDurMs).toBe(10); // 并列保序取首个
+    expect(tie.topDurMs).toBe(20); // v2.2.1：topDur = durMs 最大者（B）
   });
   it("zero calls → avg 0；null/非数组容错", () => {
-    expect(toolsMetrics([])).toEqual({ calls: 0, avgMs: 0, topCount: 0, topDurMs: 0 });
-    expect(toolsMetrics(null)).toEqual({ calls: 0, avgMs: 0, topCount: 0, topDurMs: 0 });
+    expect(toolsMetrics([])).toEqual({ calls: 0, avgMs: 0, topCount: 0, topDurMs: 0, topName: "—", topDurName: "—" });
+    expect(toolsMetrics(null)).toEqual({ calls: 0, avgMs: 0, topCount: 0, topDurMs: 0, topName: "—", topDurName: "—" });
   });
 });
 
@@ -1092,16 +1094,13 @@ describe("v2.2 quotes (Task14 R8)", () => {
 
 // ---- Task 14：R8 导出三键的配置契约 + 姿态/趋势纯函数（测试全部为追加）----
 describe("v2.2 export config keys (Task14 R8)", () => {
-  it("CFG_DEFAULT 导出 3 键与宿主 Config schema 逐字一致（false/''/'random'）", () => {
+  it("CFG_DEFAULT 导出键与宿主 Config schema 逐字一致（false/'random'；exportQuote 已移除）", () => {
     expect(CFG_DEFAULT.dashboardSidebarEntry).toBe(false);
-    expect(CFG_DEFAULT.exportQuote).toBe("");
     expect(CFG_DEFAULT.exportPose).toBe("random");
+    expect((CFG_DEFAULT as unknown as Record<string, unknown>).exportQuote).toBeUndefined();
   });
-  it("sanitizeValue：exportQuote 字符串直存（不得布尔真值化）、2000 字符钳制、非串回空", () => {
-    expect(sanitizeValue("exportQuote", "今日 {tokens}，命中 {hitPct}")).toBe("今日 {tokens}，命中 {hitPct}");
-    expect(sanitizeValue("exportQuote", "x".repeat(2500))).toHaveLength(2000);
-    expect(sanitizeValue("exportQuote", 42)).toBe("");
-    expect(sanitizeValue("exportQuote", undefined)).toBe("");
+  it("sanitizeValue：exportQuote 键已移除 → 回退布尔真值化（遗留 yaml 值不再进配置）", () => {
+    expect((sanitizeValue as unknown as (k: string, v: unknown) => unknown)("exportQuote", "任意文本")).toBe(true);
   });
   it("sanitizeValue：exportPose 白名单（random + ANIM 键），越界回 random", () => {
     expect(sanitizeValue("exportPose", "waving")).toBe("waving");
@@ -1111,17 +1110,15 @@ describe("v2.2 export config keys (Task14 R8)", () => {
     expect(sanitizeValue("exportPose", undefined)).toBe("random");
   });
   it("sanitizeConfig JSON 存档回环保真（字符串键布尔化回归）", () => {
-    const edited = sanitizeConfig({ ...CFG_DEFAULT, exportQuote: "今日 {tokens}", exportPose: "jumping" } as PetConfig);
+    const edited = sanitizeConfig({ ...CFG_DEFAULT, exportPose: "jumping" } as PetConfig);
     const round2 = sanitizeConfig(JSON.parse(JSON.stringify(edited)) as PetConfig);
-    expect(round2.exportQuote).toBe("今日 {tokens}");
     expect(round2.exportPose).toBe("jumping");
   });
-  it("SETTINGS_V22_KEYS 3 键并入草稿层：buildSavePatch 字符串原值透传（无 Number 转换）、dirty 可判", () => {
-    expect([...SETTINGS_V22_KEYS]).toEqual(["dashboardSidebarEntry", "exportQuote", "exportPose"]);
-    expect(ALL_DRAFT_KEYS).toHaveLength(SETTINGS_ALL_KEYS.length + 3);
-    const draft = { ...CFG_DEFAULT, exportQuote: "自定义 {models}", dashboardSidebarEntry: true } as DraftConfig;
+  it("SETTINGS_V22_KEYS 2 键并入草稿层（exportQuote 已移除→看板内联）：buildSavePatch 布尔透传、dirty 可判", () => {
+    expect([...SETTINGS_V22_KEYS]).toEqual(["dashboardSidebarEntry", "exportPose"]);
+    expect(ALL_DRAFT_KEYS).toHaveLength(SETTINGS_ALL_KEYS.length + 2);
+    const draft = { ...CFG_DEFAULT, dashboardSidebarEntry: true } as DraftConfig;
     const patch = buildSavePatch(draft, CFG_DEFAULT);
-    expect(patch.exportQuote).toBe("自定义 {models}");
     expect(patch.dashboardSidebarEntry).toBe(true);
     expect(patch.exportPose).toBeUndefined(); // 未变更不入 patch
     expect(isDraftDirty({ ...CFG_DEFAULT }, CFG_DEFAULT)).toBe(false);
@@ -1133,14 +1130,15 @@ describe("v2.2 export config keys (Task14 R8)", () => {
     expect(t("dash.export.exportImage")).toBe("导出图片");
     expect(t("dash.export.copied")).toBe("已复制");
     expect(t("dash.cfg.dashboardSidebarEntry")).toBe("侧栏看板入口");
-    expect(t("dash.cfg.exportQuote")).toBe("导出评语(空=评语池)");
     expect(t("dash.cfg.exportPose")).toBe("导出姿态");
+    expect(t("dash.export.exportCustom")).toBe("按自定义评语导出");
+    expect(t("dash.export.export")).toBe("导出");
     expect(t("dash.pose.random")).toBe("随机");
     expect(t("dash.pose.run-right")).toBe("向右跑");
     setLang("en");
     expect(t("dash.export.copyText")).toBe("Copy text");
     expect(t("dash.export.exportImage")).toBe("Export image");
-    expect(t("dash.cfg.exportQuote")).toBe("Export quote (empty = pool)");
+    expect(t("dash.export.exportCustom")).toBe("Export with custom quote");
     expect(t("dash.pose.random")).toBe("Random");
     expect(t("dash.pose.run-left")).toBe("Run left");
     setLang("zh");

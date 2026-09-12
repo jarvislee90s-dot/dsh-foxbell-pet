@@ -10,3 +10,5 @@ node_modules/
 .vscode/
 *.swp
 lib/.build-stamp
+.playwright-mcp/
+.zcode/

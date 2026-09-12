@@ -137,17 +137,6 @@ export function SettingsCard(): React.ReactElement {
             <span>{t("dash.cfg.dashboardSidebarEntry")}</span>
             <input type="checkbox" checked={draft.dashboardSidebarEntry} onChange={(e) => setDraftKey("dashboardSidebarEntry", e.target.checked)} />
           </label>
-          <label className="dyn-pet-settings-row">
-            <span>{t("dash.cfg.exportQuote")}</span>
-            <textarea
-              className="dyn-pet-settings-quote"
-              rows={2}
-              maxLength={2000}
-              placeholder={t("dash.cfg.exportQuote")}
-              value={draft.exportQuote}
-              onChange={(e) => setDraftKey("exportQuote", e.target.value)}
-            />
-          </label>
           <div className="dyn-pet-settings-row">
             <span>{t("dash.cfg.exportPose")}</span>
             <select value={draft.exportPose} onChange={(e) => setDraftKey("exportPose", e.target.value)}>
