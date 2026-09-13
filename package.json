@@ -24,7 +24,8 @@
     "build": "node scripts/build.mjs",
     "validate": "node scripts/validate.mjs",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build:watch": "node scripts/build.mjs --watch"
   },
   "dependencies": {
     "@deepseek-ai/dsh-settings": "^0.1.2-rc.1",

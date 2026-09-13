@@ -103,16 +103,47 @@ Built-in assets ship with the package; external pet assets are user-imported.
 ## Install (one click)
 
 ```sh
-dsh plugin --profile web add github:jarvislee90s-dot/dsh-foxbell-pet
-> Build-script note: since v2 the install runs `prepare` (esbuild). When the dsh
-> profile uses pnpm, allow this plugin's build scripts via the profile allowBuilds
-> list (pnpm approve-builds or profile config) on first install — otherwise the
-> `lib/` artifacts won't be generated.
+dsh plugin --profile web add github:jarvislee90s-dot/dsh-foxbell-pet#release
 ```
+
+`#release` is the **stable channel** (the repo's `release` branch, updated only on version releases). To try work-in-progress changes, use `github:jarvislee90s-dot/dsh-foxbell-pet#main` (follows main, not guaranteed stable).
+
+> The `lib/` build artifacts are committed with the repo, so the plugin works right
+> after install with no local build; `npm run build` is only needed when developing
+> from source (see "Development").
 
 Then **restart `dsh web`** and hard-refresh the browser (**Cmd/Ctrl+Shift+R**). The pet appears bottom-right, the 🦊 toggle beside Settings, and a "foxbell-pet" card in the settings page.
 
 > The pet reads built-in sprite/voices from the package's own `assets/` directory; the external pet store lives in `~/.dsh/foxbell-pet/` (plugin-private, auto-created on first launch).
+
+
+## Install from local source (development)
+
+To run the latest code in your local checkout (or to test your own changes immediately), install the source directory into your dsh profile as a **link** — the profile then loads the live directory, so after every change you only rebuild and refresh:
+
+```sh
+# 1) get the source and build (Node ≥ 20 + pnpm)
+git clone https://github.com/jarvislee90s-dot/dsh-foxbell-pet.git
+cd dsh-foxbell-pet && pnpm install
+npm run build            # produces lib/ (what dsh actually loads)
+
+# 2) link it into the web profile (run inside the plugin directory; auto-added to the boot list)
+dsh plugin --profile web add .
+
+# 3) start/restart dsh web and open the page (hard-refresh after install/updates)
+```
+
+**Daily hot-reload loop**:
+
+```sh
+npm run build:watch      # keeps watching src/ and rebuilds lib/ on every change
+```
+
+- Client-only changes (`src/client/**`): take effect on a **page refresh**;
+- Host-side changes (`src/host/**`): require **restarting `dsh web`**;
+- Uninstall (keeps your source directory): `dsh plugin --profile web remove dsh-foxbell-pet`.
+
+> A local-source harness checkout (`deepseek-harness` repo, `pnpm dsh web`) works with the same link install; if an older copy is installed in the profile, `add .` replaces it with the local link.
 
 ## Usage
 
@@ -165,7 +196,7 @@ dsh-foxbell-pet/
 ├── src/host/       host half (plain JS: status aggregation/store/import/guard/route family)
 ├── src/client/     client half (TSX: pet body/menu/settings card/dialogs/error dictionary)
 ├── test/           vitest suites (real temp dirs, mocked fetch)
-├── scripts/        build + validate + built-in manifest generator
+├── scripts/        build + validate + release + built-in manifest generator
 ├── docs/           sprite contract / QA checklist / screenshots / legacy design docs
 ├── demo/           standalone offline preview page
 ├── package.json  dsh.plugin.json  cordis.patch.yml
@@ -174,6 +205,17 @@ dsh-foxbell-pet/
 ```
 
 Local dev install: `dsh plugin --profile web add <repo path>` symlinks the repo; after editing `src/`, run `npm run build`, **restart `dsh web`** and hard-refresh.
+
+### Releases
+
+- `main` is the development branch and takes new code anytime; what external users get is the `release` branch, fast-forwarded only at release time. The public install command points at `#release` (see "Install").
+- To release: write the `[x.y.z]` entry in `CHANGELOG.md`, then run
+
+  ```sh
+  npm run release -- x.y.z        # add --dry-run to validate without executing
+  ```
+
+  The script: validates (on main, clean tree, in sync with remote, CHANGELOG entry present) → syncs package.json / dsh.plugin.json versions → `build + validate + test` → commits, tags `vX.Y.Z`, pushes → fast-forwards the `release` branch to that commit and pushes it.
 
 ## License
 
