@@ -145,6 +145,23 @@ npm run build:watch      # keeps watching src/ and rebuilds lib/ on every change
 
 > A local-source harness checkout (`deepseek-harness` repo, `pnpm dsh web`) works with the same link install; if an older copy is installed in the profile, `add .` replaces it with the local link.
 
+
+### 启动 / 重启 dsh web（本地源码版）
+
+本地源码版 harness 没有图形启停入口，dsh web 通常跑在后台终端里。两种重启方式：
+
+```sh
+# 方式一：自带脚本（在 deepseek-harness 仓库根目录，自动停旧进程→重启→打印新链接）
+./dsh-web-restart.sh
+
+# 方式二：手动（杀掉占用 3080 的进程后再起）
+lsof -nP -iTCP:3080 -sTCP:LISTEN -t | xargs kill    # 停（若有）
+cd <deepseek-harness 目录> && pnpm dsh web          # 前台起（Ctrl+C 停）
+```
+
+启动成功的标志是终端打出 `dsh web: http://127.0.0.1:3080/?token=…`；日志在 `/tmp/dsh-web.log`。
+重启后记得**硬刷新浏览器**（Cmd/Ctrl+Shift+R）。
+
 ## Usage
 
 | Interaction | Effect |
