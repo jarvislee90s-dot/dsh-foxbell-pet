@@ -386,8 +386,30 @@ export function Pet(props: PetProps): React.ReactElement | null {
     // running 中档位变为 longrun 时刷新链才会切到看表代用行
     const tier = dash && dash.pace ? dash.pace.tier : null;
     if (paceTierRef.current !== tier) {
+      const prevTier = paceTierRef.current;
       paceTierRef.current = tier;
       refreshAnim();
+      // v2.2.1 档位跨阶举牌（纯文字表达，复用 Sign 容器）：大类跨越才举——
+      // 进入/退出长任务、开始摸鱼（任一 loaf）、从摸鱼回到工作；摸鱼四阶内部递进不举（表盘读数已变）。
+      // 首拍（prevTier=null，页面刚打开）不举，避免每次进来举一排。
+      const bucket = (t: string | null): "work" | "longrun" | "loaf" | "idle" | null =>
+        t === null ? null
+        : t === "longrun" ? "longrun"
+        : t.startsWith("loaf") ? "loaf"
+        : t === "intense" || t === "active" ? "work"
+        : "idle";
+      const bPrev = bucket(prevTier), bNext = bucket(tier);
+      if (prevTier !== null && bPrev !== bNext && tier !== null) {
+        const msg = tier === "longrun" ? t("dash.pace.longrun")
+          : bNext === "loaf" ? t("dash.pace.loaf")
+          : bPrev === "loaf" ? t("dash.pace.backToWork")
+          : null;
+        if (msg) {
+          setSign(msg);
+          if (signTimerRef.current) { try { signTimerRef.current(); } catch { /* ignore */ } }
+          signTimerRef.current = later(() => setSign(null), 4200);
+        }
+      }
     }
     // 当前会话的 done/error 未读卡自动 ack（v1 已读即消失语义不变）
     const active = currentIdRef.current;

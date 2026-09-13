@@ -21,6 +21,23 @@ const TIER_PCT: Record<PaceTier, number> = {
   intense: 100, active: 65, longrun: 50, idle: 20, loaf1: 12, loaf2: 8, loaf3: 5, loaf4: 3,
 };
 
+/** v2.2.1 表盘档位配色：忙档（intense/active）琥珀红 / 长任务蓝紫 / 摸鱼四阶蓝灰（渐变 class） */
+export function tierBarClass(pace: PaceSnapshot | null | undefined): string {
+  const t = pace?.tier ?? "";
+  if (t === "intense" || t === "active") return "busy";
+  if (t === "longrun") return "longrun";
+  if (t.startsWith("loaf")) return "loaf";
+  return "busy";
+}
+
+/** 档位文字情绪色：忙档暖琥珀 / 摸鱼灰蓝倦意（class 名，样式见 styles.ts） */
+export function tierMoodClass(pace: PaceSnapshot | null | undefined): string {
+  const t = pace?.tier ?? "";
+  if (t === "longrun") return "mood-longrun";
+  if (t.startsWith("loaf")) return "mood-loaf";
+  return "mood-busy";
+}
+
 /** 表盘档位标签：已知档位 → t("dash.tier.<tier>")；未知/缺档位 → 宿主 label → "—"（源 pace.label || '—'） */
 function tierLabel(pace: PaceSnapshot | null): string {
   if (pace && TIER_PCT[pace.tier] !== undefined) return t(`dash.tier.${pace.tier}`);
@@ -66,9 +83,9 @@ export function MiniBar(props: {
     >
       <div className="dyn-pet-mini-dial" style={{ gap: px(8), marginBottom: px(4) }}>
         <div className="dyn-pet-mini-bar" style={{ height: px(6) }}>
-          <i style={{ width: ((pace && TIER_PCT[pace.tier]) || 20) + "%" }} />
+          <i className={tierBarClass(pace)} style={{ width: ((pace && TIER_PCT[pace.tier]) || 20) + "%" }} />
         </div>
-        <span className="dyn-pet-mini-tier">{tierLabel(pace)}</span>
+        <span className={"dyn-pet-mini-tier " + tierMoodClass(pace)}>{tierLabel(pace)}</span>
       </div>
       {usageOn ? (
         <>

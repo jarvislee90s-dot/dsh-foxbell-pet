@@ -188,7 +188,12 @@ const CSS = `
 .dyn-pet-mini-dial { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
 .dyn-pet-mini-bar { flex: 1; height: 6px; border-radius: 999px; background: rgba(122,74,43,0.15); overflow: hidden; }
 .dyn-pet-mini-bar i { display: block; height: 100%; background: linear-gradient(90deg,#f59e0b,#ef4444); border-radius: 999px; transition: width .4s ease; }
-.dyn-pet-mini-tier { font-weight: 700; white-space: nowrap; }
+.dyn-pet-mini-bar i.longrun { background: linear-gradient(90deg,#3BA7FF,#8D6BFF); }
+.dyn-pet-mini-bar i.loaf { background: linear-gradient(90deg,#7c8aa0,#a8b4c4); }
+.dyn-pet-mini-tier { font-weight: 700; white-space: nowrap; font-size: 14px; }
+.dyn-pet-mini-tier.mood-busy { color: #b45309; }
+.dyn-pet-mini-tier.mood-longrun { color: #6d5bd0; }
+.dyn-pet-mini-tier.mood-loaf { color: #8fa3b8; }
 .dyn-pet-mini-row { white-space: normal; word-break: break-word; }
 .dyn-pet-mini-dim { color: #a07050; font-size: 11px; }
 ${MINI_DETAIL_CSS}

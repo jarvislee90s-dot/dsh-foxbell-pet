@@ -22,6 +22,7 @@ import {
 } from "../src/client/settingsdraft";
 import { fmtInt, fmtPct, fmtTokens, shortModel } from "../src/client/format";
 import { clampRangeFrom, hitCompareText, hourPoints, toolsMetrics, trendDirection, viewWindow } from "../src/client/DashboardPanel";
+import { tierBarClass, tierMoodClass } from "../src/client/MiniBar";
 import { maxAnimCols, resolvePoseRow } from "../src/client/exportimage";
 import { lastN } from "../src/client/TrendChart";
 import { boardOverviewLine, boardRows, fmtDur, fmtLongest } from "../src/client/boardrows";
@@ -533,6 +534,8 @@ describe("i18n 字典完整性", () => {
       "dash.panelTitle", "dash.tab.5h", "dash.tab.7d", "dash.tab.30d", "dash.tab.custom",
       "dash.heroTotal", "dash.hitCompare", "dash.hitCur", "dash.trendTitle", "dash.loading", "dash.peak",
       "dash.tools", "dash.noData", "dash.rangeClamp",
+      // v2.2.1 档位跨阶举牌（纯文字表达；摸鱼四阶内部递进不举）
+      "dash.pace.longrun", "dash.pace.loaf", "dash.pace.backToWork",
       // Task 12 五口径网格 + 2×2 工具格标签（R5 名词序：用户输入/产出/请求输入(全文累计)/缓存命中/命中率/请求次数/数据截止）
       "dash.g.userEst", "dash.g.output", "dash.g.requestTotal", "dash.g.cacheRead", "dash.g.hitPct",
       "dash.g.requests", "dash.g.asOf", "dash.g.toolCalls", "dash.g.toolAvg", "dash.g.toolTopCount", "dash.g.toolTopDur",
@@ -543,7 +546,7 @@ describe("i18n 字典完整性", () => {
       "dash.pose.random", "dash.pose.idle", "dash.pose.run-right", "dash.pose.run-left", "dash.pose.waving",
       "dash.pose.jumping", "dash.pose.failed", "dash.pose.waiting", "dash.pose.running", "dash.pose.review",
     ];
-    expect(expectedDash).toHaveLength(112); // 标题计数防再次失真（v2.2.1 命中率周期对比：hitCompare/hitCur 取代 weekHit，净 +1）
+    expect(expectedDash).toHaveLength(115); // 标题计数防再次失真（v2.2.1：hitCompare/hitCur +2、档位举牌 pace.* +3）
     const zhDash = dictKeys("zh").filter((k) => k.startsWith("dash.")).sort();
     expect(zhDash).toEqual([...expectedDash].sort());
     const en = new Set(dictKeys("en"));
@@ -932,6 +935,24 @@ describe("v2.2 fmtPct (Task12 (x*100).toFixed(1)+'%'，入参为 0-1 分数)", (
     expect(fmtPct(0.71428)).toBe("71.4%");
     expect(fmtPct(0)).toBe("0.0%");
     expect(fmtPct(1)).toBe("100.0%");
+  });
+});
+
+describe("v2.2.1 mini dial tier classes（表盘档位配色/情绪色）", () => {
+  it("tierBarClass：忙档/长任务/摸鱼三档渐变；未知回落 busy", () => {
+    expect(tierBarClass({ tier: "intense" } as never)).toBe("busy");
+    expect(tierBarClass({ tier: "active" } as never)).toBe("busy");
+    expect(tierBarClass({ tier: "longrun" } as never)).toBe("longrun");
+    expect(tierBarClass({ tier: "loaf1" } as never)).toBe("loaf");
+    expect(tierBarClass({ tier: "loaf4" } as never)).toBe("loaf");
+    expect(tierBarClass(null)).toBe("busy");
+    expect(tierBarClass(undefined)).toBe("busy");
+  });
+  it("tierMoodClass：忙档琥珀/长任务紫/摸鱼灰蓝", () => {
+    expect(tierMoodClass({ tier: "intense" } as never)).toBe("mood-busy");
+    expect(tierMoodClass({ tier: "longrun" } as never)).toBe("mood-longrun");
+    expect(tierMoodClass({ tier: "loaf2" } as never)).toBe("mood-loaf");
+    expect(tierMoodClass(null)).toBe("mood-busy");
   });
 });
 
