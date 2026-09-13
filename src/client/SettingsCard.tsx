@@ -28,10 +28,18 @@ function Chevron({ open }: { open: boolean }): React.ReactElement {
   );
 }
 
-/** v2.2.1：行内 i 徽标——悬浮显示该配置的含义（原生 title，免依赖；键盘聚焦亦可读） */
+/** v2.2.1：行内 i 徽标——悬浮弹出说明气泡（自绘 ::after，立即显示）。
+ *  点击必须隔离：徽标位于 <label> 内，label 的默认行为会把点击转给复选框/输入框。 */
 function Info({ text }: { text: string }): React.ReactElement {
   return (
-    <span className="dyn-pet-info" title={text} aria-label={text} tabIndex={0}>i</span>
+    <span
+      className="dyn-pet-info"
+      data-tip={text}
+      role="note"
+      aria-label={text}
+      onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
+      onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+    >i</span>
   );
 }
 

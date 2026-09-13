@@ -75,8 +75,26 @@ const CSS = `
 .dyn-pet-card-body { border-top:0.5px solid var(--dsw-alias-border-l2, rgba(0,0,0,.08)); margin:0 16px; padding-bottom:8px; }
 .dyn-pet-settings { padding: 8px 12px; font-size: 13px; color: #333; display: flex; flex-direction: column; gap: 6px; min-width: 240px; }
 .dyn-pet-settings-section { font-weight: 700; margin-top: 14px; padding-bottom: 2px; border-bottom: 1px solid rgba(122,74,43,.18); color:#7a4a2b; }
+.dyn-pet-settings-row { position: relative; }
 .dyn-pet-info { display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px; margin-left: 6px; border: 1px solid rgba(122,74,43,.4); border-radius: 999px; font-size: 10px; font-style: italic; font-weight: 700; color: #8a6d3b; cursor: help; vertical-align: 1px; user-select: none; }
 .dyn-pet-info:hover { background: rgba(122,74,43,.12); }
+/* v2.2.1：自绘说明气泡——hover 即现（原生 title 有约 1s 延迟且部分环境不弹） */
+.dyn-pet-info:hover::after {
+  content: attr(data-tip);
+  position: fixed;
+  left: 50%; transform: translateX(-50%);
+  bottom: 12%;
+  width: min(340px, 80vw);
+  background: rgba(30, 26, 22, .96);
+  color: #f3ece2;
+  font-size: 13px; font-style: normal; font-weight: 400; line-height: 1.55;
+  padding: 10px 14px; border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.35);
+  white-space: normal;
+  z-index: 2147483600;
+  pointer-events: none;
+  text-align: left;
+}
 .dyn-pet-settings-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .dyn-pet-settings-row select { max-width: 140px; }
 /* ---- v2.1 设置卡草稿态（v1.4.0 client.js L1098-1109 移植：头部状态字/口径注/保存条/无效数字红框）---- */
