@@ -49,7 +49,8 @@ export function loadSprite(url: string | null): Promise<HTMLImageElement | null>
 
 // ---- 版式常量（720×1600 竖版）----
 const W = 720;
-let H = 2016; // 上界：1560（默认内容）+ 360（立绘满高）+ 96（边距）——按实际内容在收尾裁剪
+const PET_H = 360;            // 导出立绘固定高（不随内容压缩）
+let H = 2016;                 // 上界；工具区结束后按内容定稿（见下）
 const M = 24;                 // 页边距
 const CARD = { x: M, y: M, w: W - M * 2, get h() { return H - M * 2; }, r: 24 };
 const INK = "#1f2937";        // 主文字
@@ -144,6 +145,17 @@ function wrapText(c: CanvasRenderingContext2D, text: string, x: number, y: numbe
 }
 
 export async function exportDashboardImage(input: ExportInput): Promise<Blob> {
+  // v2.2.1 两遍绘制：第一遍干跑只推进 y（不画），定稿 H；第二遍正式绘制。
+  const paint = (draw: boolean): number => {
+    let yy = 298;
+    yy += input.metrics.length * 38 + 34 + 6;      // 指标行 + 分隔
+    yy += 176 + 34;                                 // 趋势卡
+    yy += 32 + (input.models.length === 0 ? 48 : input.models.length * 48) + 34; // 模型区
+    yy += 30 + (58 + 10) * 2 + 26;                  // 工具 2×2
+    yy += 24 + PET_H;                               // 宠物区（顶锚间距 24 + 立绘满高）
+    return yy + 30 + 12;                            // 页脚区
+  };
+  H = Math.max(1560, paint(false));
   const cv = document.createElement("canvas"); cv.width = W; cv.height = H;
   const c = cv.getContext("2d")!;
 
@@ -244,15 +256,14 @@ export async function exportDashboardImage(input: ExportInput): Promise<Blob> {
   });
   y += (cellH + 10) * 2 + 26;
   // v2.2.1：H 定稿（此时 y 已知）——H = 内容底(工具区) + 立绘满高(360) + 间距(26) + 页脚区(40+M+16)
-  H = Math.max(1560, y + 26 + 360 + M + 40 + 16);
+  H = Math.max(1560, y + 24 + PET_H + 24 + 30 + 12); // 内容底(宠物脚)+24 → 页脚 → 底距 12
 
   // —— 聊天式底部：宠物立绘（右）+ 评语气泡（紧贴宠物头部左侧，像从它嘴里说出）——
-  // v2.2.1：立绘固定 360px 高（不随上方内容长度被压缩——用户报告"导出后宠物变小"根因）；
-  // 空间不足时加高画布而非缩小立绘。主界面「宠物大小」设置只影响桌面精灵，不参与导出（独立画布绘制）。
-  const PET_H = 360;
+  // v2.2.1：立绘固定高（PET_H，不随上方内容压缩——用户报告"导出后宠物变小"根因）；
+  // 主界面「宠物大小」设置只影响桌面精灵，不参与导出（独立画布绘制）。
   const petW = input.sprite && input.frameH > 0 && input.frameW > 0 ? PET_H * (input.frameW / input.frameH) : 0;
   const petX = W - PAD - petW;
-  const petY = y + 26 + PET_H; // 顶部锚定：紧跟工具区下方（间距 26px），永不越界；contentBottom 由 petY+PET_H 决定
+  const petY = y + 24; // 顶部锚定：紧跟工具区（间距 24px），不留大片空白
   // 气泡：宽度自适应文本（上限 340），白底+淡暖影+渐变描边，右缘距宠物 18px，垂直对齐宠物头部
   c.font = "500 19px system-ui";
   const longestLine = (() => {
@@ -268,7 +279,7 @@ export async function exportDashboardImage(input: ExportInput): Promise<Blob> {
   const textW = Math.max(0, ...longestLine.map((l) => c.measureText(l).width));
   const bubbleW = Math.min(340, Math.max(150, textW + 44), petX - 18 - PAD);
   const bubbleX = petX - 18 - bubbleW;
-  const bubbleH = Math.max(62, 36 + longestLine.length * 27);
+  const bubbleH = Math.max(60, 20 * 2 + longestLine.length * 27 - (27 - 19));
   const bubbleY = petY + PET_H * 0.1;
   // 淡影
   c.save();
@@ -295,7 +306,7 @@ export async function exportDashboardImage(input: ExportInput): Promise<Blob> {
   c.fillStyle = "#fffdf9"; c.fill();
   c.strokeStyle = bStroke; c.stroke();
   c.fillStyle = "#4a3b2a"; c.font = "500 19px system-ui";
-  longestLine.forEach((line, i) => c.fillText(line, bubbleX + 22, bubbleY + 40 + i * 27));
+  longestLine.forEach((line, i) => c.fillText(line, bubbleX + 20, bubbleY + 20 + 16 + i * 27));
   // 立绘最后画（与气泡已按几何分离：气泡右缘 ≤ petX-18）
   if (input.sprite && input.frameW > 0 && input.frameH > 0 && petW > 0) {
     c.drawImage(input.sprite, 0, input.poseRow * input.frameH, input.frameW, input.frameH, petX, petY, petW, PET_H);
@@ -316,6 +327,13 @@ export async function exportDashboardImage(input: ExportInput): Promise<Blob> {
   c.textAlign = "right";
   c.fillText("DSH · Foxbell 用量看板", W - PAD, footY);
   c.textAlign = "left";
+
+  // v2.2.1 裁尾：页脚以下若有多余画布（上界 2016 残留），刷页底色收边
+  const below = footY + 12;
+  if (below < H) {
+    c.fillStyle = "#f5f6f8";
+    c.fillRect(0, below, W, H - below);
+  }
 
     return await new Promise<Blob>((res, rej) => cv.toBlob((b) => (b ? res(b) : rej(new Error("canvas toBlob returned null"))), "image/png"));
 }
