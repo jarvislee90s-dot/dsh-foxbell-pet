@@ -146,16 +146,18 @@ function wrapText(c: CanvasRenderingContext2D, text: string, x: number, y: numbe
 
 export async function exportDashboardImage(input: ExportInput): Promise<Blob> {
   // v2.2.1 两遍绘制：第一遍干跑只推进 y（不画），定稿 H；第二遍正式绘制。
-  const paint = (draw: boolean): number => {
+  // 干跑每段步进必须与下方实际绘制逐段一致——历史 bug：趋势段干跑 210 vs 实际 250、
+  // 指标/模型段各反向偏差，H 净低估 36px → 页脚被画到画布外、宠物脚贴画布底边。
+  const paint = (): number => {
     let yy = 298;
-    yy += input.metrics.length * 38 + 34 + 6;      // 指标行 + 分隔
-    yy += 176 + 34;                                 // 趋势卡
-    yy += 32 + (input.models.length === 0 ? 48 : input.models.length * 48) + 34; // 模型区
-    yy += 30 + (58 + 10) * 2 + 26;                  // 工具 2×2
-    yy += 24 + PET_H;                               // 宠物区（顶锚间距 24 + 立绘满高）
-    return yy + 30 + 12;                            // 页脚区
+    yy += input.metrics.length * 38 + 34;           // 指标行 + 分隔后间距
+    yy += 216 + 34;                                  // 趋势卡（含 x 轴标签呼吸）+ 分节间距
+    yy += 32 + (input.models.length === 0 ? 48 : input.models.length * 48) + 36; // 模型区
+    yy += 30 + (58 + 10) * 2 + 26;                   // 工具 2×2
+    yy += 24 + PET_H;                                // 宠物区（顶锚间距 24 + 立绘满高）
+    return yy + 72;                                  // 脚下呼吸 24 + 页脚行 + 页脚下方留白
   };
-  H = Math.max(1560, paint(false));
+  H = Math.max(1560, paint());
   const cv = document.createElement("canvas"); cv.width = W; cv.height = H;
   const c = cv.getContext("2d")!;
 
@@ -255,8 +257,8 @@ export async function exportDashboardImage(input: ExportInput): Promise<Blob> {
     c.fillText(v, cx + 14, cy + 47);
   });
   y += (cellH + 10) * 2 + 26;
-  // v2.2.1：H 定稿（此时 y 已知）——H = 内容底(工具区) + 立绘满高(360) + 间距(26) + 页脚区(40+M+16)
-  H = Math.max(1560, y + 24 + PET_H + 24 + 30 + 12); // 内容底(宠物脚)+24 → 页脚 → 底距 12
+  // （H 已在干跑时定稿：画布创建于第 159 行，此后再改 H 变量改不了画布，
+  //  只会让 CARD.h getter 与真实画布不一致——历史页脚出界的另一半根因。）
 
   // —— 聊天式底部：宠物立绘（右）+ 评语气泡（紧贴宠物头部左侧，像从它嘴里说出）——
   // v2.2.1：立绘固定高（PET_H，不随上方内容压缩——用户报告"导出后宠物变小"根因）；
@@ -314,7 +316,7 @@ export async function exportDashboardImage(input: ExportInput): Promise<Blob> {
 
     // —— 收尾：按内容底裁掉多余卡身（重刷页底色+补卡底线），页脚贴内容底 ——
   const cardBottom = CARD.y + CARD.h;
-  const contentBottom = Math.max(petY + PET_H, y) + 8;
+  const contentBottom = Math.max(petY + PET_H, y) + 24; // 宠物脚下 24px 呼吸再收卡底线
   if (contentBottom + 16 < cardBottom) {
     c.fillStyle = "#f5f6f8";
     c.fillRect(CARD.x, contentBottom, CARD.w, cardBottom - contentBottom);
@@ -328,8 +330,8 @@ export async function exportDashboardImage(input: ExportInput): Promise<Blob> {
   c.fillText("DSH · Foxbell 用量看板", W - PAD, footY);
   c.textAlign = "left";
 
-  // v2.2.1 裁尾：页脚以下若有多余画布（上界 2016 残留），刷页底色收边
-  const below = footY + 12;
+  // v2.2.1 裁尾：页脚以下若有多余画布（H 保底 1560 残留），刷页底色收边
+  const below = footY + 16;
   if (below < H) {
     c.fillStyle = "#f5f6f8";
     c.fillRect(0, below, W, H - below);
