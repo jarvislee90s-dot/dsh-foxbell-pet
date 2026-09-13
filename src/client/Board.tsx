@@ -7,8 +7,8 @@
 import type { ReactElement } from "react";
 import { t } from "./i18n";
 import type { DashboardSnapshot } from "./api";
-import { boardRows } from "./boardrows";
-import { fmtTokens, shortModel } from "./format";
+import { boardOverviewLine, boardRows } from "./boardrows";
+import { fmtTokens } from "./format";
 import { TrendChart, lastN } from "./TrendChart";
 
 export type BoardMode = "manual" | "farewell"; // manual：菜单/📖入口打开；farewell：关宠分发
@@ -33,8 +33,10 @@ export function Board(props: {
           onClick={(e) => { e.stopPropagation(); props.onClose(); }}
         >✕</button>
       </div>
-      {boardRows(s).map((text, i) => (
-        <div key={i} className="dyn-pet-board-row">{text}</div>
+      {/* v2.2.1：概览行 + 「标签-数值」明细行（每项一行，含义自明） */}
+      <div className="dyn-pet-board-row">{boardOverviewLine(s)}</div>
+      {boardRows(s).map((kv, i) => (
+        <div key={i} className="dyn-pet-board-kv"><span className="k">{kv.label}</span><span className="v">{kv.value}</span></div>
       ))}
       {/* ---- v2.2 Task 11 加料三行（行序：既有行 → sparkline 行 → 模型 Top3 行 → 入口行；R4/R10）----
           防御式读取：trend/models 为 v2.2 增量字段，旧宿主缺省即整行跳过 */}
@@ -45,11 +47,20 @@ export function Board(props: {
         </div>
       ) : null}
       {u && Array.isArray(u.models) && u.models.length > 0 ? (
-        <div className="dyn-pet-board-row dyn-pet-mini-dim">{t("dash.models") + " " + u.models.slice(0, 3).map((m) => `${shortModel(m.model || m.route)} ${fmtTokens(m.requestTotal)}`).join(" · ") + (u.models.length > 3 ? " " + t("dash.moreN", { n: String(u.models.length - 3) }) : "")}</div>
+        <>
+          {u.models.slice(0, 5).map((m, i) => (
+            <div key={m.route} className="dyn-pet-board-kv">
+              <span className="k">{i === 0 ? t("dash.models") : ""}</span>
+              <span className="v dyn-pet-board-model"><span className="nm">{m.route}</span><span className="num">{fmtTokens(m.requestTotal)}</span></span>
+            </div>
+          ))}
+          {u.models.length > 5 ? <div className="dyn-pet-board-kv"><span className="k"></span><span className="v">{t("dash.moreN", { n: String(u.models.length - 5) })}</span></div> : null}
+        </>
       ) : null}
       {props.onOpenPanel ? (
         <div className="dyn-pet-board-open" onClick={(e) => { e.stopPropagation(); props.onOpenPanel!(); }}>{t("dash.openPanel")} →</div>
       ) : null}
+      <div className="dyn-pet-board-tray" aria-hidden />
       {/* 二期预留（issue #4 F38/F40/F41/F42/F45）：周报/缓存率趋势/失败率/耗时漂移/导出行在此追加（spec §9） */}
     </div>
   );

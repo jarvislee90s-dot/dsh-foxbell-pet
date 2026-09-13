@@ -116,6 +116,52 @@ Then **restart `dsh web`** and hard-refresh the browser (**Cmd/Ctrl+Shift+R**). 
 
 > The pet reads built-in sprite/voices from the package's own `assets/` directory; the external pet store lives in `~/.dsh/foxbell-pet/` (plugin-private, auto-created on first launch).
 
+
+## Install from local source (development)
+
+To run the latest code in your local checkout (or to test your own changes immediately), install the source directory into your dsh profile as a **link** — the profile then loads the live directory, so after every change you only rebuild and refresh:
+
+```sh
+# 1) get the source and build (Node ≥ 20 + pnpm)
+git clone https://github.com/jarvislee90s-dot/dsh-foxbell-pet.git
+cd dsh-foxbell-pet && pnpm install
+npm run build            # produces lib/ (what dsh actually loads)
+
+# 2) link it into the web profile (run inside the plugin directory; auto-added to the boot list)
+dsh plugin --profile web add .
+
+# 3) start/restart dsh web and open the page (hard-refresh after install/updates)
+```
+
+**Daily hot-reload loop**:
+
+```sh
+npm run build:watch      # keeps watching src/ and rebuilds lib/ on every change
+```
+
+- Client-only changes (`src/client/**`): take effect on a **page refresh**;
+- Host-side changes (`src/host/**`): require **restarting `dsh web`**;
+- Uninstall (keeps your source directory): `dsh plugin --profile web remove dsh-foxbell-pet`.
+
+> A local-source harness checkout (`deepseek-harness` repo, `pnpm dsh web`) works with the same link install; if an older copy is installed in the profile, `add .` replaces it with the local link.
+
+
+### 启动 / 重启 dsh web（本地源码版）
+
+本地源码版 harness 没有图形启停入口，dsh web 通常跑在后台终端里。两种重启方式：
+
+```sh
+# 方式一：自带脚本（在 deepseek-harness 仓库根目录，自动停旧进程→重启→打印新链接）
+./dsh-web-restart.sh
+
+# 方式二：手动（杀掉占用 3080 的进程后再起）
+lsof -nP -iTCP:3080 -sTCP:LISTEN -t | xargs kill    # 停（若有）
+cd <deepseek-harness 目录> && pnpm dsh web          # 前台起（Ctrl+C 停）
+```
+
+启动成功的标志是终端打出 `dsh web: http://127.0.0.1:3080/?token=…`；日志在 `/tmp/dsh-web.log`。
+重启后记得**硬刷新浏览器**（Cmd/Ctrl+Shift+R）。
+
 ## Usage
 
 | Interaction | Effect |

@@ -2,20 +2,23 @@
 // 数据：默认视图全走 /state 快照（14日+24小时桶+models+tools）；30d/自定义走 /dashboard/range（60s 内存缓存）。
 // 复刻要素：hero 大数字 / 五口径网格 / 蓝紫渐变趋势图(带 tooltip) / 模型分布进度条行 / 2×2 工具格 / 日期回看。
 // 不复刻：价格（F04 存档）、推理单列（F03 存档）——spec §2.1。
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { ReactElement } from "react";
 import { appStore, cfgStore } from "./store";
 import { apiGetRange, type RangeSummary, type RouteUsage, type TrendDay, type TrendHour } from "./api";
 import { TrendChart, lastN } from "./TrendChart";
 import { t, getLang } from "./i18n";
-import { fmtPct, fmtTokens, shortModel } from "./format";
+import { fmtInt, fmtPct, fmtTokens } from "./format";
 import { fmtDur } from "./boardrows";
 import { exportDashboardImage, loadSprite, maxAnimCols, resolvePoseRow } from "./exportimage";
-import { pickQuote, type QuoteVars } from "./quotes";
+import { pickQuote, fillQuote, type QuoteVars } from "./quotes";
 
 // ---- 纯函数（test/client-logic.test.ts 直测）----
 
 export type DashTab = "5h" | "7d" | "30d" | "custom";
+
+/** v2.2.1：自定义评语草稿的 localStorage 键（面板切走不丢；非宿主配置键） */
+const EXPORT_QUOTE_DRAFT_KEY = "dyn-foxbell-pet:export-quote";
 
 /** 选项卡→数据窗口（custom 实际区间由 apiGetRange(from,to) 决定，此处仅兜底口径） */
 export function viewWindow(tab: DashTab): { kind: "hours" | "days"; n: number } {
@@ -39,50 +42,37 @@ export function hourPoints(hours: TrendHour[] | null | undefined, nowH: number):
   });
 }
 
-/** 周命中率（weekIdx 0=本周 / 1=上周），返回 0-1 分数（供 fmtPct 直用）。
- *  周界裁定（Task 12）：周一为一周之始的日历周；锚点 = 快照内最新一天（数据驱动，不读时钟，可测）。
- *  聚合口径 = ΣcacheRead / ΣrequestTotal（非日均 hitPct 平均）；分母 0 记 0；
- *  上周若超出 14 日快照覆盖，只聚合快照内天数。 */
-export function weekHit(
-  trend: { days: { key: string; requestTotal: number; cacheRead: number }[] } | null | undefined,
-  weekIdx: 0 | 1,
-): number {
-  const days = trend && Array.isArray(trend.days) ? trend.days : [];
-  if (days.length === 0) return 0;
-  const anchorKey = days.reduce((a, b) => (b.key > a.key ? b : a), days[0]).key; // ISO 键字典序=时间序
-  const anchorMs = new Date(anchorKey + "T00:00:00").getTime();
-  const dow = new Date(anchorMs).getDay(); // 0=Sun…6=Sat
-  const weekStartMs = anchorMs - ((dow + 6) % 7) * 86400000; // 本周一 0 点
-  const startMs = weekStartMs - weekIdx * 7 * 86400000;
-  const endMs = weekIdx === 0 ? anchorMs : weekStartMs - 86400000; // 上周收于周日
+/** 池化命中率：ΣcacheRead / ΣrequestTotal（分母 0 记 0）——与宿主 hitRate 口径一致。 */
+function pooledHit(items: { requestTotal: number; cacheRead: number }[]): number {
   let req = 0, hit = 0;
-  for (const d of days) {
-    const ms = new Date(d.key + "T00:00:00").getTime();
-    if (ms >= startMs && ms <= endMs) { req += d.requestTotal || 0; hit += d.cacheRead || 0; }
-  }
+  for (const x of items) { req += x.requestTotal || 0; hit += x.cacheRead || 0; }
   return req > 0 ? hit / req : 0;
 }
 
-/** 周命中率差文案：本周−上周，百分点（×100）一位小数 + "pt"；正 +/负 −/零 ± */
-export function hitDeltaText(trend: { days: { key: string; requestTotal: number; cacheRead: number }[] } | null | undefined): string {
-  const d = (weekHit(trend, 0) - weekHit(trend, 1)) * 100;
-  return (d > 0 ? "+" : d < 0 ? "-" : "±") + Math.abs(d).toFixed(1) + "pt";
+/** 命中率对比文案：当前窗口 a vs 上一等长周期 b（null=上一周期无数据 → 只显示当前值），走 i18n。 */
+export function hitCompareText(a: number, b: number | null): string {
+  if (b === null) return t("dash.hitCur", { a: fmtPct(a) });
+  const d = (a - b) * 100;
+  const delta = (d > 0 ? "+" : d < 0 ? "-" : "±") + Math.abs(d).toFixed(1) + "pt";
+  return t("dash.hitCompare", { a: fmtPct(a), b: fmtPct(b), d: delta });
 }
 
 /** 工具聚合行（宿主 usage.tools / range.tools 同形：{name,count,durMs}） */
 export interface ToolAgg { name: string; count: number; durMs: number }
 
 /** 2×2 工具格指标：调用总数 / 平均耗时(totalDurMs/count，守零) / Top 工具次数 / Top 工具总耗时。
- *  Top = count 最大者（并列保序取首个，不依赖宿主排序约定）。 */
-export function toolsMetrics(tools: ToolAgg[] | null | undefined): { calls: number; avgMs: number; topCount: number; topDurMs: number } {
+ *  Top 次数 = count 最大者、Top 总耗时 = durMs 最大者（并列保序取首个，不依赖宿主排序约定）。
+ *  v2.2.1 增 topName/topDurName 供导出 2×2 标注。 */
+export function toolsMetrics(tools: ToolAgg[] | null | undefined): { calls: number; avgMs: number; topCount: number; topDurMs: number; topName: string; topDurName: string } {
   const list = Array.isArray(tools) ? tools : [];
-  let calls = 0, dur = 0, top: ToolAgg | null = null;
+  let calls = 0, dur = 0, top: ToolAgg | null = null, topDur: ToolAgg | null = null;
   for (const x of list) {
     calls += x.count || 0;
     dur += x.durMs || 0;
     if (!top || (x.count || 0) > (top.count || 0)) top = x;
+    if (!topDur || (x.durMs || 0) > (topDur.durMs || 0)) topDur = x;
   }
-  return { calls, avgMs: calls > 0 ? dur / calls : 0, topCount: top ? top.count || 0 : 0, topDurMs: top ? top.durMs || 0 : 0 };
+  return { calls, avgMs: calls > 0 ? dur / calls : 0, topCount: top ? top.count || 0 : 0, topDurMs: topDur ? topDur.durMs || 0 : 0, topName: top ? top.name : "—", topDurName: topDur ? topDur.name : "—" };
 }
 
 const dayKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -187,6 +177,18 @@ export function DashboardPanel(): ReactElement {
   const [rangeHint, setRangeHint] = useState("");
   const [hover, setHover] = useState<Hover | null>(null);
   const [copiedFlash, setCopiedFlash] = useState(false);
+  // v2.2.1：自定义评语内联（设置卡「导出评语」迁移至此）；草稿存 localStorage，面板切走不丢
+  const [quoteOpen, setQuoteOpen] = useState(false);
+  const [quoteDraft, setQuoteDraft] = useState<string>(() => {
+    try { return localStorage.getItem(EXPORT_QUOTE_DRAFT_KEY) ?? ""; } catch { return ""; }
+  });
+  const [prevHit, setPrevHit] = useState<number | null>(null); // 上一等长区间命中率（30d/custom）
+  // v2.2.1 进度条等长：以「最长模型名」「最长数值」实测宽度写入 CSS 变量，全部行文本列同宽 → 进度条起点/长度统一
+  const modelHeadRef = useRef<HTMLDivElement | null>(null);
+  const setQuoteDraftPersisted = (v: string): void => {
+    setQuoteDraft(v);
+    try { localStorage.setItem(EXPORT_QUOTE_DRAFT_KEY, v); } catch { /* ignore */ }
+  };
 
   const dash = snap ? snap.dashboard : null;
   const trend = dash && dash.usage && dash.usage.trend ? dash.usage.trend : null;
@@ -203,8 +205,19 @@ export function DashboardPanel(): ReactElement {
     const rawFrom = tab === "30d" ? dayKey(new Date(Date.now() - 29 * 86400000)) : tab === "7d" ? dayKey(new Date(Date.now() - 6 * 86400000)) : custom.from;
     const { from, clamped } = clampRangeFrom(rawFrom, to);
     if (clamped) { setCustom((c) => ({ ...c, from })); setRangeHint(t("dash.rangeClamp")); }
+    setPrevHit(null);
     fetchRange(from, to)
-      .then((r) => { if (live) setRange(r); })
+      .then((r) => {
+        if (!live) return;
+        setRange(r);
+        // 上一等长区间命中率（30d/custom；fetchRange 自带 60s 缓存）
+        const spanDays = Math.round((new Date(to + "T00:00:00").getTime() - new Date(from + "T00:00:00").getTime()) / 86400000) + 1;
+        const prevTo = dayKey(new Date(new Date(from + "T00:00:00").getTime() - 86400000));
+        const prevFrom = dayKey(new Date(new Date(prevTo + "T00:00:00").getTime() - (spanDays - 1) * 86400000));
+        return fetchRange(prevFrom, prevTo)
+          .then((pr) => { if (live) setPrevHit(pr.totals.requestTotal > 0 ? pr.totals.hitPct : null); })
+          .catch(() => { if (live) setPrevHit(null); });
+      })
       .catch(() => { if (live) setRange(null); })
       .finally(() => { if (live) setBusy(false); });
     return () => { live = false; };
@@ -214,7 +227,11 @@ export function DashboardPanel(): ReactElement {
   const points = useMemo<DashPoint[]>(() => {
     if (tab === "5h" && trend) return hourPoints(trend.hours, new Date().getHours());
     if (tab === "7d" && trend) return lastN(trend.days, 7);
-    if (range) return range.days.map((d: TrendDay) => ({ label: `${Number(d.key.slice(5, 7))}/${Number(d.key.slice(8, 10))}`, value: d.dayTotal, key: d.key, hitPct: d.hitPct }));
+    if (range) return range.days.map((d: TrendDay) => {
+      const m = Number(d.key.slice(5, 7)), day = Number(d.key.slice(8, 10));
+      // v2.2.1 轴标签：月初标「8月」，其余「1日/2日」（配 TrendChart 步长抽稀，30 点不再叠字）
+      return { label: day === 1 ? `${m}月` : `${day}日`, value: d.dayTotal, key: d.key, hitPct: d.hitPct };
+    });
     return [];
   }, [tab, trend, range]);
 
@@ -224,11 +241,45 @@ export function DashboardPanel(): ReactElement {
   const inRange = tab === "7d" || tab === "30d" || tab === "custom";
   const totals = inRange && range ? range.totals : null;
 
+  // —— 命中率对比（周期随选项卡，v2.2.1 用户裁定）：当前窗口 Σcache/Σreq vs 上一等长周期 ——
+  // 5h=今日小时桶内前 5 完整整点 vs 其前 5 整点（跨昨日的凌晨时段不显示对比）；
+  // 7d=快照末 7 日 vs 前 7 日；30d/自定义=区间 totals vs 前移一个等长区间（fetchRange，60s 缓存）。
+  const hitCompare = (() => {
+    // v2.2.1 U5 同比统一逻辑：当前/上一周期都有数据 → 显示对比；任一方无数据或周期不足 → 只显示当前命中率或隐藏
+    if (tab === "5h" && trend && trend.hours) {
+      const nowH = new Date().getHours();
+      const cur = trend.hours.filter((h) => {
+        const hh = Number(h.key.slice(11, 13));
+        return hh >= ((nowH - 5 % 24) + 24) % 24 && hh < nowH; // 今日 0 点后跨日部分不在快照内，只聚合今日可用桶
+      });
+      const prev = trend.hours.filter((h) => {
+        const hh = Number(h.key.slice(11, 13));
+        return hh >= ((nowH - 10) % 24 + 24) % 24 && hh < ((nowH - 5) % 24 + 24) % 24;
+      });
+      const curAgg = { requestTotal: cur.reduce((s2, h) => s2 + h.requestTotal, 0), cacheRead: cur.reduce((s2, h) => s2 + h.cacheRead, 0) };
+      const prevAgg = { requestTotal: prev.reduce((s2, h) => s2 + h.requestTotal, 0), cacheRead: prev.reduce((s2, h) => s2 + h.cacheRead, 0) };
+      if (curAgg.requestTotal <= 0) return ""; // 当前窗口无数据 → 不显示
+      return hitCompareText(pooledHit([curAgg]), prevAgg.requestTotal > 0 ? pooledHit([prevAgg]) : null);
+    }
+    if (tab === "7d" && trend && trend.days.length > 0) {
+      const cur = pooledHit(trend.days.slice(7));
+      const prevDays = trend.days.slice(0, 7);
+      const prevReq = prevDays.reduce((s2, d) => s2 + d.requestTotal, 0);
+      // 7d 快照恒 14 天：数据不足（全零历史）时上一周期无数据 → 只显示当前
+      return hitCompareText(cur, prevReq > 0 ? pooledHit(prevDays) : null);
+    }
+    if ((tab === "30d" || tab === "custom") && range && range.totals.requestTotal > 0) {
+      // prevHit=null 可能是「上一区间无数据」或「还在拉取」——统一只显示当前（拉到后自动升级为对比）
+      return hitCompareText(range.totals.hitPct, prevHit);
+    }
+    return "";
+  })();
+
   const grid: [string, string][] = [
-    [t("dash.g.userEst"), "~" + fmtTokens(totals ? totals.userEst : usage ? usage.userEst : 0) + t("dash.estimateSuffix") + " · " + t("dash.withSubagents")],
-    [t("dash.g.output"), fmtTokens(totals ? totals.outputTokens : usage ? usage.day.outputTokens : 0)],
-    [t("dash.g.requestTotal"), fmtTokens(totals ? totals.requestTotal : usage ? usage.requestTotal : 0)],
-    [t("dash.g.cacheRead"), fmtTokens(totals ? totals.cacheRead : usage ? usage.day.cacheReadTokens : 0)],
+    [t("dash.g.userEst"), "~" + fmtInt(totals ? totals.userEst : usage ? usage.userEst : 0) + t("dash.estimateSuffix") + " · " + t("dash.withSubagents")],
+    [t("dash.g.output"), fmtInt(totals ? totals.outputTokens : usage ? usage.day.outputTokens : 0)],
+    [t("dash.g.requestTotal"), fmtInt(totals ? totals.requestTotal : usage ? usage.requestTotal : 0)],
+    [t("dash.g.cacheRead"), fmtInt(totals ? totals.cacheRead : usage ? usage.day.cacheReadTokens : 0)],
     [t("dash.g.hitPct"), fmtPct(totals ? totals.hitPct : usage ? usage.cacheHitRate : 0)],
     [t("dash.g.requests"), String(totals ? totals.requestCount : trend && trend.days[13] ? trend.days[13].requestCount : 0)],
     [t("dash.g.asOf"), new Date().toLocaleTimeString()],
@@ -251,9 +302,10 @@ export function DashboardPanel(): ReactElement {
     tokens: fmtTokens(hero),
     hit: fmtPct(hitRate),
     models: String(models.length),
+    tool: tools[0] ? tools[0].name : "",
   };
-  const buildQuote = (): string =>
-    pickQuote({ total: hero, hitPct: hitRate, trendUp, multiModel: models.length > 1, loaf }, getLang(), cfg.exportQuote, quoteVars);
+  const buildQuote = (customQuote?: string): string =>
+    pickQuote({ total: hero, hitPct: hitRate, trendUp, multiModel: models.length > 1, loaf, tool: quoteVars.tool }, getLang(), customQuote, quoteVars);
 
   // 复制文本：grid + models 多行纯文本；clipboard API 优先，失败回退 execCommand，再失败静默（toast-less，ManageDialog 同款）
   const onCopyText = async (): Promise<void> => {
@@ -261,7 +313,7 @@ export function DashboardPanel(): ReactElement {
       `${t("dash.panelTitle")} · ${t(`dash.tab.${tab}`)}`,
       ...grid.map(([k, v]) => `${k}: ${v}`),
       `${t("dash.models")}:`,
-      ...models.map((m) => `${shortModel(m.model || m.route)}  ${fmtTokens(m.requestTotal)}`),
+      ...models.map((m) => `${m.route}  ${fmtTokens(m.requestTotal)}`),
     ];
     const text = lines.join("\n");
     try {
@@ -281,21 +333,45 @@ export function DashboardPanel(): ReactElement {
     setCopiedFlash(true);
   };
 
-  // 导出图片：sprite 从 runtime.spriteUrl 现场加载（失败 → null，无立绘继续导出）；
-  // frameCols=ANIM 最长 d 数组；frameW=sheet 宽/cols，frameH=sheet 高/行数（runtime.rows 自适应 v1/v2 图集）
-  const onExportImage = async (): Promise<void> => {
+  // 导出图片（v2.2.1 竖版卡）：sprite 从 runtime.spriteUrl 现场加载（失败 → null，无立绘继续导出）；
+  // customQuote 非空 → 按自定义评语模板填充（占位符 {range}/{tokens}/{hitPct}/{models}），否则走评语池。
+  // 模型名导出全名（v2.2.1：不再 shortModel 截断）。
+  // 导出/展示用具体时间范围（v2.2.1）：5h=某日 HH:00–HH:00；7d/30d=首末日期；custom=from ~ to
+  const rangeLabel = (() => {
+    if (tab === "custom") return `${custom.from} ~ ${custom.to}`;
+    if (points.length === 0) return t(`dash.tab.${tab}`);
+    const first = points[0].key, last = points[points.length - 1].key;
+    const md = (key: string) => `${Number(key.slice(5, 7))}/${Number(key.slice(8, 10))}`;
+    if (tab === "5h") {
+      const h1 = first.slice(11, 13), h2 = last.slice(11, 13);
+      return `${md(first)} ${h1}:00–${h2}:00`;
+    }
+    return `${md(first)} – ${md(last)}（${t(`dash.tab.${tab}`)}）`;
+  })();
+  const onExportImage = async (customQuote?: string): Promise<void> => {
     const rt = appStore.getRuntime();
     const sprite = await loadSprite(rt.spriteUrl);
     const frameCols = maxAnimCols();
     const blob = await exportDashboardImage({
-      title: `${t("dash.panelTitle")} · ${t(`dash.tab.${tab}`)}`,
-      hero: fmtTokens(hero),
-      grid,
-      models: models.map((m) => ({ name: shortModel(m.model || m.route), val: fmtTokens(m.requestTotal) })),
+      rangeLabel,
+      hero: hero.toLocaleString("en-US"),
+      heroSub: `${t("dash.g.asOf")} ${new Date().toLocaleTimeString()}`,
+      metrics: grid.slice(0, 6),
+      trendTitle: t("dash.trendTitle"),
+      peakLabel: t("dash.peak", { v: fmtTokens(Math.max(0, ...points.map((p) => p.value))) }),
       points: points.map((p) => ({ label: p.label, value: p.value })),
-      quote: buildQuote(),
+      models: models.map((m) => ({ name: m.route, val: fmtTokens(m.requestTotal), share: maxModel > 0 ? m.requestTotal / maxModel : 0 })),
+      tools2x2: (() => {
+        const m = toolsMetrics(tools);
+        return [
+          [t("dash.g.toolCalls"), String(m.calls)],
+          [t("dash.g.toolAvg"), fmtDur(m.avgMs)],
+          [t("dash.g.toolTopCount"), `${m.topName} ${m.topCount}`],
+          [t("dash.g.toolTopDur"), `${m.topDurName} ${fmtDur(m.topDurMs)}`],
+        ] as [string, string][];
+      })(),
+      quote: customQuote && customQuote.trim() ? fillQuote(customQuote.trim(), quoteVars) : buildQuote(),
       poseRow: resolvePoseRow(cfg.exportPose),
-      frameCols,
       sprite,
       frameW: sprite ? sprite.naturalWidth / frameCols : 0,
       frameH: sprite ? sprite.naturalHeight / rt.rows : 0,
@@ -308,6 +384,25 @@ export function DashboardPanel(): ReactElement {
     // Safari：同步 revoke 会中断未开始的下载——延后到下一轮宏任务再释放
     setTimeout(() => URL.revokeObjectURL(url), 10_000);
   };
+
+  // 进度条等宽基准：隐藏测量行实测「最长模型名 + 最长数值」宽度（含 gap），写入 CSS 变量
+  const [modelNameW, setModelNameW] = useState(200);
+  const [modelValW, setModelValW] = useState(84);
+  useEffect(() => {
+    const host = modelHeadRef.current;
+    if (!host) return;
+    const probe = document.createElement("span");
+    probe.style.cssText = "position:absolute;visibility:hidden;white-space:nowrap;font:600 16px system-ui";
+    document.body.appendChild(probe);
+    let maxName = 0, maxVal = 0;
+    for (const m of models.slice(0, 6)) {
+      probe.textContent = m.route; maxName = Math.max(maxName, probe.offsetWidth);
+      probe.textContent = fmtTokens(m.requestTotal); maxVal = Math.max(maxVal, probe.offsetWidth);
+    }
+    probe.remove();
+    setModelNameW(Math.min(420, Math.ceil(maxName) + 4));
+    setModelValW(Math.min(120, Math.ceil(maxVal) + 6));
+  }, [models]);
 
   useEffect(() => {
     if (!copiedFlash) return;
@@ -332,26 +427,36 @@ export function DashboardPanel(): ReactElement {
             </span>
           ) : null}
         </div>
-        {/* v2.2 R8 导出（Task 14）：复制文本 / 导出图片 */}
+        {/* v2.2 R8 导出 + v2.2.1 自定义评语内联：复制文本 / 导出图片 / 按自定义评语导出 */}
         <div className="dyn-pet-dash-actions">
           <button className="dyn-pet-dash-actbtn" onClick={() => void onCopyText()}>{copiedFlash ? t("dash.export.copied") : t("dash.export.copyText")}</button>
           <button className="dyn-pet-dash-actbtn" onClick={() => void onExportImage()}>{t("dash.export.exportImage")}</button>
+          <button className={"dyn-pet-dash-actbtn" + (quoteOpen ? " is-active" : "")} onClick={() => setQuoteOpen((o) => !o)}>{t("dash.export.exportCustom")}</button>
         </div>
       </div>
+      {quoteOpen ? (
+        <div className="dyn-pet-dash-quotebar">
+          <input
+            type="text"
+            value={quoteDraft}
+            placeholder={t("dash.export.quotePlaceholder")}
+            onChange={(e) => setQuoteDraftPersisted(e.target.value)}
+          />
+          <button className="dyn-pet-dash-actbtn" onClick={() => void onExportImage(quoteDraft)}>{t("dash.export.export")}</button>
+        </div>
+      ) : null}
 
       <div className="dyn-pet-dash-hero">
         <div className="dyn-pet-dash-hero-label">{t("dash.heroTotal", { range: t(`dash.tab.${tab}`) })}</div>
-        <div className="dyn-pet-dash-hero-num">{fmtTokens(hero)}</div>
-        {(tab === "5h" || tab === "7d") && trend ? (
-          <div className="dyn-pet-dash-weekhit">
-            {t("dash.weekHit", { a: fmtPct(weekHit(trend, 0)), b: fmtPct(weekHit(trend, 1)), d: hitDeltaText(trend) })}
-          </div>
+        <div className="dyn-pet-dash-hero-num">{fmtInt(hero)}</div>
+        {hitCompare ? (
+          <div className="dyn-pet-dash-weekhit">{hitCompare}</div>
         ) : null}
       </div>
 
-      <div className="dyn-pet-dash-grid">
+      <div className="dyn-pet-dash-rows">
         {grid.map(([k, v]) => (
-          <div key={k} className="dyn-pet-dash-cell"><span>{k}</span><strong>{v}</strong></div>
+          <div key={k} className="dyn-pet-dash-row"><span>{k}</span><strong>{v}</strong></div>
         ))}
       </div>
 
@@ -374,11 +479,11 @@ export function DashboardPanel(): ReactElement {
         </div>
       </div>
 
-      <div className="dyn-pet-dash-card">
+      <div className="dyn-pet-dash-card" ref={modelHeadRef} style={{ "--model-name-w": `${modelNameW}px`, "--model-val-w": `${modelValW}px` } as React.CSSProperties}>
         <div className="dyn-pet-dash-card-head"><span>{t("dash.models")}</span></div>
-        {models.length === 0 ? <div className="dyn-pet-dash-empty">{t("dash.noData")}</div> : models.slice(0, 6).map((m) => (
+        {models.length === 0 ? <div className="dyn-pet-dash-empty">{t("dash.noData")}</div> : models.slice(0, 10).map((m) => (
           <div key={m.route} className="dyn-pet-dash-model">
-            <span className="dyn-pet-dash-model-name" title={m.route}>{shortModel(m.model || m.route)}</span>
+            <span className="dyn-pet-dash-model-name" title={m.route}>{m.route}</span>
             <span className="dyn-pet-dash-model-val">{fmtTokens(m.requestTotal)}</span>
             <span className="dyn-pet-dash-model-bar"><i style={{ width: `${Math.max(4, (m.requestTotal / maxModel) * 100).toFixed(1)}%` }} /></span>
           </div>

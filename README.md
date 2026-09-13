@@ -85,9 +85,9 @@ v1.4.0 效率看板一期整体移植到 v2 架构：宿主聚合、随 `/state`
 - **L2 小黑板加料**：五口径明细之后追加 **7 日 sparkline**、**模型 Top3** 与「**查看完整看板 →**」入口行；黑板锚定宠物侧（左优先、越界自动翻右），出现即顶替迷你条。
 - **L3 大看板**（复刻 Codex++ 排版，占主列）：选项卡【近 5 小时 | 近 7 天 | 近 30 天 | 自定义 ≤31 天】+「复制文本」「导出图片」；区间 hero 大数字 + 本周/上周命中率对比；五口径网格；蓝→紫渐变趋势图（hover tooltip / 数据点 / 峰值 / 轴标签）；**模型分布**通栏进度条（≤6 行）；2×2 工具格 + Top5 工具；底部口径说明。
 - **模型/供应商分布**（F05 清偿）：按 (turn, step) 结算样本的 `provider/model` 路由记账（同槽替换冲回、跨日不污染）；聚合结果已与会话官方 tokenUsage totals 四口径逐字节对账。
-- **导出分享**：1200×675 PNG——标题 / hero / 趋势折线 / 口径网格 / 模型行 + 底部当前宠物立绘（姿态随机或自选）+ 智能评语气泡（规则池 zh/en 优先级匹配，或设置卡自定义模板 `{range}` `{tokens}` `{hitPct}` `{models}`）；「复制文本」为同数据纯文本摘要。
+- **导出分享**：720×1560 竖版卡片（对齐 Codex++ 排版）——标题/日期范围、累计 Token hero（完整千分位）、五口径指标行、趋势卡（峰值+渐变折线）、按 Model 分布（**模型全名**+进度条）、工具调用 2×2；最下方为聊天式**评语气泡 + 宠物立绘**（姿态随机或自选，气泡不遮挡宠物）。评语来自规则池（zh/en 优先级匹配），或经头部「**按自定义评语导出**」内联填写模板（`{range}` `{tokens}` `{hitPct}` `{models}`）；「复制文本」为同数据纯文本摘要。
 - **看板音效**：警报（日阈值 / 里程碑）四组配齐播 `general` 组语音，否则播内置合成提示音（`/sounds/` 路由）。
-- 设置卡新增 **3 项**：「侧栏看板入口」（默认关，开启后侧栏出现看板图标）、「导出评语」、「导出姿态」。注：rc.2 真机上「侧栏看板入口」图标可能不投影（上游子槽生命周期待排查）；右键菜单与黑板链为实测可用入口。
+- 设置卡新增：「侧栏看板入口」（默认关，开启后侧栏出现看板图标）、「导出姿态」；**自定义评语**在看板头部「按自定义评语导出」内联填写（不再占用设置项）。注：rc.2 真机上「侧栏看板入口」图标可能不投影（上游子槽生命周期待排查）；右键菜单与黑板链为实测可用入口。
 
 ## 环境要求（兼容表）
 
@@ -117,6 +117,53 @@ dsh plugin --profile web add github:jarvislee90s-dot/dsh-foxbell-pet#release
 
 > 桌宠运行时从插件包自带目录 `assets/` 读取内置精灵图/语音；外部宠物商店在
 > `~/.dsh/foxbell-pet/`（插件专属目录，首次启动自动创建）。
+
+
+## 本地源码安装（开发/尝鲜最新源码）
+
+想在本地改代码并立即在 dsh 里测试时，把源码目录以 **link 方式**装进 profile——安装的是“活”的源码目录，改完重新构建、刷新页面即生效：
+
+```sh
+# 1) 获取源码并构建（需要 Node ≥ 20 与 pnpm）
+git clone https://github.com/jarvislee90s-dot/dsh-foxbell-pet.git
+cd dsh-foxbell-pet && pnpm install
+npm run build            # 产出 lib/（dsh 实际加载 lib/，不是 src/）
+
+# 2) 以 link 方式装进 web profile（自动写入启动清单；在插件目录执行）
+dsh plugin --profile web add .
+
+# 3) 启动/重启 dsh web，打开网页即见（重装/更新后建议硬刷新 Cmd/Ctrl+Shift+R）
+```
+
+**日常开发热更**：
+
+```sh
+npm run build:watch      # 常驻监视 src/，改动即重建 lib/
+```
+
+- 纯客户端改动（`src/client/**`）：**刷新网页**即生效；
+- 宿主侧改动（`src/host/**`）：需**重启 `dsh web`**；
+- 卸载（不影响源码目录）：`dsh plugin --profile web remove dsh-foxbell-pet`。
+
+> 本地源码版 harness（`deepseek-harness` 仓库）跑 `pnpm dsh web` 同样适用以上 link 安装；
+> 若 profiles 里曾装过旧版，`add .` 会覆盖为本地 link。
+
+
+### 启动 / 重启 dsh web（本地源码版）
+
+本地源码版 harness 没有图形启停入口，dsh web 通常跑在后台终端里。两种重启方式：
+
+```sh
+# 方式一：自带脚本（在 deepseek-harness 仓库根目录，自动停旧进程→重启→打印新链接）
+./dsh-web-restart.sh
+
+# 方式二：手动（杀掉占用 3080 的进程后再起）
+lsof -nP -iTCP:3080 -sTCP:LISTEN -t | xargs kill    # 停（若有）
+cd <deepseek-harness 目录> && pnpm dsh web          # 前台起（Ctrl+C 停）
+```
+
+启动成功的标志是终端打出 `dsh web: http://127.0.0.1:3080/?token=…`；日志在 `/tmp/dsh-web.log`。
+重启后记得**硬刷新浏览器**（Cmd/Ctrl+Shift+R）。
 
 ## 使用
 

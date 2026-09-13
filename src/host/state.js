@@ -356,7 +356,7 @@ export function aggregateFold(entries, cfg, now, alertPrev) {
       grandTotal,
       // v2.2 R2/R5/R3 快照扩展：当日模型 Top6 / 当日工具 Top5 / 14 日+24 桶趋势。
       // models 由 v2.1 的 {} 二期占位桶转正为 RouteAgg[]（客户端 UsageSnapshot.models / Board 消费数组）。
-      models: Object.values(routeDay).sort((a, b) => b.requestTotal - a.requestTotal).slice(0, 6),
+      models: Object.values(routeDay).sort((a, b) => b.requestTotal - a.requestTotal).slice(0, 10), // v2.2.1 Top6→Top10（用户裁定：10 个模型全展示）
       tools: Object.values(toolDay).sort((a, b) => b.count - a.count).slice(0, 5),
       trend: buildTrend(sessions.map((s) => (s && s.folded) ? s.folded.usage : null), nowMs),
     },

@@ -20,11 +20,12 @@ import {
   ALL_DRAFT_KEYS, DASH_BOOL_KEYS, DASH_NUM_ROWS, SETTINGS_ALL_KEYS, SETTINGS_V22_KEYS,
   buildSavePatch, isBadNumValue, isDraftDirty, type DraftConfig,
 } from "../src/client/settingsdraft";
-import { fmtPct, fmtTokens, shortModel } from "../src/client/format";
-import { clampRangeFrom, hitDeltaText, hourPoints, toolsMetrics, trendDirection, viewWindow, weekHit } from "../src/client/DashboardPanel";
+import { fmtInt, fmtPct, fmtTokens, shortModel } from "../src/client/format";
+import { clampRangeFrom, hitCompareText, hourPoints, toolsMetrics, trendDirection, viewWindow } from "../src/client/DashboardPanel";
+import { tierBarClass, tierMoodClass } from "../src/client/MiniBar";
 import { maxAnimCols, resolvePoseRow } from "../src/client/exportimage";
 import { lastN } from "../src/client/TrendChart";
-import { boardRows, fmtDur, fmtLongest } from "../src/client/boardrows";
+import { boardOverviewLine, boardRows, fmtDur, fmtLongest } from "../src/client/boardrows";
 import { KNOWN_RPC_CODES, PetError, isPetRpcError } from "../src/client/errors";
 import { fillQuote, pickQuote } from "../src/client/quotes";
 import { petErrMsg, type DashboardSummary, type ProjectCard } from "../src/client/api";
@@ -499,7 +500,7 @@ describe("i18n 字典完整性", () => {
     expect(t("rpc.pet-exists", { name: "abc" })).toBe("Pet already exists: abc");
     setLang("zh");
   });
-  it("dash.* 效率看板键 zh/en 成对、63 键在位、五口径名词逐字（行为不变量）", () => {
+  it("dash.* 效率看板键 zh/en 成对、键集在位、五口径名词统一（v2.2.1：命中率/请求次数）", () => {
     const expectedDash = [
       "dash.today", "dash.requestInput", "dash.hit", "dash.cacheHit", "dash.output",
       "dash.yourInput", "dash.estimateSuffix", "dash.withSubagents", "dash.sessionReq",
@@ -531,18 +532,21 @@ describe("i18n 字典完整性", () => {
       "dash.trend7", "dash.models", "dash.moreN", "dash.openPanel",
       // Task 12 L3 大看板（R5/R9）：标题/四选项卡/hero/周命中/趋势卡/工具卡/空态/区间钳制
       "dash.panelTitle", "dash.tab.5h", "dash.tab.7d", "dash.tab.30d", "dash.tab.custom",
-      "dash.heroTotal", "dash.weekHit", "dash.trendTitle", "dash.loading", "dash.peak",
+      "dash.heroTotal", "dash.hitCompare", "dash.hitCur", "dash.trendTitle", "dash.loading", "dash.peak",
       "dash.tools", "dash.noData", "dash.rangeClamp",
+      // v2.2.1 档位跨阶举牌（纯文字表达；摸鱼四阶内部递进不举）
+      "dash.pace.longrun", "dash.pace.loaf", "dash.pace.backToWork",
       // Task 12 五口径网格 + 2×2 工具格标签（R5 名词序：用户输入/产出/请求输入(全文累计)/缓存命中/命中率/请求次数/数据截止）
       "dash.g.userEst", "dash.g.output", "dash.g.requestTotal", "dash.g.cacheRead", "dash.g.hitPct",
       "dash.g.requests", "dash.g.asOf", "dash.g.toolCalls", "dash.g.toolAvg", "dash.g.toolTopCount", "dash.g.toolTopDur",
       // Task 14 R8 导出：头部两按钮 + 复制回执 / 设置卡 3 键标签 / 姿态下拉（random + ANIM 键）
       "dash.export.copyText", "dash.export.exportImage", "dash.export.copied",
-      "dash.cfg.dashboardSidebarEntry", "dash.cfg.exportQuote", "dash.cfg.exportPose",
+      "dash.export.exportCustom", "dash.export.quotePlaceholder", "dash.export.export",
+      "dash.cfg.dashboardSidebarEntry", "dash.cfg.exportPose",
       "dash.pose.random", "dash.pose.idle", "dash.pose.run-right", "dash.pose.run-left", "dash.pose.waving",
       "dash.pose.jumping", "dash.pose.failed", "dash.pose.waiting", "dash.pose.running", "dash.pose.review",
     ];
-    expect(expectedDash).toHaveLength(109); // 标题计数防再次失真（原 47 系陈旧值；Task9 警报三键 +3；Task10 钻取按钮 +1；Task11 黑板加料四键 +4；Task12 大看板 24 键 +24；Task14 导出 16 键 +16；自检修复 dash.caliber +1）
+    expect(expectedDash).toHaveLength(115); // 标题计数防再次失真（v2.2.1：hitCompare/hitCur +2、档位举牌 pace.* +3）
     const zhDash = dictKeys("zh").filter((k) => k.startsWith("dash.")).sort();
     expect(zhDash).toEqual([...expectedDash].sort());
     const en = new Set(dictKeys("en"));
@@ -550,7 +554,7 @@ describe("i18n 字典完整性", () => {
     setLang("zh");
     expect(t("dash.requestInput")).toBe("请求输入");
     expect(t("dash.cacheHit")).toBe("缓存命中");
-    expect(t("dash.hit")).toBe("命中");
+    expect(t("dash.hit")).toBe("命中率"); // v2.2.1 三看板名词统一（原「命中」）
     expect(t("dash.output")).toBe("产出");
     expect(t("dash.yourInput")).toBe("你的输入");
     expect(t("dash.estimateSuffix")).toBe("(估)");
@@ -560,7 +564,7 @@ describe("i18n 字典完整性", () => {
     expect(t("dash.countApproval")).toBe("等审批");
     expect(t("dash.countRunning")).toBe("运行");
     expect(t("dash.countDone")).toBe("完成");
-    expect(t("dash.request")).toBe("请求");
+    expect(t("dash.request")).toBe("请求次数"); // v2.2.1 名词统一
     expect(t("dash.unsaved")).toBe("有未保存更改");
     expect(t("dash.saved")).toBe("已保存 ✓");
     expect(t("dash.cfg.paceEnabled")).toBe("节奏档位");
@@ -589,6 +593,14 @@ describe("i18n 字典完整性", () => {
   });
 });
 
+describe("fmtInt（完整千分位，v2.2.1 大看板/导出对齐 Codex++ 数字口径）", () => {
+  it("千分位分隔 + 四舍五入 + 非有限归 0", () => {
+    expect(fmtInt(1269973)).toBe("1,269,973");
+    expect(fmtInt(0)).toBe("0");
+    expect(fmtInt(42.6)).toBe("43");
+    expect(fmtInt(Number.NaN)).toBe("0");
+  });
+});
 describe("fmtTokens（万/亿 格式化，formatTokens 客户端移植）", () => {
   it("小数值：四舍五入取整；0/负数/非有限安全归 0", () => {
     expect(fmtTokens(0)).toBe("0");
@@ -626,43 +638,44 @@ describe("fmtTokens（万/亿 格式化，formatTokens 客户端移植）", () =
   });
 });
 
-describe("boardRows（小黑板行拼装，Task 7）", () => {
-  // 与 test/state-dashboard.test.mjs「summary 结构化增量」同一组输入：结构化字段拼装 ↔ 宿主 zh 字符串双向钉住
-  const perSession = [{ turns: 4, errors: 1, toolCalls: { Bash: 1 }, toolDurMs: { Bash: 5000 }, longestTurnMs: 120000 }];
-  const dayUsage = { inputTokens: 1600, outputTokens: 1050, cacheReadTokens: 4000, cacheWriteTokens: 200 };
-  const host = hostSummarize(perSession, dayUsage, 10) as {
-    sessions: number; turns: number; errors: number; tokensText: string; toolsText: string; longestText: string;
-  };
+describe("boardRows（小黑板行拼装，Task 7；v2.2.1 重排为标签-数值结构行）", () => {
   const summary: DashboardSummary = {
     sessions: 1,
     turns: 4,
     errors: 1,
-    tokensText: host.tokensText,
-    toolsText: host.toolsText,
-    longestText: host.longestText,
+    tokensText: "请求输入 5600（缓存命中 4000 · 71.4%）· 产出 1050 · 你的输入 ~10(估) · 含子代理",
+    toolsText: "Bash×1（共 5.0 秒）",
+    longestText: "2.0 分钟",
     tokens: { requestTotal: 5600, cacheRead: 4000, hitPct: (4000 / 5600) * 100, output: 1050, userEst: 10 },
     toolRows: [{ name: "Bash", count: 1, ms: 5000 }],
     longest: { ms: 120000 },
   };
 
-  it("zh 拼装与宿主 summarize zh 字符串逐字节一致（黑板四行序同源）", () => {
+  it("概览行：会话/turn/报错（zh/en）", () => {
+    setLang("zh");
+    expect(boardOverviewLine(summary)).toBe("会话 1 · turn 4 · 报错 1");
+    setLang("en");
+    expect(boardOverviewLine(summary)).toBe("Sessions 1 · turns 4 · errors 1");
+    setLang("zh");
+  });
+  it("明细行 kv：请求输入/缓存命中(百分比)/产出/你的输入/工具/最长 turn（zh/en）", () => {
     setLang("zh");
     const rows = boardRows(summary);
-    expect(rows[0]).toBe("会话 1 · turn 4 · 报错 1");
-    expect(rows[1]).toBe("今日 token " + host.tokensText);
-    expect(rows[2]).toBe("工具 Top3 " + host.toolsText);
-    expect(rows[3]).toBe("最长单 turn " + host.longestText);
-    expect(rows[1]).toBe("今日 token 请求输入 5600（缓存命中 4000 · 71.4%）· 产出 1050 · 你的输入 ~10(估) · 含子代理");
-    expect(rows[2]).toBe("工具 Top3 Bash×1（共 5.0 秒）");
-    expect(rows[3]).toBe("最长单 turn 2.0 分钟");
-  });
-  it("en 拼装走同构英文（t() + fmtTokens，结构不变）", () => {
+    expect(rows.map((r) => r.label)).toEqual([
+      "请求输入(全文累计)", "缓存命中", "产出", "你的输入(估) · 含子代理", "工具 Top3", "最长单 turn",
+    ]);
+    expect(rows[0].value).toBe("5600");
+    expect(rows[1].value).toBe("4000（71.4%）");
+    expect(rows[2].value).toBe("1050");
+    expect(rows[3].value).toBe("~10");
+    expect(rows[4].value).toBe("Bash×1（共 5.0 秒）");
+    expect(rows[5].value).toBe("2.0 分钟");
     setLang("en");
-    const rows = boardRows(summary);
-    expect(rows[0]).toBe("Sessions 1 · turns 4 · errors 1");
-    expect(rows[1]).toBe("Today's tokens Request input 5600 (Cache hit 4000 · 71.4%) · Output 1050 · Your input ~10(est.) · incl. subagents");
-    expect(rows[2]).toBe("Top 3 tools Bash×1 (total 5.0 s)");
-    expect(rows[3]).toBe("Longest turn 2.0 min");
+    const en = boardRows(summary);
+    expect(en[0].label).toBe("Request input (cumulative)");
+    expect(en[1].value).toBe("4000（71.4%）");
+    expect(en[4].value).toBe("Bash×1 (total 5.0 s)");
+    expect(en[5].value).toBe("2.0 min");
     setLang("zh");
   });
   it("耗时三档镜像宿主 formatDur；longest null → 「0 秒」桶；工具空 → —", () => {
@@ -674,25 +687,24 @@ describe("boardRows（小黑板行拼装，Task 7）", () => {
     expect(fmtLongest(0)).toBe("0 秒");
     const empty: DashboardSummary = { ...summary, toolRows: [], longest: null };
     const rows = boardRows(empty);
-    expect(rows[2]).toBe("工具 Top3 —");
-    expect(rows[3]).toBe("最长单 turn 0 秒");
+    expect(rows[4].value).toBe("—");
+    expect(rows[5].value).toBe("0 秒");
     setLang("en");
     expect(fmtDur(2500)).toBe("2.5 s");
     expect(fmtLongest(90000)).toBe("1.5 min");
     setLang("zh");
   });
-  it("多工具条目按宿主 toolsText 同构 join（×N 与耗时段并存）", () => {
+  it("多工具条目 ×N 与耗时段并存", () => {
     setLang("zh");
     const multi: DashboardSummary = { ...summary, toolRows: [
       { name: "Read", count: 5, ms: 4000 },
       { name: "Bash", count: 3, ms: 60000 },
       { name: "Grep", count: 2, ms: 0 },
     ] };
-    expect(boardRows(multi)[2]).toBe("工具 Top3 Read×5（共 4.0 秒） · Bash×3（共 1.0 分钟） · Grep×2");
+    expect(boardRows(multi)[4].value).toBe("Read×5（共 4.0 秒） · Bash×3（共 1.0 分钟） · Grep×2");
     setLang("zh");
   });
 });
-
 describe("petErrMsg 分流 (MAM 同款)", () => {
   it("PetError → err.<code> with params", () => {
     expect(petErrMsg(new PetError("sheet-bad-size", { w: 100, h: 200 }), t)).toContain("100");
@@ -926,31 +938,43 @@ describe("v2.2 fmtPct (Task12 (x*100).toFixed(1)+'%'，入参为 0-1 分数)", (
   });
 });
 
-describe("v2.2 weekHit/hitDeltaText (Task12 周一始日历周，锚=快照最新日；返回 0-1 分数供 fmtPct)", () => {
-  // [key, requestTotal(请求输入口径), cacheRead]；宿主 hitRate 为 0-1 分数（分母 0 记 0）
-  const trend = {
-    days: [
-      { key: "2026-08-31", requestTotal: 100, cacheRead: 50 }, // 上周一
-      { key: "2026-09-01", requestTotal: 100, cacheRead: 25 }, // 上周二
-      { key: "2026-09-07", requestTotal: 200, cacheRead: 200 }, // 本周一
-      { key: "2026-09-08", requestTotal: 0, cacheRead: 0 }, // 本周二：分母 0，不影响聚合
-      { key: "2026-09-10", requestTotal: 100, cacheRead: 50 }, // 本周四
-      { key: "2026-09-11", requestTotal: 100, cacheRead: 75 }, // 锚点日（本周五）
-    ],
-  };
-  it("aggregates ΣcacheRead/ΣrequestTotal within Mon-start calendar weeks", () => {
-    expect(weekHit(trend as never, 0)).toBeCloseTo(325 / 400, 6); // 本周 9/07+9/10+9/11（9/08 分母 0 不计分子权重）
-    expect(weekHit(trend as never, 1)).toBeCloseTo(75 / 200, 6); // 上周 8/31+9/01
+describe("v2.2.1 mini dial tier classes（表盘档位配色/情绪色）", () => {
+  it("tierBarClass：忙档/长任务/摸鱼三档渐变；未知回落 busy", () => {
+    expect(tierBarClass({ tier: "intense" } as never)).toBe("busy");
+    expect(tierBarClass({ tier: "active" } as never)).toBe("busy");
+    expect(tierBarClass({ tier: "longrun" } as never)).toBe("longrun");
+    expect(tierBarClass({ tier: "loaf1" } as never)).toBe("loaf");
+    expect(tierBarClass({ tier: "loaf4" } as never)).toBe("loaf");
+    expect(tierBarClass(null)).toBe("busy");
+    expect(tierBarClass(undefined)).toBe("busy");
   });
-  it("hitDeltaText formats ±pt（百分点差）", () => {
-    expect(hitDeltaText(trend as never)).toBe("+43.8pt"); // (0.8125-0.375)*100
-  });
-  it("null/空快照 → 0 / ±0.0pt；缺 hitPct 字段不参与（聚合只用原始分账）", () => {
-    expect(weekHit(null, 0)).toBe(0);
-    expect(weekHit({ days: [] } as never, 1)).toBe(0);
-    expect(hitDeltaText(null)).toBe("±0.0pt");
+  it("tierMoodClass：忙档琥珀/长任务紫/摸鱼灰蓝", () => {
+    expect(tierMoodClass({ tier: "intense" } as never)).toBe("mood-busy");
+    expect(tierMoodClass({ tier: "longrun" } as never)).toBe("mood-longrun");
+    expect(tierMoodClass({ tier: "loaf2" } as never)).toBe("mood-loaf");
+    expect(tierMoodClass(null)).toBe("mood-busy");
   });
 });
+
+describe("v2.2.1 hitCompareText（周期一致命中率对比文案，i18n）", () => {
+  it("a vs b：百分数 + 上一周期 + ±pt（zh/en）", () => {
+    setLang("zh");
+    expect(hitCompareText(0.8125, 0.375)).toBe("命中率 81.3%（上一周期 37.5% · +43.8pt）");
+    expect(hitCompareText(0.375, 0.8125)).toBe("命中率 37.5%（上一周期 81.3% · -43.8pt）");
+    expect(hitCompareText(0.5, 0.5)).toBe("命中率 50.0%（上一周期 50.0% · ±0.0pt）");
+    setLang("en");
+    expect(hitCompareText(0.8125, 0.375)).toBe("Hit rate 81.3% (previous period 37.5% · +43.8pt)");
+    setLang("zh");
+  });
+  it("b=null（上一周期无数据）→ 只显示当前值", () => {
+    setLang("zh");
+    expect(hitCompareText(0.72, null)).toBe("命中率 72.0%");
+    setLang("en");
+    expect(hitCompareText(0.72, null)).toBe("Hit rate 72.0%");
+    setLang("zh");
+  });
+});
+
 
 describe("v2.2 hourPoints (Task12 5h=最近 5 个「完整」整点桶，排除进行中小时)", () => {
   const hours = Array.from({ length: 24 }, (_, h) => ({
@@ -977,19 +1001,20 @@ describe("v2.2 hourPoints (Task12 5h=最近 5 个「完整」整点桶，排除�
 describe("v2.2 toolsMetrics (Task12 2×2 工具格：调用总数/平均耗时/Top 工具次数/Top 工具总耗时)", () => {
   it("sums calls, avg=dur/calls, top = max-count tool (并列取先)", () => {
     const m = toolsMetrics([{ name: "Bash", count: 3, durMs: 90000 }, { name: "Read", count: 5, durMs: 4000 }]);
-    expect(m).toEqual({ calls: 8, avgMs: 94000 / 8, topCount: 5, topDurMs: 4000 });
+    // v2.2.1：topDurMs 语义修正为「总耗时最大者」(90000, Bash)，topName/topDurName 供导出 2×2 标注
+    expect(m).toEqual({ calls: 8, avgMs: 94000 / 8, topCount: 5, topDurMs: 90000, topName: "Read", topDurName: "Bash" });
     const tie = toolsMetrics([{ name: "A", count: 2, durMs: 10 }, { name: "B", count: 2, durMs: 20 }]);
-    expect(tie.topDurMs).toBe(10); // 并列保序取首个
+    expect(tie.topDurMs).toBe(20); // v2.2.1：topDur = durMs 最大者（B）
   });
   it("zero calls → avg 0；null/非数组容错", () => {
-    expect(toolsMetrics([])).toEqual({ calls: 0, avgMs: 0, topCount: 0, topDurMs: 0 });
-    expect(toolsMetrics(null)).toEqual({ calls: 0, avgMs: 0, topCount: 0, topDurMs: 0 });
+    expect(toolsMetrics([])).toEqual({ calls: 0, avgMs: 0, topCount: 0, topDurMs: 0, topName: "—", topDurName: "—" });
+    expect(toolsMetrics(null)).toEqual({ calls: 0, avgMs: 0, topCount: 0, topDurMs: 0, topName: "—", topDurName: "—" });
   });
 });
 
 // ---- Task 12：大看板 i18n 键（R5/R9；tab.* 动态查表 `dash.tab.${x}`）----
 describe("v2.2 dashboard panel i18n (Task12)", () => {
-  it("tabs/hero/grid/weekHit/rangeClamp zh/en 成对且插值正确", () => {
+  it("tabs/hero/grid/hitCompare/rangeClamp zh/en 成对且插值正确", () => {
     setLang("zh");
     expect(t("dash.panelTitle")).toBe("用量看板");
     expect(t("dash.tab.5h")).toBe("5小时");
@@ -1007,7 +1032,8 @@ describe("v2.2 dashboard panel i18n (Task12)", () => {
     expect(t("dash.g.toolTopDur")).toBe("Top 工具总耗时");
     expect(t("dash.trendTitle")).toBe("用量趋势");
     expect(t("dash.peak", { v: "1.2万" })).toBe("峰值 1.2万");
-    expect(t("dash.weekHit", { a: "81.3%", b: "37.5%", d: "+43.8pt" })).toBe("本周命中 81.3%（上周 37.5% · +43.8pt）");
+    expect(t("dash.hitCompare", { a: "81.3%", b: "37.5%", d: "+43.8pt" })).toBe("命中率 81.3%（上一周期 37.5% · +43.8pt）");
+    expect(t("dash.hitCur", { a: "72.0%" })).toBe("命中率 72.0%");
     expect(t("dash.rangeClamp")).toBe("已截断为最近 31 天");
     expect(t("dash.tools")).toBe("工具");
     expect(t("dash.noData")).toBe("暂无数据");
@@ -1072,9 +1098,13 @@ describe("v2.2 quotes (Task14 R8)", () => {
     expect(pickQuote(agg, "zh", "自定义 {models}")).toBe("自定义 "); // vars 缺省 → 空串占位
     expect(pickQuote(agg, "zh", "自定义", { range: "7日", tokens: "1万", hit: "90%", models: "3" })).toBe("自定义");
   });
-  it("fillQuote 四占位符全替换（{range}/{tokens}/{hitPct}/{models}；未出现的占位符原样保留语义=split/join 直替）", () => {
+  it("fillQuote 五占位符全替换（{range}/{tokens}/{hitPct}/{models}/{tool}；v2.2.1 增 {tool} 工作贴合句）", () => {
     expect(fillQuote("{range}·{tokens}·{hitPct}·{models}", { range: "30日", tokens: "5.0亿", hit: "37.5%", models: "2" }))
       .toBe("30日·5.0亿·37.5%·2");
+    expect(fillQuote("{tool} 出勤最多", { range: "", tokens: "", hit: "", models: "", tool: "web_fetch" }))
+      .toBe("web_fetch 出勤最多");
+    expect(fillQuote("{tool} 出勤最多", { range: "", tokens: "", hit: "", models: "" }))
+      .toBe(" 出勤最多"); // tool 缺省空串
   });
   it("en 池同规则；优先级顺序（总量档在趋势前：中档总量才落到 trend>multi>loaf>兜底）", () => {
     expect(pickQuote({ total: 500, hitPct: 0.95, trendUp: true, multiModel: true, loaf: false }, "en")).toContain("Cache");
@@ -1092,16 +1122,13 @@ describe("v2.2 quotes (Task14 R8)", () => {
 
 // ---- Task 14：R8 导出三键的配置契约 + 姿态/趋势纯函数（测试全部为追加）----
 describe("v2.2 export config keys (Task14 R8)", () => {
-  it("CFG_DEFAULT 导出 3 键与宿主 Config schema 逐字一致（false/''/'random'）", () => {
-    expect(CFG_DEFAULT.dashboardSidebarEntry).toBe(false);
-    expect(CFG_DEFAULT.exportQuote).toBe("");
+  it("CFG_DEFAULT 导出键与宿主 Config schema 逐字一致（'random'；exportQuote/dashboardSidebarEntry 已移除）", () => {
     expect(CFG_DEFAULT.exportPose).toBe("random");
+    expect((CFG_DEFAULT as unknown as Record<string, unknown>).exportQuote).toBeUndefined();
+    expect((CFG_DEFAULT as unknown as Record<string, unknown>).dashboardSidebarEntry).toBeUndefined();
   });
-  it("sanitizeValue：exportQuote 字符串直存（不得布尔真值化）、2000 字符钳制、非串回空", () => {
-    expect(sanitizeValue("exportQuote", "今日 {tokens}，命中 {hitPct}")).toBe("今日 {tokens}，命中 {hitPct}");
-    expect(sanitizeValue("exportQuote", "x".repeat(2500))).toHaveLength(2000);
-    expect(sanitizeValue("exportQuote", 42)).toBe("");
-    expect(sanitizeValue("exportQuote", undefined)).toBe("");
+  it("sanitizeValue：exportQuote 键已移除 → 回退布尔真值化（遗留 yaml 值不再进配置）", () => {
+    expect((sanitizeValue as unknown as (k: string, v: unknown) => unknown)("exportQuote", "任意文本")).toBe(true);
   });
   it("sanitizeValue：exportPose 白名单（random + ANIM 键），越界回 random", () => {
     expect(sanitizeValue("exportPose", "waving")).toBe("waving");
@@ -1111,19 +1138,16 @@ describe("v2.2 export config keys (Task14 R8)", () => {
     expect(sanitizeValue("exportPose", undefined)).toBe("random");
   });
   it("sanitizeConfig JSON 存档回环保真（字符串键布尔化回归）", () => {
-    const edited = sanitizeConfig({ ...CFG_DEFAULT, exportQuote: "今日 {tokens}", exportPose: "jumping" } as PetConfig);
+    const edited = sanitizeConfig({ ...CFG_DEFAULT, exportPose: "jumping" } as PetConfig);
     const round2 = sanitizeConfig(JSON.parse(JSON.stringify(edited)) as PetConfig);
-    expect(round2.exportQuote).toBe("今日 {tokens}");
     expect(round2.exportPose).toBe("jumping");
   });
-  it("SETTINGS_V22_KEYS 3 键并入草稿层：buildSavePatch 字符串原值透传（无 Number 转换）、dirty 可判", () => {
-    expect([...SETTINGS_V22_KEYS]).toEqual(["dashboardSidebarEntry", "exportQuote", "exportPose"]);
-    expect(ALL_DRAFT_KEYS).toHaveLength(SETTINGS_ALL_KEYS.length + 3);
-    const draft = { ...CFG_DEFAULT, exportQuote: "自定义 {models}", dashboardSidebarEntry: true } as DraftConfig;
+  it("SETTINGS_V22_KEYS 1 键并入草稿层（exportQuote/dashboardSidebarEntry 已移除）：dirty 可判", () => {
+    expect([...SETTINGS_V22_KEYS]).toEqual(["exportPose"]);
+    expect(ALL_DRAFT_KEYS).toHaveLength(SETTINGS_ALL_KEYS.length + 1);
+    const draft = { ...CFG_DEFAULT, exportPose: "jumping" } as DraftConfig;
     const patch = buildSavePatch(draft, CFG_DEFAULT);
-    expect(patch.exportQuote).toBe("自定义 {models}");
-    expect(patch.dashboardSidebarEntry).toBe(true);
-    expect(patch.exportPose).toBeUndefined(); // 未变更不入 patch
+    expect(patch.exportPose).toBe("jumping");
     expect(isDraftDirty({ ...CFG_DEFAULT }, CFG_DEFAULT)).toBe(false);
     expect(isDraftDirty(draft, CFG_DEFAULT)).toBe(true);
   });
@@ -1133,14 +1157,15 @@ describe("v2.2 export config keys (Task14 R8)", () => {
     expect(t("dash.export.exportImage")).toBe("导出图片");
     expect(t("dash.export.copied")).toBe("已复制");
     expect(t("dash.cfg.dashboardSidebarEntry")).toBe("侧栏看板入口");
-    expect(t("dash.cfg.exportQuote")).toBe("导出评语(空=评语池)");
     expect(t("dash.cfg.exportPose")).toBe("导出姿态");
+    expect(t("dash.export.exportCustom")).toBe("按自定义评语导出");
+    expect(t("dash.export.export")).toBe("导出");
     expect(t("dash.pose.random")).toBe("随机");
     expect(t("dash.pose.run-right")).toBe("向右跑");
     setLang("en");
     expect(t("dash.export.copyText")).toBe("Copy text");
     expect(t("dash.export.exportImage")).toBe("Export image");
-    expect(t("dash.cfg.exportQuote")).toBe("Export quote (empty = pool)");
+    expect(t("dash.export.exportCustom")).toBe("Export with custom quote");
     expect(t("dash.pose.random")).toBe("Random");
     expect(t("dash.pose.run-left")).toBe("Run left");
     setLang("zh");
@@ -1175,5 +1200,98 @@ describe("v2.2 pose + trend helpers (Task14 R8)", () => {
     expect(trendDirection([{ dayTotal: 5 }])).toBe(null);
     expect(trendDirection(null)).toBe(null);
     expect(trendDirection([{ dayTotal: 1 }, { dayTotal: 9 }, { dayTotal: 4 }])).toBe(false); // 只看末两日
+  });
+});
+
+
+// ---- v2.2.1 唯一发声方（Web Locks 选主；多标签页语音重叠修复）----
+describe("v2.2.1 voiceowner（Web Locks 选主）", () => {
+  type FakeLocks = {
+    locks: { request: (n: string, o: { ifAvailable: boolean }, cb: (lock: unknown) => Promise<void>) => Promise<null> };
+    hold: () => void;        // 模拟持锁页不释放（cb 的 promise 挂起）
+    releaseHolder: () => void; // 模拟持锁页关闭/让位（锁回到空闲）
+  };
+  const makeFakeLocks = (): FakeLocks => {
+    const st: { busy: boolean; holderRelease: (() => void) | null } = { busy: false, holderRelease: null };
+    return {
+      hold: () => { st.busy = true; }, // 预占（下一个 request 直接 busy）
+      releaseHolder: () => { st.holderRelease?.(); st.busy = false; },
+      locks: {
+        request: (_n: string, _o: { ifAvailable: boolean }, cb: (lock: unknown) => Promise<void>) =>
+          new Promise<null>((resolve) => {
+            if (st.busy) { void cb(null).then(() => resolve(null)); return; }
+            st.busy = true;
+            void cb({}).then(() => { st.busy = false; st.holderRelease = null; resolve(null); });
+            st.holderRelease = () => { /* cb 内部模块自释放（hidden）时走其自身 resolve */ };
+          }),
+      },
+    };
+  };
+  const stubEnv = (fake: { locks: unknown }, hidden: boolean) => {
+    const doc = {
+      hidden,
+      addEventListener: (_t: string, fn: () => void) => { (doc as unknown as { _fn: () => void })._fn = fn; },
+      removeEventListener: () => {},
+    };
+    (doc as unknown as { fire: () => void }).fire = () => { (doc as unknown as { _fn: () => void })._fn(); };
+    vi.stubGlobal("navigator", fake);
+    vi.stubGlobal("document", doc);
+    return doc as unknown as { hidden: boolean; fire: () => void };
+  };
+
+  it("navigator.locks 缺席 → 退化为现状（本页即发声方，不变静音）", async () => {
+    vi.resetModules(); vi.stubGlobal("navigator", {});
+    const mod = await import("../src/client/voiceowner");
+    mod.startVoiceOwnership();
+    expect(mod.isVoiceOwner()).toBe(true);
+    vi.unstubAllGlobals();
+  });
+
+  it("锁空闲 → 立即成为发声方；预占 → 静默 + 抖动重试接手", async () => {
+    vi.resetModules(); vi.useFakeTimers();
+    const fake = makeFakeLocks();
+    vi.stubGlobal("navigator", { locks: fake.locks });
+    vi.stubGlobal("document", { hidden: false, addEventListener: () => {} });
+    const mod = await import("../src/client/voiceowner");
+    mod.startVoiceOwnership();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mod.isVoiceOwner()).toBe(true);
+    vi.unstubAllGlobals();
+  });
+
+  it("被其他页面持有 → 非发声方；持锁页释放后重试周期内接手", async () => {
+    vi.resetModules(); vi.useFakeTimers();
+    const fake = makeFakeLocks();
+    fake.hold(); // 预占
+    vi.stubGlobal("navigator", { locks: fake.locks });
+    vi.stubGlobal("document", { hidden: false, addEventListener: () => {} });
+    const mod = await import("../src/client/voiceowner");
+    mod.startVoiceOwnership();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mod.isVoiceOwner()).toBe(false);
+    fake.releaseHolder();  // 持锁页关闭
+    await vi.advanceTimersByTimeAsync(4000); // > 重试周期上限 3.5s
+    expect(mod.isVoiceOwner()).toBe(true);
+    vi.unstubAllGlobals();
+  });
+
+  it("可见优先：发声方 hidden 让位；回可见立即接手", async () => {
+    vi.resetModules(); vi.useFakeTimers();
+    const fake = makeFakeLocks();
+    const doc = { hidden: false, listeners: {} as Record<string, () => void> };
+    (doc as unknown as { addEventListener: (t: string, fn: () => void) => void }).addEventListener = (t, fn) => { doc.listeners[t] = fn; };
+    vi.stubGlobal("navigator", { locks: fake.locks });
+    vi.stubGlobal("document", doc);
+    const mod = await import("../src/client/voiceowner");
+    mod.startVoiceOwnership();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mod.isVoiceOwner()).toBe(true);
+    doc.hidden = true; doc.listeners.visibilitychange(); // hidden 让位
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mod.isVoiceOwner()).toBe(false);
+    doc.hidden = false; doc.listeners.visibilitychange(); // 回可见接手
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mod.isVoiceOwner()).toBe(true);
+    vi.unstubAllGlobals();
   });
 });

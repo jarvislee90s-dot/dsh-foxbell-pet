@@ -28,25 +28,27 @@ function toolEntry(r: SummaryToolRow): string {
   return base + t("dash.boardToolDur", { inner: t("dash.toolTotal") + " " + fmtDur(r.ms) });
 }
 
-/** token 行正文：请求输入 X（缓存命中 Y · Z%）· 产出 W · 你的输入 ~V(估) · 含子代理（五口径名词序） */
-export function boardTokensLine(s: DashboardSummary): string {
-  const tk = s.tokens;
-  const pct = tk.requestTotal > 0 ? tk.hitPct.toFixed(1) : "0.0"; // 分母 0 → 与宿主 '0.0' 同口径
-  return t("dash.requestInput") + " " + fmtTokens(tk.requestTotal)
-    + t("dash.boardHitPct", { inner: t("dash.cacheHit") + " " + fmtTokens(tk.cacheRead) + " · " + pct + "%" })
-    + " " + t("dash.output") + " " + fmtTokens(tk.output)
-    + " · " + t("dash.yourInput") + " ~" + fmtTokens(tk.userEst) + t("dash.estimateSuffix")
-    + " · " + t("dash.withSubagents");
+/** v2.2.1 黑板重排：参数行拆为「标签-数值」结构（每项一行、含义自明），替代原 4 行长文堆叠。 */
+export interface BoardKv { label: string; value: string }
+
+/** 概览行（紧凑一条）：会话 / turn / 报错 */
+export function boardOverviewLine(s: DashboardSummary): string {
+  return t("dash.boardSessions") + " " + s.sessions
+    + " · " + t("dash.boardTurns") + " " + s.turns
+    + " · " + t("dash.boardErrors") + " " + s.errors;
 }
 
-/** 黑板四行（源 Board L980-984 行序原样：会话/turn/报错 → 今日 token → 工具 Top3 → 最长单 turn） */
-export function boardRows(s: DashboardSummary): string[] {
-  return [
-    t("dash.boardSessions") + " " + s.sessions
-      + " · " + t("dash.boardTurns") + " " + s.turns
-      + " · " + t("dash.boardErrors") + " " + s.errors,
-    t("dash.boardTodayToken") + " " + boardTokensLine(s),
-    t("dash.boardToolsTop") + " " + (s.toolRows.length ? s.toolRows.map(toolEntry).join(" · ") : "—"),
-    t("dash.boardLongest") + " " + fmtLongest(s.longest ? s.longest.ms : 0), // null → 「0 秒」桶（与 zh longestText 同口径）
+/** token/工具/耗时 明细行（label 复用大看板五口径名词，含义与看板一致） */
+export function boardRows(s: DashboardSummary): BoardKv[] {
+  const tk = s.tokens;
+  const pct = tk.requestTotal > 0 ? tk.hitPct.toFixed(1) : "0.0"; // 分母 0 → 与宿主 '0.0' 同口径
+  const rows: BoardKv[] = [
+    { label: t("dash.g.requestTotal"), value: fmtTokens(tk.requestTotal) },
+    { label: t("dash.cacheHit"), value: fmtTokens(tk.cacheRead) + "（" + pct + "%）" },
+    { label: t("dash.output"), value: fmtTokens(tk.output) },
+    { label: t("dash.yourInput") + t("dash.estimateSuffix") + " · " + t("dash.withSubagents"), value: "~" + fmtTokens(tk.userEst) },
+    { label: t("dash.boardToolsTop"), value: s.toolRows.length ? s.toolRows.map(toolEntry).join(" · ") : "—" },
+    { label: t("dash.boardLongest"), value: fmtLongest(s.longest ? s.longest.ms : 0) },
   ];
+  return rows;
 }

@@ -231,7 +231,7 @@ export interface RouteUsage { route: string; provider: string; model: string; re
 /** 日趋势切片（byDay；hitPct 分母 0 记 0） */
 export interface TrendDay { key: string; dayTotal: number; requestTotal: number; cacheRead: number; outputTokens: number; hitPct: number; requestCount: number }
 /** 小时趋势切片（近 24h） */
-export interface TrendHour { key: string; dayTotal: number; requestTotal: number; requestCount: number }
+export interface TrendHour { key: string; dayTotal: number; requestTotal: number; cacheRead: number; requestCount: number }
 /** /dashboard/range 区间汇总（宿主 range.js RangeSummary 同形） */
 export interface RangeSummary { from: string; to: string; days: TrendDay[]; totals: { requestTotal: number; cacheRead: number; outputTokens: number; userEst: number; hitPct: number; requestCount: number }; models: RouteUsage[]; tools: { name: string; count: number; durMs: number }[] }
 

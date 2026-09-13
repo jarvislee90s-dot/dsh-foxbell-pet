@@ -16,6 +16,7 @@ import {
 import { MIN_SPEECH_MS } from "./voices";
 import type { VoiceGroup } from "./validation";
 import { appStore, ackProject, cfgStore, openDashboardPanel, petStore, playDefaultAlertSound, voicePlayer, type ActivePetRuntime } from "./store";
+import { isVoiceOwner } from "./voiceowner";
 import { apiPost, type ActivateResult, type GuardIssue, type PaceTier, type ProjectCard } from "./api";
 import { DOT_COLOR, DOT_HALO, lightOf, taskPoseOf } from "./statuscards";
 import { t, alertText, getLang } from "./i18n";
@@ -221,11 +222,14 @@ export function Pet(props: PetProps): React.ReactElement | null {
 
   /** 播一组语音 + 动作 + 字幕（MAM playVoice 闸门链）：
    *  可见性 → 动作先播（无语音宠物也有动作）→ hasVoice → pick → 字幕（talkative && hasSubtitle）→
-   *  muted 只拦声音。审批语音 10s 限流在差分调用侧。 */
-  const playVoice = (group: VoiceGroup, action: PetAnimKey) => {
+   *  muted 只拦声音。审批语音 10s 限流在差分调用侧。
+   *  v2.2.1 唯一发声方：opts.auto = true 的调用（状态差分自动播报）仅由持锁页出声，
+   *  非发声方动画照常、语音/字幕静默（多标签页重叠修复）；用户手势（双击）不传 auto 不受仲裁。 */
+  const playVoice = (group: VoiceGroup, action: PetAnimKey, opts?: { auto?: boolean }) => {
     if (!loadVisible()) return;
     playTransient(action, TRANSIENT_WAVE_MS);
     if (!runtimeRef.current.hasVoice) return; // 无语音宠物：只播动画不出声
+    if (opts?.auto === true && !isVoiceOwner()) return; // 非发声方：动画照常，声音/字幕由发声方页负责
     const entry = voicePlayer.pick(group);
     if (!entry) return; // 空组静默跳过
     if (cfgRef.current.talkative && runtimeRef.current.hasSubtitle) showBubble(entry.name, MIN_SPEECH_MS);
@@ -255,8 +259,13 @@ export function Pet(props: PetProps): React.ReactElement | null {
   // 渲染守卫见 JSX 处 miniVisible 条件（拖拽强制隐藏 + 黑板优先挂钩点）。
   const [miniMode, setMiniMode] = useState<MiniMode | null>(null);
   const hoverTimerRef = useRef<(() => void) | null>(null);
+  const miniLeaveTimerRef = useRef<(() => void) | null>(null); // v2.2.1：离开精灵的宽限期定时器（悬浮条可抵达性）
   const clearHoverTimer = () => {
     if (hoverTimerRef.current) { const d = hoverTimerRef.current; hoverTimerRef.current = null; try { d(); } catch { /* ignore */ } }
+  };
+  /** 取消「离开精灵」宽限期：指针进入悬浮条/回到精灵时调用（v2.2.1 hover 桥接） */
+  const cancelMiniLeave = () => {
+    if (miniLeaveTimerRef.current) { const d = miniLeaveTimerRef.current; miniLeaveTimerRef.current = null; try { d(); } catch { /* ignore */ } }
   };
   const rootRef = useRef<HTMLDivElement | null>(null); // 手动迷你条「点外部关闭」的宠物本体 contains 判定
 
@@ -301,7 +310,7 @@ export function Pet(props: PetProps): React.ReactElement | null {
           setEntry(true);
           entryTimerRef.current = later(() => setEntry(false), (cfgRef.current.summaryEntrySec || 15) * 1000);
         }
-        playVoiceRef.current("done", cfgRef.current.doneAction);
+        playVoiceRef.current("done", cfgRef.current.doneAction, { auto: true });
       }
     }
     // ---- v2.2 警报举牌/气泡 + 音效链（R7/R10）：
@@ -320,6 +329,7 @@ export function Pet(props: PetProps): React.ReactElement | null {
         else { setSign(txt || a.text); if (signTimerRef.current) { try { signTimerRef.current(); } catch { /* ignore */ } } signTimerRef.current = later(() => setSign(null), 4200); }
         playTransient("jumping", 1600);
         if (cfgRef.current.muted) continue;
+        if (!isVoiceOwner()) continue; // v2.2.1 唯一发声方：非持锁页不发声（举牌/气泡视觉已在上完成）
         // v2.2 R7 音效链：四组配齐 → general 组宠物语音命中即播；否则内置合成 chime（语音组 > 默认音效；TTS 不参与）
         if (runtimeRef.current.hasVoice) {
           const v = voicePlayer.pick("general");
@@ -353,18 +363,18 @@ export function Pet(props: PetProps): React.ReactElement | null {
     prevStatusRef.current = statuses;
     if (errAppeared) {
       // 出错 → error 组语音 + errorAction 动作；无语音宠物只播动作（playVoice 闸门链）
-      playVoiceRef.current("error", cfgRef.current.errorAction);
+      playVoiceRef.current("error", cfgRef.current.errorAction, { auto: true });
     }
     if (approvalAppeared) {
       const now = Date.now();
       if (now - lastApprovalAtRef.current > APPROVAL_THROTTLE_MS) {
         lastApprovalAtRef.current = now;
-        playVoiceRef.current("approval", cfgRef.current.approvalAction);
+        playVoiceRef.current("approval", cfgRef.current.approvalAction, { auto: true });
       }
     }
     if (runningAppeared) {
       // 开始运行 → general 组语音 + runningAction 动作（黄灯差分；无语音宠物只播动作）
-      playVoiceRef.current("general", cfgRef.current.runningAction);
+      playVoiceRef.current("general", cfgRef.current.runningAction, { auto: true });
     }
     // 任务姿态（MAM 口径）：waiting > running；全绿/无卡回落
     const task = taskPoseOf(cards);
@@ -376,8 +386,30 @@ export function Pet(props: PetProps): React.ReactElement | null {
     // running 中档位变为 longrun 时刷新链才会切到看表代用行
     const tier = dash && dash.pace ? dash.pace.tier : null;
     if (paceTierRef.current !== tier) {
+      const prevTier = paceTierRef.current;
       paceTierRef.current = tier;
       refreshAnim();
+      // v2.2.1 档位跨阶举牌（纯文字表达，复用 Sign 容器）：大类跨越才举——
+      // 进入/退出长任务、开始摸鱼（任一 loaf）、从摸鱼回到工作；摸鱼四阶内部递进不举（表盘读数已变）。
+      // 首拍（prevTier=null，页面刚打开）不举，避免每次进来举一排。
+      const bucket = (t: string | null): "work" | "longrun" | "loaf" | "idle" | null =>
+        t === null ? null
+        : t === "longrun" ? "longrun"
+        : t.startsWith("loaf") ? "loaf"
+        : t === "intense" || t === "active" ? "work"
+        : "idle";
+      const bPrev = bucket(prevTier), bNext = bucket(tier);
+      if (prevTier !== null && bPrev !== bNext && tier !== null) {
+        const msg = tier === "longrun" ? t("dash.pace.longrun")
+          : bNext === "loaf" ? t("dash.pace.loaf")
+          : bPrev === "loaf" ? t("dash.pace.backToWork")
+          : null;
+        if (msg) {
+          setSign(msg);
+          if (signTimerRef.current) { try { signTimerRef.current(); } catch { /* ignore */ } }
+          signTimerRef.current = later(() => setSign(null), 4200);
+        }
+      }
     }
     // 当前会话的 done/error 未读卡自动 ack（v1 已读即消失语义不变）
     const active = currentIdRef.current;
@@ -631,6 +663,7 @@ export function Pet(props: PetProps): React.ReactElement | null {
       cancelStep();
       stopLook();
       clearHoverTimer(); // 迷你条 hover 定时器随卸载清掉（源 clearHoverTimer 卫生）
+      cancelMiniLeave(); // v2.2.1：hover 桥接宽限定时器随卸载清掉
       if (boardTimerRef.current) { const d = boardTimerRef.current; boardTimerRef.current = null; try { d(); } catch { /* ignore */ } } // 黑板 ttl 随卸载清掉
       if (entryTimerRef.current) { const d = entryTimerRef.current; entryTimerRef.current = null; try { d(); } catch { /* ignore */ } } // 入口 ttl 随卸载清掉（review Minor1）
       if (signTimerRef.current) { const d = signTimerRef.current; signTimerRef.current = null; try { d(); } catch { /* ignore */ } } // 举牌清除随卸载清掉（review Minor1）
@@ -815,7 +848,10 @@ export function Pet(props: PetProps): React.ReactElement | null {
             渲染守卫：拖拽激活（dragging 于 pointerdown 置位，覆盖按下→方向阈值窗口；stateRef.drag 为方向动画段）
             强制隐藏 + 黑板优先（board !== null 时不渲染迷你条——源 L884 miniMode !== null && board === null 原样）。 */}
         {miniMode !== null && board === null && !dragging && stateRef.current.drag === null ? (
-          <div className="dyn-pet-mini-wrap">
+          <div
+            className="dyn-pet-mini-wrap"
+            onPointerEnter={cancelMiniLeave} // v2.2.1：指针抵达悬浮条 → 取消宽限卸载（可点击「详情 »」）
+          >
             <MiniBar
               dash={snap?.dashboard ?? null}
               cards={cards}
@@ -830,9 +866,19 @@ export function Pet(props: PetProps): React.ReactElement | null {
           ref={spriteRef}
           className={"dyn-pet-sprite " + (dragging ? "dragging" : "")}
           onPointerEnter={() => { // 悬停 0.5s 出迷你条（源 L888；手动模式不重设定时器）
+            cancelMiniLeave(); // v2.2.1：回到精灵 → 取消宽限卸载
             if (miniMode !== "manual") { clearHoverTimer(); hoverTimerRef.current = later(() => setMiniMode("hover"), MINI_HOVER_MS); }
           }}
-          onPointerLeave={() => { clearHoverTimer(); if (miniMode === "hover") setMiniMode(null); }} // 源 L889
+          onPointerLeave={() => {
+            // v2.2.1 hover 桥接：离开精灵不再立即卸载，留 200ms 宽限——
+            // 真人鼠标连续移动穿过分隔空隙进入悬浮条（wrap onPointerEnter 取消宽限），
+            // 「详情 »」才可点（Playwright 瞬移式 click 曾掩盖此 bug）。manual 模式不受影响。
+            clearHoverTimer();
+            if (miniMode === "hover") {
+              cancelMiniLeave();
+              miniLeaveTimerRef.current = later(() => setMiniMode(null), 200);
+            }
+          }} // 源 L889（v2.2.1 改宽限卸载）
           style={{
             width: frameW, height: frameH,
             backgroundImage: runtime.spriteUrl ? `url('${runtime.spriteUrl}')` : undefined,

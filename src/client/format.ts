@@ -14,6 +14,12 @@ export function fmtTokens(n: number): string {
   return v.replace(/\.?0+$/, "") + "亿";
 }
 
+/** 完整千分位整数（v2.2.1 大看板/导出对齐 Codex++ 数字口径；不做万/亿缩写）。非有限值归 "0"。 */
+export function fmtInt(n: number): string {
+  if (!Number.isFinite(n)) return "0";
+  return Math.round(n).toLocaleString("en-US");
+}
+
 /** 模型名短化（Task 11 黑板模型行；MiniBar 同款截断口径抽出共用）：>12 字符取前 10 + '…' */
 export function shortModel(name: string): string {
   return name.length > 12 ? name.slice(0, 10) + "…" : name;

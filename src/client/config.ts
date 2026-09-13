@@ -31,13 +31,9 @@ export interface PetConfig {
   summaryEntrySec: number;
   boardTtlSec: number;
   ttsEnabled: boolean;
-  // v2.2 用量看板（Task 13 消费；宿主 Config 同名键 dashboardSidebarEntry，默认 false=侧栏不出入口。
-  // Task 14 会补 exportQuote/exportPose 两键与设置卡 UI，本键先行为 sidebar.panellist 注册门）
-  dashboardSidebarEntry: boolean;
-  // v2.2 R8 导出两键（Task 14；宿主 Config 同名键 src/host/index.js L65-66，默认 ''/'random'）：
-  // exportQuote=导出图片评语自定义模板（空=走内置评语池；占位符 {range}/{tokens}/{hitPct}/{models}）
-  exportQuote: string;
-  // exportPose=导出立绘姿态：'random'（ANIM 随机行首帧）或 animations.ANIM 键（白名单 POSE_KEYS）
+  // exportPose=导出立绘姿态：'random'（ANIM 随机行首帧）或 animations.ANIM 键（白名单 POSE_KEYS）。
+  // v2.2.1：dashboardSidebarEntry（侧栏入口固定不注册）/usageEnabled（恒 true）/ttsEnabled（暂无消费）
+  // 三开关已从设置卡移除——类型保留兼容旧 yaml，设置卡不再展示
   exportPose: string;
 }
 
@@ -78,9 +74,7 @@ export const CFG_DEFAULT: PetConfig = {
   summaryEnabled: true,
   summaryEntrySec: 15,
   boardTtlSec: 15,
-  ttsEnabled: false,
-  dashboardSidebarEntry: false, // v2.2 R6 侧栏看板入口（默认关；宿主 settings 同名键镜像）
-  exportQuote: "", // v2.2 R8 导出评语模板（空=内置评语池；宿主 settings 同名键镜像）
+  ttsEnabled: false, // v2.2.1：开关移除（当前无 TTS 消费；键保留兼容旧 yaml）
   exportPose: "random", // v2.2 R8 导出立绘姿态（宿主 settings 同名键镜像）
 };
 
@@ -118,8 +112,7 @@ export function sanitizeValue(k: keyof PetConfig, v: unknown): PetConfig[keyof P
   if ((NUM_KEYS as readonly string[]).includes(k)) return clampNum(k as NumKey, v);
   if (k === "scale") return isScale(v) ? v : 1;
   if (k === "activePetId") return isPetIdStr(v) ? v : "foxbell";
-  // v2.2 R8 字符串键（Task 14）：不得落入末尾的布尔真值化（否则 "模板文本" 会被写成 true 静默丢配）
-  if (k === "exportQuote") return typeof v === "string" ? v.slice(0, 2000) : ""; // 2000 字符上限防误贴长文
+  // v2.2 R8 字符串键：不得落入末尾的布尔真值化（否则 "模板文本" 会被写成 true 静默丢配）；exportPose 白名单校验
   if (k === "exportPose") return typeof v === "string" && POSE_KEYS.includes(v) ? v : "random";
   return !!v; // booleans（含 paceEnabled/usageEnabled/summaryEnabled/ttsEnabled——v2 以直落布尔真值化代替 v1.4.0 的 BOOL_KEYS 表）
 }
@@ -243,6 +236,7 @@ export function createConfigStore(): ConfigStore {
     if (!sv || sv.status !== "ready" || !sv.value || typeof sv.value !== "object") return local;
     // 只取 CFG_DEFAULT 的键（scope 里可能残留已移除字段，不并入）
     const merged: PetConfig = { ...CFG_DEFAULT, ...local };
+    (merged.usageEnabled as unknown) = true; // v2.2.1 恒开：遗留 yaml false 不再生效（悬浮窗内容完整性）
     for (const k of Object.keys(CFG_DEFAULT) as (keyof PetConfig)[]) {
       if (pending[k] !== undefined) (merged[k] as unknown) = pending[k];
       else if (sv.value[k] !== undefined) (merged[k] as unknown) = sanitizeValue(k, sv.value[k]);

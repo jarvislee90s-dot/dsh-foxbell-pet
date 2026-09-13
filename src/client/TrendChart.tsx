@@ -19,12 +19,18 @@ export function lastN(days: { key: string; dayTotal: number; hitPct?: number }[]
 
 function pathOf(pts: { x: number; y: number }[], smooth: boolean): string {
   if (pts.length === 0) return "";
-  if (!smooth || pts.length < 3) return "M " + pts.map((p) => `${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" L ");
-  let d = `M ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`;
-  for (let i = 1; i < pts.length; i++) {
-    const p0 = pts[i - 1], p1 = pts[i];
-    const mx = (p0.x + p1.x) / 2;
-    d += ` C ${mx.toFixed(1)} ${p0.y.toFixed(1)} ${mx.toFixed(1)} ${p1.y.toFixed(1)} ${p1.x.toFixed(1)} ${p1.y.toFixed(1)}`;
+  const f = (n: number) => n.toFixed(1);
+  if (!smooth || pts.length < 3) return "M " + pts.map((p) => `${f(p.x)} ${f(p.y)}`).join(" L ");
+  // Catmull-Rom → 三次贝塞尔（v2.2.1：原中点直角贝塞尔呈平台阶梯，与 Codex++ 平滑曲线差距大）
+  let d = `M ${f(pts[0].x)} ${f(pts[0].y)}`;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[i - 1] ?? pts[i];
+    const p1 = pts[i];
+    const p2 = pts[i + 1];
+    const p3 = pts[i + 2] ?? p2;
+    const c1x = p1.x + (p2.x - p0.x) / 6, c1y = p1.y + (p2.y - p0.y) / 6;
+    const c2x = p2.x - (p3.x - p1.x) / 6, c2y = p2.y - (p3.y - p1.y) / 6;
+    d += ` C ${f(c1x)} ${f(c1y)}, ${f(c2x)} ${f(c2y)}, ${f(p2.x)} ${f(p2.y)}`;
   }
   return d;
 }
@@ -61,8 +67,17 @@ export function TrendChart(props: { points: { label: string; value: number }[]; 
       {pts.map((p, i) => (
         <circle key={i} cx={p.x.toFixed(1)} cy={p.y.toFixed(1)} r={i === pts.length - 1 ? 3.6 : 2.6} fill="var(--dsw-bg, #fff)" stroke={`url(#${gid}-l)`} strokeWidth="1.6" />
       ))}
-      {props.showLabels ? points.map((p, i) => (
-        <text key={i} x={pts[i].x.toFixed(1)} y={height - 3} textAnchor={i === 0 ? "start" : i === points.length - 1 ? "end" : "middle"} fontSize="9" fill="currentColor" opacity="0.6">{p.label}</text>
+      {props.showLabels ? points.map((p, i) => ({ p, i })).filter(({ p, i }) => {
+        // v2.2.1 轴标签抽稀：点数 >14 时按步长抽稀（目标 ~12 个），首末必显；
+        // 月初标签（label 形如 "8月"）始终显示（月份锚点优先于步长）
+        const n = points.length;
+        if (n <= 14) return true;
+        const stride = Math.ceil(n / 12);
+        if (i === 0 || i === n - 1) return true;
+        if (p.label.endsWith("月")) return true;
+        return i % stride === 0;
+      }).map(({ p, i }) => (
+        <text key={i} x={pts[i].x.toFixed(1)} y={height - 3} textAnchor={i === 0 ? "start" : i === points.length - 1 ? "end" : "middle"} fontSize="11" fill="currentColor" opacity="0.6">{p.label}</text>
       )) : null}
     </svg>
   );

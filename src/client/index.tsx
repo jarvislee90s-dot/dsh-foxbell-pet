@@ -11,6 +11,7 @@ import { SettingsCard } from "./SettingsCard";
 import { DialogHost } from "./dialogs/DialogHost";
 import { DashboardPanel } from "./DashboardPanel";
 import { appStore, cfgStore, PANEL_ID, petStore, reportVisible, schedulePoll, setPanelSwitcher } from "./store";
+import { startVoiceOwnership } from "./voiceowner";
 import { t } from "./i18n";
 import { adoptStyles } from "./styles";
 
@@ -74,6 +75,7 @@ export function apply(ctx: ClientCtx): void {
   adoptStyles();
   reportVisible(petStore.visible);
   appStore.start();
+  startVoiceOwnership(); // v2.2.1：唯一发声方选主（多标签页仅持锁页播放自动播报，防语音重叠）
   // P4：页签显隐切换立刻重排轮询节奏（可见回 1.5s / 隐藏降 5s）；无 document 环境（TUI/测试）守卫
   if (typeof document !== "undefined") {
     document.addEventListener("visibilitychange", schedulePoll);
@@ -135,33 +137,8 @@ export function apply(ctx: ClientCtx): void {
     ),
   );
 
-  // sidebar.panellist 入口受 dashboardSidebarEntry 门控（宿主 settings 同名键，默认关）：
-  // true 才注册、false 反注册；cfg 变化（scope 首次 ready/用户翻转）经既有 cfgStore 订阅重挂。
-  let sidebarEntryOff: (() => void) | null = null;
-  const syncSidebarEntry = () => {
-    const on = !!cfgStore.getSnapshot().dashboardSidebarEntry;
-    if (on && sidebarEntryOff === null) {
-      sidebarEntryOff = slots.inject("sidebar.panellist", () =>
-        slots.register(
-          { name: "sidebar.panellist", id: PANEL_ID, order: 200, label: t("dash.panelTitle") },
-          () => React.createElement("div", { className: "dyn-pet-sideicon", title: t("dash.panelTitle") }, "📊"),
-        ),
-      );
-    } else if (!on && sidebarEntryOff !== null) {
-      sidebarEntryOff();
-      sidebarEntryOff = null;
-    }
-  };
-  syncSidebarEntry();
-  const offCfg = cfgStore.subscribe(syncSidebarEntry);
-  // 清理：ctx.effect 在场则挂到模块生命周期（与 settingsScope attach 同款守卫）；
-  // 缺席时模块级常驻（Task 8 先例：visibilitychange 监听同样不反注册）
-  if (typeof ctx.effect === "function") {
-    ctx.effect(() => {
-      offCfg();
-      if (sidebarEntryOff !== null) { sidebarEntryOff(); sidebarEntryOff = null; }
-    });
-  }
+  // v2.2.1：sidebar.panellist 侧栏入口开关已移除——入口已有右键菜单 + 黑板链，
+  // 且 rc.2 实测侧栏图标不投影（上游子槽生命周期），固定不注册侧栏图标。
 }
 
 // 模块级服务 inject：仅硬依赖 slots；timer/sessions/settingsScope 全部防御式 ctx.get
