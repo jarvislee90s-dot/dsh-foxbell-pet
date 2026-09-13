@@ -1077,9 +1077,13 @@ describe("v2.2 quotes (Task14 R8)", () => {
     expect(pickQuote(agg, "zh", "自定义 {models}")).toBe("自定义 "); // vars 缺省 → 空串占位
     expect(pickQuote(agg, "zh", "自定义", { range: "7日", tokens: "1万", hit: "90%", models: "3" })).toBe("自定义");
   });
-  it("fillQuote 四占位符全替换（{range}/{tokens}/{hitPct}/{models}；未出现的占位符原样保留语义=split/join 直替）", () => {
+  it("fillQuote 五占位符全替换（{range}/{tokens}/{hitPct}/{models}/{tool}；v2.2.1 增 {tool} 工作贴合句）", () => {
     expect(fillQuote("{range}·{tokens}·{hitPct}·{models}", { range: "30日", tokens: "5.0亿", hit: "37.5%", models: "2" }))
       .toBe("30日·5.0亿·37.5%·2");
+    expect(fillQuote("{tool} 出勤最多", { range: "", tokens: "", hit: "", models: "", tool: "web_fetch" }))
+      .toBe("web_fetch 出勤最多");
+    expect(fillQuote("{tool} 出勤最多", { range: "", tokens: "", hit: "", models: "" }))
+      .toBe(" 出勤最多"); // tool 缺省空串
   });
   it("en 池同规则；优先级顺序（总量档在趋势前：中档总量才落到 trend>multi>loaf>兜底）", () => {
     expect(pickQuote({ total: 500, hitPct: 0.95, trendUp: true, multiModel: true, loaf: false }, "en")).toContain("Cache");

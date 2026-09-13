@@ -292,9 +292,10 @@ export function DashboardPanel(): ReactElement {
     tokens: fmtTokens(hero),
     hit: fmtPct(hitRate),
     models: String(models.length),
+    tool: tools[0] ? tools[0].name : "",
   };
-  const buildQuote = (custom?: string): string =>
-    pickQuote({ total: hero, hitPct: hitRate, trendUp, multiModel: models.length > 1, loaf }, getLang(), custom, quoteVars);
+  const buildQuote = (customQuote?: string): string =>
+    pickQuote({ total: hero, hitPct: hitRate, trendUp, multiModel: models.length > 1, loaf, tool: quoteVars.tool }, getLang(), customQuote, quoteVars);
 
   // 复制文本：grid + models 多行纯文本；clipboard API 优先，失败回退 execCommand，再失败静默（toast-less，ManageDialog 同款）
   const onCopyText = async (): Promise<void> => {
@@ -325,7 +326,18 @@ export function DashboardPanel(): ReactElement {
   // 导出图片（v2.2.1 竖版卡）：sprite 从 runtime.spriteUrl 现场加载（失败 → null，无立绘继续导出）；
   // customQuote 非空 → 按自定义评语模板填充（占位符 {range}/{tokens}/{hitPct}/{models}），否则走评语池。
   // 模型名导出全名（v2.2.1：不再 shortModel 截断）。
-  const rangeLabel = tab === "custom" ? `${custom.from} ~ ${custom.to}` : t(`dash.tab.${tab}`);
+  // 导出/展示用具体时间范围（v2.2.1）：5h=某日 HH:00–HH:00；7d/30d=首末日期；custom=from ~ to
+  const rangeLabel = (() => {
+    if (tab === "custom") return `${custom.from} ~ ${custom.to}`;
+    if (points.length === 0) return t(`dash.tab.${tab}`);
+    const first = points[0].key, last = points[points.length - 1].key;
+    const md = (key: string) => `${Number(key.slice(5, 7))}/${Number(key.slice(8, 10))}`;
+    if (tab === "5h") {
+      const h1 = first.slice(11, 13), h2 = last.slice(11, 13);
+      return `${md(first)} ${h1}:00–${h2}:00`;
+    }
+    return `${md(first)} – ${md(last)}（${t(`dash.tab.${tab}`)}）`;
+  })();
   const onExportImage = async (customQuote?: string): Promise<void> => {
     const rt = appStore.getRuntime();
     const sprite = await loadSprite(rt.spriteUrl);
