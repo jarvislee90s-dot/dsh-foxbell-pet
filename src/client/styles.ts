@@ -74,7 +74,9 @@ const CSS = `
 .dyn-pet-card-chevron.open { transform:rotate(180deg); }
 .dyn-pet-card-body { border-top:0.5px solid var(--dsw-alias-border-l2, rgba(0,0,0,.08)); margin:0 16px; padding-bottom:8px; }
 .dyn-pet-settings { padding: 8px 12px; font-size: 13px; color: #333; display: flex; flex-direction: column; gap: 6px; min-width: 240px; }
-.dyn-pet-settings-section { font-weight: 700; margin-top: 4px; padding-bottom: 2px; border-bottom: 1px solid rgba(122,74,43,.18); color:#7a4a2b; }
+.dyn-pet-settings-section { font-weight: 700; margin-top: 14px; padding-bottom: 2px; border-bottom: 1px solid rgba(122,74,43,.18); color:#7a4a2b; }
+.dyn-pet-info { display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px; margin-left: 6px; border: 1px solid rgba(122,74,43,.4); border-radius: 999px; font-size: 10px; font-style: italic; font-weight: 700; color: #8a6d3b; cursor: help; vertical-align: 1px; user-select: none; }
+.dyn-pet-info:hover { background: rgba(122,74,43,.12); }
 .dyn-pet-settings-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .dyn-pet-settings-row select { max-width: 140px; }
 /* ---- v2.1 设置卡草稿态（v1.4.0 client.js L1098-1109 移植：头部状态字/口径注/保存条/无效数字红框）---- */

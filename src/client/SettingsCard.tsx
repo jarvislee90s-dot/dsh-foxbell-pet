@@ -28,6 +28,13 @@ function Chevron({ open }: { open: boolean }): React.ReactElement {
   );
 }
 
+/** v2.2.1：行内 i 徽标——悬浮显示该配置的含义（原生 title，免依赖；键盘聚焦亦可读） */
+function Info({ text }: { text: string }): React.ReactElement {
+  return (
+    <span className="dyn-pet-info" title={text} aria-label={text} tabIndex={0}>i</span>
+  );
+}
+
 export function SettingsCard(): React.ReactElement {
   const [open, setOpen] = useState(false);
   const [cfg, setCfg] = useState<PetConfig>(cfgStore.getSnapshot());
@@ -104,50 +111,39 @@ export function SettingsCard(): React.ReactElement {
       </button>
       {open ? (
         <div className="dyn-pet-card-body dyn-pet-settings">
-          <div className="dyn-pet-settings-section">{t("settings.configSection")}</div>
+          {/* v2.2.1 分组：基础 / 核心功能·工作状态 / 表达与辅助 / 用量统计与看板；每行 label 配 i 注释 */}
+          <div className="dyn-pet-settings-section">{t("settings.sect.base")}</div>
           <label className="dyn-pet-settings-row">
-            <span>{t("settings.muted")}</span>
+            <span>{t("settings.muted")}<Info text={t("settings.tip.muted")} /></span>
             <input type="checkbox" checked={!draft.muted} onChange={(e) => setDraftKey("muted", !e.target.checked)} />
           </label>
           <label className="dyn-pet-settings-row">
-            <span>{t("settings.talkative")}</span>
+            <span>{t("settings.talkative")}<Info text={t("settings.tip.talkative")} /></span>
             <input type="checkbox" checked={draft.talkative} onChange={(e) => setDraftKey("talkative", e.target.checked)} />
           </label>
           <label className="dyn-pet-settings-row">
-            <span>{t("settings.gravity")}</span>
+            <span>{t("settings.gravity")}<Info text={t("settings.tip.gravity")} /></span>
             <input type="checkbox" checked={draft.gravity} onChange={(e) => setDraftKey("gravity", e.target.checked)} />
           </label>
-          {/* v2.1 看板 12 键（v1.4.0 boolRows2 + numRows）：配置区内、动作下拉之前 */}
-          {DASH_BOOL_KEYS.map((k) => (
-            <label key={k} className="dyn-pet-settings-row">
-              <span>{t(`dash.cfg.${k}`)}</span>
-              <input type="checkbox" checked={!!draft[k]} onChange={(e) => setDraftKey(k, e.target.checked)} />
-            </label>
-          ))}
-          {DASH_NUM_ROWS.map((k) => (
-            <label key={k} className={"dyn-pet-settings-row" + (isBadNumValue(draft[k]) ? " bad" : "")}>
-              <span>{t(`dash.cfg.${k}`)}</span>
-              <input type="number" value={draft[k]} onChange={(e) => setDraftKey(k, e.target.value)} />
-            </label>
-          ))}
-          {/* 纯 token 口径说明：静态提示行，不可交互 */}
-          <div className="dyn-pet-settings-note">{t("dash.caliberNote")}</div>
-          {/* v2.2 导出 3 键（Task 14 R8）：布尔→复选 / 字符串→文本域 / 枚举→下拉（random + ANIM 键） */}
-          <label className="dyn-pet-settings-row">
-            <span>{t("dash.cfg.dashboardSidebarEntry")}</span>
-            <input type="checkbox" checked={draft.dashboardSidebarEntry} onChange={(e) => setDraftKey("dashboardSidebarEntry", e.target.checked)} />
-          </label>
           <div className="dyn-pet-settings-row">
-            <span>{t("dash.cfg.exportPose")}</span>
-            <select value={draft.exportPose} onChange={(e) => setDraftKey("exportPose", e.target.value)}>
-              {POSE_KEYS.map((p) => (
-                <option key={p} value={p}>{p === "random" ? t("dash.pose.random") : t(`dash.pose.${p}`)}</option>
+            <span>{t("settings.scale")}<Info text={t("settings.tip.scale")} /></span>
+            <span className="dyn-pet-scale-group">
+              {CFG_SCALES.map((sc) => (
+                <button
+                  key={sc}
+                  className={"dyn-pet-scale-btn" + (draft.scale === sc ? " on" : "")}
+                  onClick={() => setDraftKey("scale", sc)}
+                >
+                  {scaleLabel(sc)}
+                </button>
               ))}
-            </select>
+            </span>
           </div>
-          {(["dblAction", "approvalAction", "runningAction", "errorAction", "doneAction"] as const).map((k) => (
+
+          <div className="dyn-pet-settings-section">{t("settings.sect.core")}</div>
+          {(["dblAction", "approvalAction", "runningAction", "doneAction", "errorAction"] as const).map((k) => (
             <div key={k} className="dyn-pet-settings-row">
-              <span>{t(`settings.${k}`)}</span>
+              <span>{t(`settings.${k}`)}<Info text={t(`settings.tip.${k}`)} /></span>
               <select value={draft[k]} onChange={(e) => setDraftKey(k, e.target.value)}>
                 {CFG_ACTIONS.map((a) => (
                   <option key={a} value={a}>{actionLabel(a)}</option>
@@ -155,20 +151,62 @@ export function SettingsCard(): React.ReactElement {
               </select>
             </div>
           ))}
+          <label className="dyn-pet-settings-row">
+            <span>{t("dash.cfg.approvalFlickerMin")}<Info text={t("settings.tip.approvalFlickerMin")} /></span>
+            <input type="number" value={draft.approvalFlickerMin} onChange={(e) => setDraftKey("approvalFlickerMin", e.target.value)} />
+          </label>
+
+          <div className="dyn-pet-settings-section">{t("settings.sect.voice")}</div>
+          <label className="dyn-pet-settings-row">
+            <span>{t("dash.cfg.paceEnabled")}<Info text={t("settings.tip.paceEnabled")} /></span>
+            <input type="checkbox" checked={!!draft.paceEnabled} onChange={(e) => setDraftKey("paceEnabled", e.target.checked)} />
+          </label>
+          {(["paceIntenseEvents", "paceLongrunMin", "paceLoafStartMin"] as const).map((k) => (
+            <label key={k} className={"dyn-pet-settings-row" + (isBadNumValue(draft[k]) ? " bad" : "")}>
+              <span>{t(`dash.cfg.${k}`)}<Info text={t(`settings.tip.${k}`)} /></span>
+              <input type="number" value={draft[k]} onChange={(e) => setDraftKey(k, e.target.value)} />
+            </label>
+          ))}
+          <label className="dyn-pet-settings-row">
+            <span>{t("dash.cfg.summaryEnabled")}<Info text={t("settings.tip.summaryEnabled")} /></span>
+            <input type="checkbox" checked={!!draft.summaryEnabled} onChange={(e) => setDraftKey("summaryEnabled", e.target.checked)} />
+          </label>
+          {(["summaryEntrySec", "boardTtlSec"] as const).map((k) => (
+            <label key={k} className={"dyn-pet-settings-row" + (isBadNumValue(draft[k]) ? " bad" : "")}>
+              <span>{t(`dash.cfg.${k}`)}<Info text={t(`settings.tip.${k}`)} /></span>
+              <input type="number" value={draft[k]} onChange={(e) => setDraftKey(k, e.target.value)} />
+            </label>
+          ))}
+          <label className="dyn-pet-settings-row">
+            <span>{t("dash.cfg.ttsEnabled")}<Info text={t("settings.tip.ttsEnabled")} /></span>
+            <input type="checkbox" checked={!!draft.ttsEnabled} onChange={(e) => setDraftKey("ttsEnabled", e.target.checked)} />
+          </label>
+
+          <div className="dyn-pet-settings-section">{t("settings.sect.usage")}</div>
+          <label className="dyn-pet-settings-row">
+            <span>{t("dash.cfg.usageEnabled")}<Info text={t("settings.tip.usageEnabled")} /></span>
+            <input type="checkbox" checked={!!draft.usageEnabled} onChange={(e) => setDraftKey("usageEnabled", e.target.checked)} />
+          </label>
+          {(["dayLimitTokens", "milestoneUnit"] as const).map((k) => (
+            <label key={k} className={"dyn-pet-settings-row" + (isBadNumValue(draft[k]) ? " bad" : "")}>
+              <span>{t(`dash.cfg.${k}`)}<Info text={t(`settings.tip.${k}`)} /></span>
+              <input type="number" value={draft[k]} onChange={(e) => setDraftKey(k, e.target.value)} />
+            </label>
+          ))}
+          <label className="dyn-pet-settings-row">
+            <span>{t("dash.cfg.dashboardSidebarEntry")}<Info text={t("settings.tip.dashboardSidebarEntry")} /></span>
+            <input type="checkbox" checked={!!draft.dashboardSidebarEntry} onChange={(e) => setDraftKey("dashboardSidebarEntry", e.target.checked)} />
+          </label>
           <div className="dyn-pet-settings-row">
-            <span>{t("settings.scale")}</span>
-            <span className="dyn-pet-scale-group">
-              {CFG_SCALES.map((s) => (
-                <button
-                  key={s}
-                  className={"dyn-pet-scale-btn" + (draft.scale === s ? " on" : "")}
-                  onClick={() => setDraftKey("scale", s)}
-                >
-                  {scaleLabel(s)}
-                </button>
+            <span>{t("dash.cfg.exportPose")}<Info text={t("settings.tip.exportPose")} /></span>
+            <select value={draft.exportPose} onChange={(e) => setDraftKey("exportPose", e.target.value)}>
+              {POSE_KEYS.map((p) => (
+                <option key={p} value={p}>{p === "random" ? t("dash.pose.random") : t(`dash.pose.${p}`)}</option>
               ))}
-            </span>
+            </select>
           </div>
+          {/* 纯 token 口径说明：静态提示行，不可交互 */}
+          <div className="dyn-pet-settings-note">{t("dash.caliberNote")}</div>
           <div className="dyn-pet-settings-savebar">
             <button className="dyn-pet-settings-discard" onClick={discard}>{t("dash.discard")}</button>
             <button
