@@ -115,10 +115,13 @@ function drawTrendCard(c: CanvasRenderingContext2D, points: { label: string; val
     c.strokeStyle = grad;
     c.lineWidth = 1.6;
     c.stroke();
-    if (points.length <= 31 || i % 5 === 0 || i === pts.length - 1) {
+    // v2.2.1 轴标签抽稀（与 TrendChart 同规则）：>14 点按步长（目标 ~12 个），月初/首末必显
+    const n = points.length;
+    const stride = Math.ceil(n / 12);
+    if (n <= 14 || i === 0 || i === n - 1 || points[i].label.endsWith("月") || i % stride === 0) {
       c.fillStyle = SUB;
-      c.font = "400 12px system-ui";
-      c.fillText(points[i].label, Math.min(Math.max(p.px, x + 12), x + w - 12), y + h + 22);
+      c.font = "400 13px system-ui";
+      c.fillText(points[i].label, Math.min(Math.max(p.px, x + 14), x + w - 14), y + h + 22);
     }
   });
   c.textAlign = "left";
