@@ -8,7 +8,7 @@ import type { ReactElement } from "react";
 import { t } from "./i18n";
 import type { DashboardSnapshot } from "./api";
 import { boardOverviewLine, boardRows } from "./boardrows";
-import { fmtTokens, shortModel } from "./format";
+import { fmtTokens } from "./format";
 import { TrendChart, lastN } from "./TrendChart";
 
 export type BoardMode = "manual" | "farewell"; // manual：菜单/📖入口打开；farewell：关宠分发
@@ -47,7 +47,7 @@ export function Board(props: {
         </div>
       ) : null}
       {u && Array.isArray(u.models) && u.models.length > 0 ? (
-        <div className="dyn-pet-board-row dyn-pet-mini-dim">{t("dash.models") + " " + u.models.slice(0, 3).map((m) => `${shortModel(m.model || m.route)} ${fmtTokens(m.requestTotal)}`).join(" · ") + (u.models.length > 3 ? " " + t("dash.moreN", { n: String(u.models.length - 3) }) : "")}</div>
+        <div className="dyn-pet-board-row dyn-pet-mini-dim">{t("dash.models") + " " + u.models.slice(0, 3).map((m) => `${m.model || m.route} ${fmtTokens(m.requestTotal)}`).join(" · ") + (u.models.length > 3 ? " " + t("dash.moreN", { n: String(u.models.length - 3) }) : "")}</div>
       ) : null}
       {props.onOpenPanel ? (
         <div className="dyn-pet-board-open" onClick={(e) => { e.stopPropagation(); props.onOpenPanel!(); }}>{t("dash.openPanel")} →</div>
