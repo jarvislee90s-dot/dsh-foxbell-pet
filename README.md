@@ -104,11 +104,14 @@ v1.4.0 效率看板一期整体移植到 v2 架构：宿主聚合、随 `/state`
 ## 安装（一键）
 
 ```sh
-dsh plugin --profile web add github:jarvislee90s-dot/dsh-foxbell-pet
-> 构建白名单提示：v2 起安装会执行 `prepare`（esbuild 构建）。dsh profile 使用 pnpm 时，
-> 首次安装需在 profile 的 allowBuilds 白名单放行本插件的构建脚本（pnpm approve-builds
-> 或 profile 配置），否则产物 `lib/` 不会生成。
+dsh plugin --profile web add github:jarvislee90s-dot/dsh-foxbell-pet#release
 ```
+
+`#release` 是**稳定版通道**（仓库 `release` 分支，只在版本发布时更新）。想尝鲜开发中的
+最新改动，可改用 `github:jarvislee90s-dot/dsh-foxbell-pet#main`（跟随 main，不保证稳定）。
+
+> 插件的 `lib/` 构建产物随仓库提交，安装即用、无需本地构建；只有从源码开发时才需要
+> `npm run build`（见「开发」节）。
 
 然后**重启 `dsh web`** 并**硬刷新浏览器**（Cmd/Ctrl+Shift+R）。右下角即出现桌宠，设置旁有 🦊 开关，设置页出现「foxbell-pet」配置卡。
 
@@ -167,7 +170,7 @@ dsh-foxbell-pet/
 ├── src/host/       宿主半源码（纯 JS：状态聚合/商店/导入/守卫/路由族）
 ├── src/client/     客户端半源码（TSX：本体/菜单/设置卡/对话框/错误码字典）
 ├── test/           vitest 套件（含真实临时目录与 mock fetch）
-├── scripts/        构建 + 校验 + 内置清单生成
+├── scripts/        构建 + 校验 + 发版 + 内置清单生成
 ├── docs/           图集规格 / QA 清单 / 截图 / 历史设计文档
 ├── demo/           独立离线预览页
 ├── package.json  dsh.plugin.json  cordis.patch.yml
@@ -177,6 +180,20 @@ dsh-foxbell-pet/
 
 本机开发安装：`dsh plugin --profile web add <仓库路径>` 装的是 symlink；改完 `src/` 后
 `npm run build`，**重启 `dsh web`** 并硬刷新浏览器即生效。
+
+### 版本发布
+
+- `main` 是开发分支，随时合并新代码；对外用户的稳定版 = `release` 分支，只在发版时快进，
+  外部安装命令固定指向 `#release`（见「安装」节）。
+- 发版：在 `CHANGELOG.md` 写好 `[x.y.z]` 条目后执行
+
+  ```sh
+  npm run release -- x.y.z        # 加 --dry-run 只校验不执行
+  ```
+
+  脚本会：校验（在 main、工作区干净、与远端同步、CHANGELOG 条目齐全）→ 同步
+  package.json / dsh.plugin.json 版本号 → `build + validate + test` → 提交并打
+  `vX.Y.Z` tag → 推送 → 把 `release` 分支快进到该提交并推送。
 
 ## License
 
