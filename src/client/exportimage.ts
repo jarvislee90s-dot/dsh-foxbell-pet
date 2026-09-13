@@ -49,9 +49,9 @@ export function loadSprite(url: string | null): Promise<HTMLImageElement | null>
 
 // ---- 版式常量（720×1600 竖版）----
 const W = 720;
-let H = 1560;
+let H = 2016; // 上界：1560（默认内容）+ 360（立绘满高）+ 96（边距）——按实际内容在收尾裁剪
 const M = 24;                 // 页边距
-const CARD = { x: M, y: M, w: W - M * 2, h: H - M * 2, r: 24 };
+const CARD = { x: M, y: M, w: W - M * 2, get h() { return H - M * 2; }, r: 24 };
 const INK = "#1f2937";        // 主文字
 const SUB = "#6b7280";        // 次文字
 const FAINT = "#9ca3af";      // 页脚
@@ -243,15 +243,16 @@ export async function exportDashboardImage(input: ExportInput): Promise<Blob> {
     c.fillText(v, cx + 14, cy + 47);
   });
   y += (cellH + 10) * 2 + 26;
+  // v2.2.1：H 定稿（此时 y 已知）——H = 内容底(工具区) + 立绘满高(360) + 间距(26) + 页脚区(40+M+16)
+  H = Math.max(1560, y + 26 + 360 + M + 40 + 16);
 
   // —— 聊天式底部：宠物立绘（右）+ 评语气泡（紧贴宠物头部左侧，像从它嘴里说出）——
   // v2.2.1：立绘固定 360px 高（不随上方内容长度被压缩——用户报告"导出后宠物变小"根因）；
   // 空间不足时加高画布而非缩小立绘。主界面「宠物大小」设置只影响桌面精灵，不参与导出（独立画布绘制）。
   const PET_H = 360;
-  if (y + PET_H + 96 > H) H = y + PET_H + 96;
   const petW = input.sprite && input.frameH > 0 && input.frameW > 0 ? PET_H * (input.frameW / input.frameH) : 0;
   const petX = W - PAD - petW;
-  const petY = H - M - 40 - PET_H; // 底部锚定：紧跟工具区（无空窗），脚与页脚留 40px
+  const petY = y + 26 + PET_H; // 顶部锚定：紧跟工具区下方（间距 26px），永不越界；contentBottom 由 petY+PET_H 决定
   // 气泡：宽度自适应文本（上限 340），白底+淡暖影+渐变描边，右缘距宠物 18px，垂直对齐宠物头部
   c.font = "500 19px system-ui";
   const longestLine = (() => {
@@ -300,11 +301,20 @@ export async function exportDashboardImage(input: ExportInput): Promise<Blob> {
     c.drawImage(input.sprite, 0, input.poseRow * input.frameH, input.frameW, input.frameH, petX, petY, petW, PET_H);
   }
 
-    // —— 页脚 ——
+    // —— 收尾：按内容底裁掉多余卡身（重刷页底色+补卡底线），页脚贴内容底 ——
+  const cardBottom = CARD.y + CARD.h;
+  const contentBottom = Math.max(petY + PET_H, y) + 8;
+  if (contentBottom + 16 < cardBottom) {
+    c.fillStyle = "#f5f6f8";
+    c.fillRect(CARD.x, contentBottom, CARD.w, cardBottom - contentBottom);
+  }
+  c.strokeStyle = "#e8e5df"; c.lineWidth = 1;
+  c.beginPath(); c.moveTo(CARD.x, contentBottom); c.lineTo(CARD.x + CARD.w, contentBottom); c.stroke();
+  const footY = contentBottom + 30;
   c.fillStyle = FAINT; c.font = "400 15px system-ui";
-  c.fillText("纯 token · 含子代理 · 本地聚合", PAD, H - M - 16);
+  c.fillText("纯 token · 含子代理 · 本地聚合", PAD, footY);
   c.textAlign = "right";
-  c.fillText("DSH · Foxbell 用量看板", W - PAD, H - M - 16);
+  c.fillText("DSH · Foxbell 用量看板", W - PAD, footY);
   c.textAlign = "left";
 
     return await new Promise<Blob>((res, rej) => cv.toBlob((b) => (b ? res(b) : rej(new Error("canvas toBlob returned null"))), "image/png"));
