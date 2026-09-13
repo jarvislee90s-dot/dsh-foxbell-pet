@@ -236,6 +236,7 @@ export function createConfigStore(): ConfigStore {
     if (!sv || sv.status !== "ready" || !sv.value || typeof sv.value !== "object") return local;
     // 只取 CFG_DEFAULT 的键（scope 里可能残留已移除字段，不并入）
     const merged: PetConfig = { ...CFG_DEFAULT, ...local };
+    (merged.usageEnabled as unknown) = true; // v2.2.1 恒开：遗留 yaml false 不再生效（悬浮窗内容完整性）
     for (const k of Object.keys(CFG_DEFAULT) as (keyof PetConfig)[]) {
       if (pending[k] !== undefined) (merged[k] as unknown) = pending[k];
       else if (sv.value[k] !== undefined) (merged[k] as unknown) = sanitizeValue(k, sv.value[k]);

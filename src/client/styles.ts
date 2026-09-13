@@ -211,6 +211,10 @@ ${MINI_DETAIL_CSS}
 .dyn-pet-board-kv .v { flex: none; }
 .dyn-pet-board-kv .k { flex: none; color: rgba(255,255,255,.55); font-size: 11px; }
 .dyn-pet-board-kv .v { text-align: right; word-break: break-word; color: rgba(255,255,255,.92); text-shadow: 0 0 3px rgba(255,255,255,.18); }
+/* v2.2.1 黑板模型行与大看板对齐口径统一：名称左对齐 + 数值右对齐固定宽 */
+.dyn-pet-board-model { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.dyn-pet-board-model .nm { flex: 1 1 auto; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dyn-pet-board-model .num { flex: none; min-width: 64px; text-align: right; font-variant-numeric: tabular-nums; }
 /* ---- v2.2 黑板加料（Task 11 R4）：sparkline 行（行内 flex：灰字 11px 标签 + 趋势图占余宽）；
    入口行右对齐——.dyn-pet-board 非 flex 容器，用 text-align 而非 align-self（Task10 教训）；
    入口行是黑板内第二个可点元素（容器无 pointer-events 限制，显式 auto 保点击） */

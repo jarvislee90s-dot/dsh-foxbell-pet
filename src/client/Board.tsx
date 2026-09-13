@@ -51,7 +51,7 @@ export function Board(props: {
           {u.models.slice(0, 5).map((m, i) => (
             <div key={m.route} className="dyn-pet-board-kv">
               <span className="k">{i === 0 ? t("dash.models") : ""}</span>
-              <span className="v">{`${m.route} ${fmtTokens(m.requestTotal)}`}</span>
+              <span className="v dyn-pet-board-model"><span className="nm">{m.route}</span><span className="num">{fmtTokens(m.requestTotal)}</span></span>
             </div>
           ))}
           {u.models.length > 5 ? <div className="dyn-pet-board-kv"><span className="k"></span><span className="v">{t("dash.moreN", { n: String(u.models.length - 5) })}</span></div> : null}

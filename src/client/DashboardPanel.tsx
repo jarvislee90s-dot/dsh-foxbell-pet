@@ -481,7 +481,7 @@ export function DashboardPanel(): ReactElement {
 
       <div className="dyn-pet-dash-card" ref={modelHeadRef} style={{ "--model-name-w": `${modelNameW}px`, "--model-val-w": `${modelValW}px` } as React.CSSProperties}>
         <div className="dyn-pet-dash-card-head"><span>{t("dash.models")}</span></div>
-        {models.length === 0 ? <div className="dyn-pet-dash-empty">{t("dash.noData")}</div> : models.slice(0, 6).map((m) => (
+        {models.length === 0 ? <div className="dyn-pet-dash-empty">{t("dash.noData")}</div> : models.slice(0, 10).map((m) => (
           <div key={m.route} className="dyn-pet-dash-model">
             <span className="dyn-pet-dash-model-name" title={m.route}>{m.route}</span>
             <span className="dyn-pet-dash-model-val">{fmtTokens(m.requestTotal)}</span>
