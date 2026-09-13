@@ -42,34 +42,19 @@ export function hourPoints(hours: TrendHour[] | null | undefined, nowH: number):
   });
 }
 
-/** 周命中率（weekIdx 0=本周 / 1=上周），返回 0-1 分数（供 fmtPct 直用）。
- *  周界裁定（Task 12）：周一为一周之始的日历周；锚点 = 快照内最新一天（数据驱动，不读时钟，可测）。
- *  聚合口径 = ΣcacheRead / ΣrequestTotal（非日均 hitPct 平均）；分母 0 记 0；
- *  上周若超出 14 日快照覆盖，只聚合快照内天数。 */
-export function weekHit(
-  trend: { days: { key: string; requestTotal: number; cacheRead: number }[] } | null | undefined,
-  weekIdx: 0 | 1,
-): number {
-  const days = trend && Array.isArray(trend.days) ? trend.days : [];
-  if (days.length === 0) return 0;
-  const anchorKey = days.reduce((a, b) => (b.key > a.key ? b : a), days[0]).key; // ISO 键字典序=时间序
-  const anchorMs = new Date(anchorKey + "T00:00:00").getTime();
-  const dow = new Date(anchorMs).getDay(); // 0=Sun…6=Sat
-  const weekStartMs = anchorMs - ((dow + 6) % 7) * 86400000; // 本周一 0 点
-  const startMs = weekStartMs - weekIdx * 7 * 86400000;
-  const endMs = weekIdx === 0 ? anchorMs : weekStartMs - 86400000; // 上周收于周日
+/** 池化命中率：ΣcacheRead / ΣrequestTotal（分母 0 记 0）——与宿主 hitRate 口径一致。 */
+function pooledHit(items: { requestTotal: number; cacheRead: number }[]): number {
   let req = 0, hit = 0;
-  for (const d of days) {
-    const ms = new Date(d.key + "T00:00:00").getTime();
-    if (ms >= startMs && ms <= endMs) { req += d.requestTotal || 0; hit += d.cacheRead || 0; }
-  }
+  for (const x of items) { req += x.requestTotal || 0; hit += x.cacheRead || 0; }
   return req > 0 ? hit / req : 0;
 }
 
-/** 周命中率差文案：本周−上周，百分点（×100）一位小数 + "pt"；正 +/负 −/零 ± */
-export function hitDeltaText(trend: { days: { key: string; requestTotal: number; cacheRead: number }[] } | null | undefined): string {
-  const d = (weekHit(trend, 0) - weekHit(trend, 1)) * 100;
-  return (d > 0 ? "+" : d < 0 ? "-" : "±") + Math.abs(d).toFixed(1) + "pt";
+/** 命中率对比文案：当前窗口 a vs 上一等长周期 b（null=上一周期无数据 → 只显示当前值），走 i18n。 */
+export function hitCompareText(a: number, b: number | null): string {
+  if (b === null) return t("dash.hitCur", { a: fmtPct(a) });
+  const d = (a - b) * 100;
+  const delta = (d > 0 ? "+" : d < 0 ? "-" : "±") + Math.abs(d).toFixed(1) + "pt";
+  return t("dash.hitCompare", { a: fmtPct(a), b: fmtPct(b), d: delta });
 }
 
 /** 工具聚合行（宿主 usage.tools / range.tools 同形：{name,count,durMs}） */
@@ -197,6 +182,7 @@ export function DashboardPanel(): ReactElement {
   const [quoteDraft, setQuoteDraft] = useState<string>(() => {
     try { return localStorage.getItem(EXPORT_QUOTE_DRAFT_KEY) ?? ""; } catch { return ""; }
   });
+  const [prevHit, setPrevHit] = useState<number | null>(null); // 上一等长区间命中率（30d/custom）
   const setQuoteDraftPersisted = (v: string): void => {
     setQuoteDraft(v);
     try { localStorage.setItem(EXPORT_QUOTE_DRAFT_KEY, v); } catch { /* ignore */ }
@@ -217,8 +203,19 @@ export function DashboardPanel(): ReactElement {
     const rawFrom = tab === "30d" ? dayKey(new Date(Date.now() - 29 * 86400000)) : tab === "7d" ? dayKey(new Date(Date.now() - 6 * 86400000)) : custom.from;
     const { from, clamped } = clampRangeFrom(rawFrom, to);
     if (clamped) { setCustom((c) => ({ ...c, from })); setRangeHint(t("dash.rangeClamp")); }
+    setPrevHit(null);
     fetchRange(from, to)
-      .then((r) => { if (live) setRange(r); })
+      .then((r) => {
+        if (!live) return;
+        setRange(r);
+        // 上一等长区间命中率（30d/custom；fetchRange 自带 60s 缓存）
+        const spanDays = Math.round((new Date(to + "T00:00:00").getTime() - new Date(from + "T00:00:00").getTime()) / 86400000) + 1;
+        const prevTo = dayKey(new Date(new Date(from + "T00:00:00").getTime() - 86400000));
+        const prevFrom = dayKey(new Date(new Date(prevTo + "T00:00:00").getTime() - (spanDays - 1) * 86400000));
+        return fetchRange(prevFrom, prevTo)
+          .then((pr) => { if (live) setPrevHit(pr.totals.requestTotal > 0 ? pr.totals.hitPct : null); })
+          .catch(() => { if (live) setPrevHit(null); });
+      })
       .catch(() => { if (live) setRange(null); })
       .finally(() => { if (live) setBusy(false); });
     return () => { live = false; };
@@ -237,6 +234,36 @@ export function DashboardPanel(): ReactElement {
   const usage = dash ? dash.usage : null;
   const inRange = tab === "7d" || tab === "30d" || tab === "custom";
   const totals = inRange && range ? range.totals : null;
+
+  // —— 命中率对比（周期随选项卡，v2.2.1 用户裁定）：当前窗口 Σcache/Σreq vs 上一等长周期 ——
+  // 5h=今日小时桶内前 5 完整整点 vs 其前 5 整点（跨昨日的凌晨时段不显示对比）；
+  // 7d=快照末 7 日 vs 前 7 日；30d/自定义=区间 totals vs 前移一个等长区间（fetchRange，60s 缓存）。
+  const hitCompare = (() => {
+    if (tab === "5h") {
+      if (!trend || !trend.hours) return "";
+      const nowH = new Date().getHours();
+      if (nowH < 10) return ""; // 前 5 整点跨昨日：快照只有今日桶，不显示对比
+      const cur = trend.hours.filter((h) => {
+        const hh = Number(h.key.slice(11, 13));
+        return hh >= nowH - 5 && hh < nowH;
+      });
+      const prev = trend.hours.filter((h) => {
+        const hh = Number(h.key.slice(11, 13));
+        return hh >= nowH - 10 && hh < nowH - 5;
+      });
+      const prevReq = prev.reduce((s2, h) => s2 + h.requestTotal, 0);
+      return hitCompareText(pooledHit(cur.map((h) => ({ requestTotal: h.requestTotal, cacheRead: h.cacheRead }))), prevReq > 0 ? pooledHit(prev.map((h) => ({ requestTotal: h.requestTotal, cacheRead: h.cacheRead }))) : null);
+    }
+    if (tab === "7d" && trend && trend.days.length >= 14) {
+      const cur = pooledHit(trend.days.slice(7));
+      const prev = pooledHit(trend.days.slice(0, 7));
+      return hitCompareText(cur, prev);
+    }
+    if ((tab === "30d" || tab === "custom") && range && range.totals.requestTotal > 0) {
+      return hitCompareText(range.totals.hitPct, prevHit);
+    }
+    return "";
+  })();
 
   const grid: [string, string][] = [
     [t("dash.g.userEst"), "~" + fmtInt(totals ? totals.userEst : usage ? usage.userEst : 0) + t("dash.estimateSuffix") + " · " + t("dash.withSubagents")],
@@ -381,10 +408,8 @@ export function DashboardPanel(): ReactElement {
       <div className="dyn-pet-dash-hero">
         <div className="dyn-pet-dash-hero-label">{t("dash.heroTotal", { range: t(`dash.tab.${tab}`) })}</div>
         <div className="dyn-pet-dash-hero-num">{fmtInt(hero)}</div>
-        {(tab === "5h" || tab === "7d") && trend ? (
-          <div className="dyn-pet-dash-weekhit">
-            {t("dash.weekHit", { a: fmtPct(weekHit(trend, 0)), b: fmtPct(weekHit(trend, 1)), d: hitDeltaText(trend) })}
-          </div>
+        {hitCompare ? (
+          <div className="dyn-pet-dash-weekhit">{hitCompare}</div>
         ) : null}
       </div>
 
