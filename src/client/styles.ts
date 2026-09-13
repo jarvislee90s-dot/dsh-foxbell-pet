@@ -179,6 +179,9 @@ ${MINI_DETAIL_CSS}
 .dyn-pet-board-head { display: flex; justify-content: space-between; align-items: center; font-weight: 700; margin-bottom: 4px; }
 .dyn-pet-board-x { background: transparent; border: none; color: #d6c7b2; cursor: pointer; font-size: 13px; padding: 0 2px; }
 .dyn-pet-board-row { white-space: normal; word-break: break-word; }
+.dyn-pet-board-kv { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 2px 0; }
+.dyn-pet-board-kv .k { flex: none; color: #a07050; font-size: 11px; }
+.dyn-pet-board-kv .v { text-align: right; word-break: break-word; color: #7a4a2b; }
 /* ---- v2.2 黑板加料（Task 11 R4）：sparkline 行（行内 flex：灰字 11px 标签 + 趋势图占余宽）；
    入口行右对齐——.dyn-pet-board 非 flex 容器，用 text-align 而非 align-self（Task10 教训）；
    入口行是黑板内第二个可点元素（容器无 pointer-events 限制，显式 auto 保点击） */

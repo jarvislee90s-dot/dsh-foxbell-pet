@@ -24,7 +24,7 @@ import { fmtInt, fmtPct, fmtTokens, shortModel } from "../src/client/format";
 import { clampRangeFrom, hitDeltaText, hourPoints, toolsMetrics, trendDirection, viewWindow, weekHit } from "../src/client/DashboardPanel";
 import { maxAnimCols, resolvePoseRow } from "../src/client/exportimage";
 import { lastN } from "../src/client/TrendChart";
-import { boardRows, fmtDur, fmtLongest } from "../src/client/boardrows";
+import { boardOverviewLine, boardRows, fmtDur, fmtLongest } from "../src/client/boardrows";
 import { KNOWN_RPC_CODES, PetError, isPetRpcError } from "../src/client/errors";
 import { fillQuote, pickQuote } from "../src/client/quotes";
 import { petErrMsg, type DashboardSummary, type ProjectCard } from "../src/client/api";
@@ -635,43 +635,44 @@ describe("fmtTokens（万/亿 格式化，formatTokens 客户端移植）", () =
   });
 });
 
-describe("boardRows（小黑板行拼装，Task 7）", () => {
-  // 与 test/state-dashboard.test.mjs「summary 结构化增量」同一组输入：结构化字段拼装 ↔ 宿主 zh 字符串双向钉住
-  const perSession = [{ turns: 4, errors: 1, toolCalls: { Bash: 1 }, toolDurMs: { Bash: 5000 }, longestTurnMs: 120000 }];
-  const dayUsage = { inputTokens: 1600, outputTokens: 1050, cacheReadTokens: 4000, cacheWriteTokens: 200 };
-  const host = hostSummarize(perSession, dayUsage, 10) as {
-    sessions: number; turns: number; errors: number; tokensText: string; toolsText: string; longestText: string;
-  };
+describe("boardRows（小黑板行拼装，Task 7；v2.2.1 重排为标签-数值结构行）", () => {
   const summary: DashboardSummary = {
     sessions: 1,
     turns: 4,
     errors: 1,
-    tokensText: host.tokensText,
-    toolsText: host.toolsText,
-    longestText: host.longestText,
+    tokensText: "请求输入 5600（缓存命中 4000 · 71.4%）· 产出 1050 · 你的输入 ~10(估) · 含子代理",
+    toolsText: "Bash×1（共 5.0 秒）",
+    longestText: "2.0 分钟",
     tokens: { requestTotal: 5600, cacheRead: 4000, hitPct: (4000 / 5600) * 100, output: 1050, userEst: 10 },
     toolRows: [{ name: "Bash", count: 1, ms: 5000 }],
     longest: { ms: 120000 },
   };
 
-  it("zh 拼装与宿主 summarize zh 字符串逐字节一致（黑板四行序同源）", () => {
+  it("概览行：会话/turn/报错（zh/en）", () => {
+    setLang("zh");
+    expect(boardOverviewLine(summary)).toBe("会话 1 · turn 4 · 报错 1");
+    setLang("en");
+    expect(boardOverviewLine(summary)).toBe("Sessions 1 · turns 4 · errors 1");
+    setLang("zh");
+  });
+  it("明细行 kv：请求输入/缓存命中(百分比)/产出/你的输入/工具/最长 turn（zh/en）", () => {
     setLang("zh");
     const rows = boardRows(summary);
-    expect(rows[0]).toBe("会话 1 · turn 4 · 报错 1");
-    expect(rows[1]).toBe("今日 token " + host.tokensText);
-    expect(rows[2]).toBe("工具 Top3 " + host.toolsText);
-    expect(rows[3]).toBe("最长单 turn " + host.longestText);
-    expect(rows[1]).toBe("今日 token 请求输入 5600（缓存命中 4000 · 71.4%）· 产出 1050 · 你的输入 ~10(估) · 含子代理");
-    expect(rows[2]).toBe("工具 Top3 Bash×1（共 5.0 秒）");
-    expect(rows[3]).toBe("最长单 turn 2.0 分钟");
-  });
-  it("en 拼装走同构英文（t() + fmtTokens，结构不变）", () => {
+    expect(rows.map((r) => r.label)).toEqual([
+      "请求输入(全文累计)", "缓存命中", "产出", "你的输入(估) · 含子代理", "工具 Top3", "最长单 turn",
+    ]);
+    expect(rows[0].value).toBe("5600");
+    expect(rows[1].value).toBe("4000（71.4%）");
+    expect(rows[2].value).toBe("1050");
+    expect(rows[3].value).toBe("~10");
+    expect(rows[4].value).toBe("Bash×1（共 5.0 秒）");
+    expect(rows[5].value).toBe("2.0 分钟");
     setLang("en");
-    const rows = boardRows(summary);
-    expect(rows[0]).toBe("Sessions 1 · turns 4 · errors 1");
-    expect(rows[1]).toBe("Today's tokens Request input 5600 (Cache hit 4000 · 71.4%) · Output 1050 · Your input ~10(est.) · incl. subagents");
-    expect(rows[2]).toBe("Top 3 tools Bash×1 (total 5.0 s)");
-    expect(rows[3]).toBe("Longest turn 2.0 min");
+    const en = boardRows(summary);
+    expect(en[0].label).toBe("Request input (cumulative)");
+    expect(en[1].value).toBe("4000（71.4%）");
+    expect(en[4].value).toBe("Bash×1 (total 5.0 s)");
+    expect(en[5].value).toBe("2.0 min");
     setLang("zh");
   });
   it("耗时三档镜像宿主 formatDur；longest null → 「0 秒」桶；工具空 → —", () => {
@@ -683,25 +684,24 @@ describe("boardRows（小黑板行拼装，Task 7）", () => {
     expect(fmtLongest(0)).toBe("0 秒");
     const empty: DashboardSummary = { ...summary, toolRows: [], longest: null };
     const rows = boardRows(empty);
-    expect(rows[2]).toBe("工具 Top3 —");
-    expect(rows[3]).toBe("最长单 turn 0 秒");
+    expect(rows[4].value).toBe("—");
+    expect(rows[5].value).toBe("0 秒");
     setLang("en");
     expect(fmtDur(2500)).toBe("2.5 s");
     expect(fmtLongest(90000)).toBe("1.5 min");
     setLang("zh");
   });
-  it("多工具条目按宿主 toolsText 同构 join（×N 与耗时段并存）", () => {
+  it("多工具条目 ×N 与耗时段并存", () => {
     setLang("zh");
     const multi: DashboardSummary = { ...summary, toolRows: [
       { name: "Read", count: 5, ms: 4000 },
       { name: "Bash", count: 3, ms: 60000 },
       { name: "Grep", count: 2, ms: 0 },
     ] };
-    expect(boardRows(multi)[2]).toBe("工具 Top3 Read×5（共 4.0 秒） · Bash×3（共 1.0 分钟） · Grep×2");
+    expect(boardRows(multi)[4].value).toBe("Read×5（共 4.0 秒） · Bash×3（共 1.0 分钟） · Grep×2");
     setLang("zh");
   });
 });
-
 describe("petErrMsg 分流 (MAM 同款)", () => {
   it("PetError → err.<code> with params", () => {
     expect(petErrMsg(new PetError("sheet-bad-size", { w: 100, h: 200 }), t)).toContain("100");

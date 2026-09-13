@@ -7,7 +7,7 @@
 import type { ReactElement } from "react";
 import { t } from "./i18n";
 import type { DashboardSnapshot } from "./api";
-import { boardRows } from "./boardrows";
+import { boardOverviewLine, boardRows } from "./boardrows";
 import { fmtTokens, shortModel } from "./format";
 import { TrendChart, lastN } from "./TrendChart";
 
@@ -33,8 +33,10 @@ export function Board(props: {
           onClick={(e) => { e.stopPropagation(); props.onClose(); }}
         >✕</button>
       </div>
-      {boardRows(s).map((text, i) => (
-        <div key={i} className="dyn-pet-board-row">{text}</div>
+      {/* v2.2.1：概览行 + 「标签-数值」明细行（每项一行，含义自明） */}
+      <div className="dyn-pet-board-row">{boardOverviewLine(s)}</div>
+      {boardRows(s).map((kv, i) => (
+        <div key={i} className="dyn-pet-board-kv"><span className="k">{kv.label}</span><span className="v">{kv.value}</span></div>
       ))}
       {/* ---- v2.2 Task 11 加料三行（行序：既有行 → sparkline 行 → 模型 Top3 行 → 入口行；R4/R10）----
           防御式读取：trend/models 为 v2.2 增量字段，旧宿主缺省即整行跳过 */}
