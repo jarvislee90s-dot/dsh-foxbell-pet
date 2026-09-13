@@ -47,11 +47,20 @@ export function Board(props: {
         </div>
       ) : null}
       {u && Array.isArray(u.models) && u.models.length > 0 ? (
-        <div className="dyn-pet-board-row dyn-pet-mini-dim">{t("dash.models") + " " + u.models.slice(0, 3).map((m) => `${m.model || m.route} ${fmtTokens(m.requestTotal)}`).join(" · ") + (u.models.length > 3 ? " " + t("dash.moreN", { n: String(u.models.length - 3) }) : "")}</div>
+        <>
+          {u.models.slice(0, 3).map((m, i) => (
+            <div key={m.route} className="dyn-pet-board-kv">
+              <span className="k">{i === 0 ? t("dash.models") : ""}</span>
+              <span className="v">{`${m.model || m.route} ${fmtTokens(m.requestTotal)}`}</span>
+            </div>
+          ))}
+          {u.models.length > 3 ? <div className="dyn-pet-board-kv"><span className="k"></span><span className="v">{t("dash.moreN", { n: String(u.models.length - 3) })}</span></div> : null}
+        </>
       ) : null}
       {props.onOpenPanel ? (
         <div className="dyn-pet-board-open" onClick={(e) => { e.stopPropagation(); props.onOpenPanel!(); }}>{t("dash.openPanel")} →</div>
       ) : null}
+      <div className="dyn-pet-board-tray" aria-hidden />
       {/* 二期预留（issue #4 F38/F40/F41/F42/F45）：周报/缓存率趋势/失败率/耗时漂移/导出行在此追加（spec §9） */}
     </div>
   );
