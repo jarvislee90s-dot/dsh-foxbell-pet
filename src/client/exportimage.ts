@@ -156,7 +156,7 @@ export async function exportDashboardImage(input: ExportInput): Promise<Blob> {
   // —— 头部：标题 + 日期范围 ——
   c.fillStyle = INK; c.font = "700 28px system-ui";
   c.fillText("用量看板", PAD, 78);
-  c.font = "500 15px system-ui"; c.fillStyle = SUB;
+  c.font = "500 18px system-ui"; c.fillStyle = SUB;
   c.textAlign = "right";
   c.fillText(input.rangeLabel, W - PAD, 74);
   c.textAlign = "left";
@@ -176,9 +176,9 @@ export async function exportDashboardImage(input: ExportInput): Promise<Blob> {
   // —— 指标行（label 左 / value 右）——
   let y = 298;
   for (const [k, v] of input.metrics) {
-    c.fillStyle = "#4b5563"; c.font = "400 16px system-ui";
+    c.fillStyle = "#4b5563"; c.font = "400 19px system-ui";
     c.fillText(k, PAD, y);
-    c.fillStyle = INK; c.font = "600 17px system-ui";
+    c.fillStyle = INK; c.font = "600 20px system-ui";
     c.textAlign = "right";
     c.fillText(v, W - PAD, y);
     c.textAlign = "left";

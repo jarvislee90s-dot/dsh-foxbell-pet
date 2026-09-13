@@ -2,7 +2,7 @@
 // 数据：默认视图全走 /state 快照（14日+24小时桶+models+tools）；30d/自定义走 /dashboard/range（60s 内存缓存）。
 // 复刻要素：hero 大数字 / 五口径网格 / 蓝紫渐变趋势图(带 tooltip) / 模型分布进度条行 / 2×2 工具格 / 日期回看。
 // 不复刻：价格（F04 存档）、推理单列（F03 存档）——spec §2.1。
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { ReactElement } from "react";
 import { appStore, cfgStore } from "./store";
 import { apiGetRange, type RangeSummary, type RouteUsage, type TrendDay, type TrendHour } from "./api";
@@ -183,6 +183,8 @@ export function DashboardPanel(): ReactElement {
     try { return localStorage.getItem(EXPORT_QUOTE_DRAFT_KEY) ?? ""; } catch { return ""; }
   });
   const [prevHit, setPrevHit] = useState<number | null>(null); // 上一等长区间命中率（30d/custom）
+  // v2.2.1 进度条等长：以「最长模型名」「最长数值」实测宽度写入 CSS 变量，全部行文本列同宽 → 进度条起点/长度统一
+  const modelHeadRef = useRef<HTMLDivElement | null>(null);
   const setQuoteDraftPersisted = (v: string): void => {
     setQuoteDraft(v);
     try { localStorage.setItem(EXPORT_QUOTE_DRAFT_KEY, v); } catch { /* ignore */ }
@@ -379,6 +381,25 @@ export function DashboardPanel(): ReactElement {
     setTimeout(() => URL.revokeObjectURL(url), 10_000);
   };
 
+  // 进度条等宽基准：隐藏测量行实测「最长模型名 + 最长数值」宽度（含 gap），写入 CSS 变量
+  const [modelNameW, setModelNameW] = useState(200);
+  const [modelValW, setModelValW] = useState(84);
+  useEffect(() => {
+    const host = modelHeadRef.current;
+    if (!host) return;
+    const probe = document.createElement("span");
+    probe.style.cssText = "position:absolute;visibility:hidden;white-space:nowrap;font:600 16px system-ui";
+    document.body.appendChild(probe);
+    let maxName = 0, maxVal = 0;
+    for (const m of models.slice(0, 6)) {
+      probe.textContent = m.route; maxName = Math.max(maxName, probe.offsetWidth);
+      probe.textContent = fmtTokens(m.requestTotal); maxVal = Math.max(maxVal, probe.offsetWidth);
+    }
+    probe.remove();
+    setModelNameW(Math.min(420, Math.ceil(maxName) + 4));
+    setModelValW(Math.min(120, Math.ceil(maxVal) + 6));
+  }, [models]);
+
   useEffect(() => {
     if (!copiedFlash) return;
     const timer = setTimeout(() => setCopiedFlash(false), 1600);
@@ -454,7 +475,7 @@ export function DashboardPanel(): ReactElement {
         </div>
       </div>
 
-      <div className="dyn-pet-dash-card">
+      <div className="dyn-pet-dash-card" ref={modelHeadRef} style={{ "--model-name-w": `${modelNameW}px`, "--model-val-w": `${modelValW}px` } as React.CSSProperties}>
         <div className="dyn-pet-dash-card-head"><span>{t("dash.models")}</span></div>
         {models.length === 0 ? <div className="dyn-pet-dash-empty">{t("dash.noData")}</div> : models.slice(0, 6).map((m) => (
           <div key={m.route} className="dyn-pet-dash-model">

@@ -84,8 +84,8 @@ const CSS = `
   content: attr(data-tip);
   position: absolute;
   top: calc(100% + 8px);
-  right: -10px;
-  width: min(320px, 64vw);
+  left: calc(100% + 10px);
+  width: min(320px, 60vw);
   background: rgba(30, 26, 22, .96);
   color: #f3ece2;
   font-size: 13px; font-style: normal; font-weight: 400; line-height: 1.55;
@@ -202,6 +202,8 @@ ${MINI_DETAIL_CSS}
 .dyn-pet-board-row { white-space: normal; word-break: break-word; }
 .dyn-pet-board-row + .dyn-pet-board-kv, .dyn-pet-board-kv + .dyn-pet-board-kv { border-top: 1px dashed rgba(255,255,255,.18); }
 .dyn-pet-board-kv { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 3px 0; }
+.dyn-pet-board-kv .k { min-width: 0; }
+.dyn-pet-board-kv .v { flex: none; }
 .dyn-pet-board-kv .k { flex: none; color: rgba(255,255,255,.55); font-size: 11px; }
 .dyn-pet-board-kv .v { text-align: right; word-break: break-word; color: rgba(255,255,255,.92); text-shadow: 0 0 3px rgba(255,255,255,.18); }
 /* ---- v2.2 黑板加料（Task 11 R4）：sparkline 行（行内 flex：灰字 11px 标签 + 趋势图占余宽）；
@@ -250,9 +252,10 @@ ${MINI_DETAIL_CSS}
 .dyn-pet-dash-trendwrap { position: relative; }
 .dyn-pet-dash-trendhit { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 .dyn-pet-dash-tooltip { position: absolute; transform: translate(-50%, -130%); background: rgba(47,42,38,.94); color: #f3e9dc; font-size: 11px; padding: 3px 8px; border-radius: 6px; pointer-events: none; white-space: nowrap; z-index: 2; }
-.dyn-pet-dash-model { display: flex; align-items: center; gap: 12px; padding: 5px 0; font-size: 16px; }
-.dyn-pet-dash-model-name { flex: none; min-width: 104px; max-width: 340px; color: #7a4a2b; font-weight: 600; white-space: nowrap; }
-.dyn-pet-dash-model-val { flex: none; min-width: 72px; text-align: right; color: #a07050; font-variant-numeric: tabular-nums; }
+.dyn-pet-dash-model { display: grid; grid-template-columns: var(--model-name-w, 200px) var(--model-val-w, 84px) 1fr; align-items: center; gap: 12px; padding: 5px 0; font-size: 16px; }
+/* v2.2.1 进度条等长：名称列/数值列宽由 Panel 内 JS 以「最长行」实测写入 CSS 变量，所有行进度条起点一致 */
+.dyn-pet-dash-model-name { flex: none; min-width: 0; max-width: 100%; color: #7a4a2b; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dyn-pet-dash-model-val { text-align: right; color: #a07050; font-variant-numeric: tabular-nums; }
 .dyn-pet-dash-model-bar { flex: 1; height: 5px; border-radius: 999px; background: rgba(122,74,43,.12); overflow: hidden; }
 .dyn-pet-dash-model-bar i { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg,#3BA7FF,#8D6BFF); }
 .dyn-pet-dash-tools { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; max-width: 640px; }
