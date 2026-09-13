@@ -173,7 +173,7 @@ const ZH: Dict = {
   // ---- 效率看板（五口径名词为行为不变量：请求输入/缓存命中/命中率/产出/你的输入/含子代理）----
   "dash.today": "今日",
   "dash.requestInput": "请求输入",
-  "dash.hit": "命中",
+  "dash.hit": "命中率",
   "dash.cacheHit": "缓存命中",
   "dash.output": "产出",
   "dash.yourInput": "你的输入",
@@ -228,7 +228,7 @@ const ZH: Dict = {
   "dash.countApproval": "等审批",
   "dash.countRunning": "运行",
   "dash.countDone": "完成",
-  "dash.request": "请求",
+  "dash.request": "请求次数",
   // 迷你条钻取按钮（Task10 R6：唯一可点元素「详情 »」，点击开黑板）
   "dash.detail": "详情",
   // 黑板加料三行（Task 11 R4/R10）：7 日 sparkline 标签 / 模型 Top3 行 / 等余量 / 完整看板入口行
@@ -554,7 +554,7 @@ const EN: Dict = {
   // ---- Efficiency dashboard (five-caliber nouns are behavioral invariants) ----
   "dash.today": "Today",
   "dash.requestInput": "Request input",
-  "dash.hit": "Hit",
+  "dash.hit": "Hit rate",
   "dash.cacheHit": "Cache hit",
   "dash.output": "Output",
   "dash.yourInput": "Your input",

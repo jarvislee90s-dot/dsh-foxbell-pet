@@ -67,8 +67,17 @@ export function TrendChart(props: { points: { label: string; value: number }[]; 
       {pts.map((p, i) => (
         <circle key={i} cx={p.x.toFixed(1)} cy={p.y.toFixed(1)} r={i === pts.length - 1 ? 3.6 : 2.6} fill="var(--dsw-bg, #fff)" stroke={`url(#${gid}-l)`} strokeWidth="1.6" />
       ))}
-      {props.showLabels ? points.map((p, i) => (
-        <text key={i} x={pts[i].x.toFixed(1)} y={height - 3} textAnchor={i === 0 ? "start" : i === points.length - 1 ? "end" : "middle"} fontSize="9" fill="currentColor" opacity="0.6">{p.label}</text>
+      {props.showLabels ? points.map((p, i) => ({ p, i })).filter(({ p, i }) => {
+        // v2.2.1 轴标签抽稀：点数 >14 时按步长抽稀（目标 ~12 个），首末必显；
+        // 月初标签（label 形如 "8月"）始终显示（月份锚点优先于步长）
+        const n = points.length;
+        if (n <= 14) return true;
+        const stride = Math.ceil(n / 12);
+        if (i === 0 || i === n - 1) return true;
+        if (p.label.endsWith("月")) return true;
+        return i % stride === 0;
+      }).map(({ p, i }) => (
+        <text key={i} x={pts[i].x.toFixed(1)} y={height - 3} textAnchor={i === 0 ? "start" : i === points.length - 1 ? "end" : "middle"} fontSize="11" fill="currentColor" opacity="0.6">{p.label}</text>
       )) : null}
     </svg>
   );

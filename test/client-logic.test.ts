@@ -499,7 +499,7 @@ describe("i18n 字典完整性", () => {
     expect(t("rpc.pet-exists", { name: "abc" })).toBe("Pet already exists: abc");
     setLang("zh");
   });
-  it("dash.* 效率看板键 zh/en 成对、63 键在位、五口径名词逐字（行为不变量）", () => {
+  it("dash.* 效率看板键 zh/en 成对、键集在位、五口径名词统一（v2.2.1：命中率/请求次数）", () => {
     const expectedDash = [
       "dash.today", "dash.requestInput", "dash.hit", "dash.cacheHit", "dash.output",
       "dash.yourInput", "dash.estimateSuffix", "dash.withSubagents", "dash.sessionReq",
@@ -551,7 +551,7 @@ describe("i18n 字典完整性", () => {
     setLang("zh");
     expect(t("dash.requestInput")).toBe("请求输入");
     expect(t("dash.cacheHit")).toBe("缓存命中");
-    expect(t("dash.hit")).toBe("命中");
+    expect(t("dash.hit")).toBe("命中率"); // v2.2.1 三看板名词统一（原「命中」）
     expect(t("dash.output")).toBe("产出");
     expect(t("dash.yourInput")).toBe("你的输入");
     expect(t("dash.estimateSuffix")).toBe("(估)");
@@ -561,7 +561,7 @@ describe("i18n 字典完整性", () => {
     expect(t("dash.countApproval")).toBe("等审批");
     expect(t("dash.countRunning")).toBe("运行");
     expect(t("dash.countDone")).toBe("完成");
-    expect(t("dash.request")).toBe("请求");
+    expect(t("dash.request")).toBe("请求次数"); // v2.2.1 名词统一
     expect(t("dash.unsaved")).toBe("有未保存更改");
     expect(t("dash.saved")).toBe("已保存 ✓");
     expect(t("dash.cfg.paceEnabled")).toBe("节奏档位");

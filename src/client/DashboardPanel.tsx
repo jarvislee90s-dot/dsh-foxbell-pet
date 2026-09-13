@@ -225,7 +225,11 @@ export function DashboardPanel(): ReactElement {
   const points = useMemo<DashPoint[]>(() => {
     if (tab === "5h" && trend) return hourPoints(trend.hours, new Date().getHours());
     if (tab === "7d" && trend) return lastN(trend.days, 7);
-    if (range) return range.days.map((d: TrendDay) => ({ label: `${Number(d.key.slice(5, 7))}/${Number(d.key.slice(8, 10))}`, value: d.dayTotal, key: d.key, hitPct: d.hitPct }));
+    if (range) return range.days.map((d: TrendDay) => {
+      const m = Number(d.key.slice(5, 7)), day = Number(d.key.slice(8, 10));
+      // v2.2.1 轴标签：月初标「8月」，其余「1日/2日」（配 TrendChart 步长抽稀，30 点不再叠字）
+      return { label: day === 1 ? `${m}月` : `${day}日`, value: d.dayTotal, key: d.key, hitPct: d.hitPct };
+    });
     return [];
   }, [tab, trend, range]);
 
@@ -303,7 +307,7 @@ export function DashboardPanel(): ReactElement {
       `${t("dash.panelTitle")} · ${t(`dash.tab.${tab}`)}`,
       ...grid.map(([k, v]) => `${k}: ${v}`),
       `${t("dash.models")}:`,
-      ...models.map((m) => `${m.model || m.route}  ${fmtTokens(m.requestTotal)}`),
+      ...models.map((m) => `${m.route}  ${fmtTokens(m.requestTotal)}`),
     ];
     const text = lines.join("\n");
     try {
@@ -350,7 +354,7 @@ export function DashboardPanel(): ReactElement {
       trendTitle: t("dash.trendTitle"),
       peakLabel: t("dash.peak", { v: fmtTokens(Math.max(0, ...points.map((p) => p.value))) }),
       points: points.map((p) => ({ label: p.label, value: p.value })),
-      models: models.map((m) => ({ name: m.model || m.route, val: fmtTokens(m.requestTotal), share: maxModel > 0 ? m.requestTotal / maxModel : 0 })),
+      models: models.map((m) => ({ name: m.route, val: fmtTokens(m.requestTotal), share: maxModel > 0 ? m.requestTotal / maxModel : 0 })),
       tools2x2: (() => {
         const m = toolsMetrics(tools);
         return [
@@ -454,7 +458,7 @@ export function DashboardPanel(): ReactElement {
         <div className="dyn-pet-dash-card-head"><span>{t("dash.models")}</span></div>
         {models.length === 0 ? <div className="dyn-pet-dash-empty">{t("dash.noData")}</div> : models.slice(0, 6).map((m) => (
           <div key={m.route} className="dyn-pet-dash-model">
-            <span className="dyn-pet-dash-model-name" title={m.route}>{m.model || m.route}</span>
+            <span className="dyn-pet-dash-model-name" title={m.route}>{m.route}</span>
             <span className="dyn-pet-dash-model-val">{fmtTokens(m.requestTotal)}</span>
             <span className="dyn-pet-dash-model-bar"><i style={{ width: `${Math.max(4, (m.requestTotal / maxModel) * 100).toFixed(1)}%` }} /></span>
           </div>
