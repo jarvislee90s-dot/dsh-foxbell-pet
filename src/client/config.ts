@@ -31,10 +31,9 @@ export interface PetConfig {
   summaryEntrySec: number;
   boardTtlSec: number;
   ttsEnabled: boolean;
-  // v2.2 用量看板（Task 13 消费；宿主 Config 同名键 dashboardSidebarEntry，默认 false=侧栏不出入口。
-  // v2.2.1：exportQuote 已从配置键移除（自定义评语内联到看板头部，localStorage 草稿）；exportPose 保留）
-  dashboardSidebarEntry: boolean;
-  // exportPose=导出立绘姿态：'random'（ANIM 随机行首帧）或 animations.ANIM 键（白名单 POSE_KEYS）
+  // exportPose=导出立绘姿态：'random'（ANIM 随机行首帧）或 animations.ANIM 键（白名单 POSE_KEYS）。
+  // v2.2.1：dashboardSidebarEntry（侧栏入口固定不注册）/usageEnabled（恒 true）/ttsEnabled（暂无消费）
+  // 三开关已从设置卡移除——类型保留兼容旧 yaml，设置卡不再展示
   exportPose: string;
 }
 
@@ -75,8 +74,7 @@ export const CFG_DEFAULT: PetConfig = {
   summaryEnabled: true,
   summaryEntrySec: 15,
   boardTtlSec: 15,
-  ttsEnabled: false,
-  dashboardSidebarEntry: false, // v2.2 R6 侧栏看板入口（默认关；宿主 settings 同名键镜像）
+  ttsEnabled: false, // v2.2.1：开关移除（当前无 TTS 消费；键保留兼容旧 yaml）
   exportPose: "random", // v2.2 R8 导出立绘姿态（宿主 settings 同名键镜像）
 };
 
@@ -114,8 +112,7 @@ export function sanitizeValue(k: keyof PetConfig, v: unknown): PetConfig[keyof P
   if ((NUM_KEYS as readonly string[]).includes(k)) return clampNum(k as NumKey, v);
   if (k === "scale") return isScale(v) ? v : 1;
   if (k === "activePetId") return isPetIdStr(v) ? v : "foxbell";
-  // v2.2 R8 字符串键（Task 14）：不得落入末尾的布尔真值化（否则 "模板文本" 会被写成 true 静默丢配）
-  // v2.2.1：exportQuote 键移除（评语内联看板，localStorage 草稿）；exportPose 白名单校验保留
+  // v2.2 R8 字符串键：不得落入末尾的布尔真值化（否则 "模板文本" 会被写成 true 静默丢配）；exportPose 白名单校验
   if (k === "exportPose") return typeof v === "string" && POSE_KEYS.includes(v) ? v : "random";
   return !!v; // booleans（含 paceEnabled/usageEnabled/summaryEnabled/ttsEnabled——v2 以直落布尔真值化代替 v1.4.0 的 BOOL_KEYS 表）
 }

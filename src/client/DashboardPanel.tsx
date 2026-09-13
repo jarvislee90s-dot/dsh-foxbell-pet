@@ -245,27 +245,31 @@ export function DashboardPanel(): ReactElement {
   // 5h=今日小时桶内前 5 完整整点 vs 其前 5 整点（跨昨日的凌晨时段不显示对比）；
   // 7d=快照末 7 日 vs 前 7 日；30d/自定义=区间 totals vs 前移一个等长区间（fetchRange，60s 缓存）。
   const hitCompare = (() => {
-    if (tab === "5h") {
-      if (!trend || !trend.hours) return "";
+    // v2.2.1 U5 同比统一逻辑：当前/上一周期都有数据 → 显示对比；任一方无数据或周期不足 → 只显示当前命中率或隐藏
+    if (tab === "5h" && trend && trend.hours) {
       const nowH = new Date().getHours();
-      if (nowH < 10) return ""; // 前 5 整点跨昨日：快照只有今日桶，不显示对比
       const cur = trend.hours.filter((h) => {
         const hh = Number(h.key.slice(11, 13));
-        return hh >= nowH - 5 && hh < nowH;
+        return hh >= ((nowH - 5 % 24) + 24) % 24 && hh < nowH; // 今日 0 点后跨日部分不在快照内，只聚合今日可用桶
       });
       const prev = trend.hours.filter((h) => {
         const hh = Number(h.key.slice(11, 13));
-        return hh >= nowH - 10 && hh < nowH - 5;
+        return hh >= ((nowH - 10) % 24 + 24) % 24 && hh < ((nowH - 5) % 24 + 24) % 24;
       });
-      const prevReq = prev.reduce((s2, h) => s2 + h.requestTotal, 0);
-      return hitCompareText(pooledHit(cur.map((h) => ({ requestTotal: h.requestTotal, cacheRead: h.cacheRead }))), prevReq > 0 ? pooledHit(prev.map((h) => ({ requestTotal: h.requestTotal, cacheRead: h.cacheRead }))) : null);
+      const curAgg = { requestTotal: cur.reduce((s2, h) => s2 + h.requestTotal, 0), cacheRead: cur.reduce((s2, h) => s2 + h.cacheRead, 0) };
+      const prevAgg = { requestTotal: prev.reduce((s2, h) => s2 + h.requestTotal, 0), cacheRead: prev.reduce((s2, h) => s2 + h.cacheRead, 0) };
+      if (curAgg.requestTotal <= 0) return ""; // 当前窗口无数据 → 不显示
+      return hitCompareText(pooledHit([curAgg]), prevAgg.requestTotal > 0 ? pooledHit([prevAgg]) : null);
     }
-    if (tab === "7d" && trend && trend.days.length >= 14) {
+    if (tab === "7d" && trend && trend.days.length > 0) {
       const cur = pooledHit(trend.days.slice(7));
-      const prev = pooledHit(trend.days.slice(0, 7));
-      return hitCompareText(cur, prev);
+      const prevDays = trend.days.slice(0, 7);
+      const prevReq = prevDays.reduce((s2, d) => s2 + d.requestTotal, 0);
+      // 7d 快照恒 14 天：数据不足（全零历史）时上一周期无数据 → 只显示当前
+      return hitCompareText(cur, prevReq > 0 ? pooledHit(prevDays) : null);
     }
     if ((tab === "30d" || tab === "custom") && range && range.totals.requestTotal > 0) {
+      // prevHit=null 可能是「上一区间无数据」或「还在拉取」——统一只显示当前（拉到后自动升级为对比）
       return hitCompareText(range.totals.hitPct, prevHit);
     }
     return "";

@@ -1101,10 +1101,10 @@ describe("v2.2 quotes (Task14 R8)", () => {
 
 // ---- Task 14：R8 导出三键的配置契约 + 姿态/趋势纯函数（测试全部为追加）----
 describe("v2.2 export config keys (Task14 R8)", () => {
-  it("CFG_DEFAULT 导出键与宿主 Config schema 逐字一致（false/'random'；exportQuote 已移除）", () => {
-    expect(CFG_DEFAULT.dashboardSidebarEntry).toBe(false);
+  it("CFG_DEFAULT 导出键与宿主 Config schema 逐字一致（'random'；exportQuote/dashboardSidebarEntry 已移除）", () => {
     expect(CFG_DEFAULT.exportPose).toBe("random");
     expect((CFG_DEFAULT as unknown as Record<string, unknown>).exportQuote).toBeUndefined();
+    expect((CFG_DEFAULT as unknown as Record<string, unknown>).dashboardSidebarEntry).toBeUndefined();
   });
   it("sanitizeValue：exportQuote 键已移除 → 回退布尔真值化（遗留 yaml 值不再进配置）", () => {
     expect((sanitizeValue as unknown as (k: string, v: unknown) => unknown)("exportQuote", "任意文本")).toBe(true);
@@ -1121,13 +1121,12 @@ describe("v2.2 export config keys (Task14 R8)", () => {
     const round2 = sanitizeConfig(JSON.parse(JSON.stringify(edited)) as PetConfig);
     expect(round2.exportPose).toBe("jumping");
   });
-  it("SETTINGS_V22_KEYS 2 键并入草稿层（exportQuote 已移除→看板内联）：buildSavePatch 布尔透传、dirty 可判", () => {
-    expect([...SETTINGS_V22_KEYS]).toEqual(["dashboardSidebarEntry", "exportPose"]);
-    expect(ALL_DRAFT_KEYS).toHaveLength(SETTINGS_ALL_KEYS.length + 2);
-    const draft = { ...CFG_DEFAULT, dashboardSidebarEntry: true } as DraftConfig;
+  it("SETTINGS_V22_KEYS 1 键并入草稿层（exportQuote/dashboardSidebarEntry 已移除）：dirty 可判", () => {
+    expect([...SETTINGS_V22_KEYS]).toEqual(["exportPose"]);
+    expect(ALL_DRAFT_KEYS).toHaveLength(SETTINGS_ALL_KEYS.length + 1);
+    const draft = { ...CFG_DEFAULT, exportPose: "jumping" } as DraftConfig;
     const patch = buildSavePatch(draft, CFG_DEFAULT);
-    expect(patch.dashboardSidebarEntry).toBe(true);
-    expect(patch.exportPose).toBeUndefined(); // 未变更不入 patch
+    expect(patch.exportPose).toBe("jumping");
     expect(isDraftDirty({ ...CFG_DEFAULT }, CFG_DEFAULT)).toBe(false);
     expect(isDraftDirty(draft, CFG_DEFAULT)).toBe(true);
   });

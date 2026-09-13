@@ -48,13 +48,13 @@ export function Board(props: {
       ) : null}
       {u && Array.isArray(u.models) && u.models.length > 0 ? (
         <>
-          {u.models.slice(0, 3).map((m, i) => (
+          {u.models.slice(0, 5).map((m, i) => (
             <div key={m.route} className="dyn-pet-board-kv">
               <span className="k">{i === 0 ? t("dash.models") : ""}</span>
               <span className="v">{`${m.route} ${fmtTokens(m.requestTotal)}`}</span>
             </div>
           ))}
-          {u.models.length > 3 ? <div className="dyn-pet-board-kv"><span className="k"></span><span className="v">{t("dash.moreN", { n: String(u.models.length - 3) })}</span></div> : null}
+          {u.models.length > 5 ? <div className="dyn-pet-board-kv"><span className="k"></span><span className="v">{t("dash.moreN", { n: String(u.models.length - 5) })}</span></div> : null}
         </>
       ) : null}
       {props.onOpenPanel ? (

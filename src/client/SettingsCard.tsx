@@ -185,26 +185,13 @@ export function SettingsCard(): React.ReactElement {
               <input type="number" value={draft[k]} onChange={(e) => setDraftKey(k, e.target.value)} />
             </label>
           ))}
-          <label className="dyn-pet-settings-row">
-            <span>{t("dash.cfg.ttsEnabled")}<Info text={t("settings.tip.ttsEnabled")} /></span>
-            <input type="checkbox" checked={!!draft.ttsEnabled} onChange={(e) => setDraftKey("ttsEnabled", e.target.checked)} />
-          </label>
-
           <div className="dyn-pet-settings-section">{t("settings.sect.usage")}</div>
-          <label className="dyn-pet-settings-row">
-            <span>{t("dash.cfg.usageEnabled")}<Info text={t("settings.tip.usageEnabled")} /></span>
-            <input type="checkbox" checked={!!draft.usageEnabled} onChange={(e) => setDraftKey("usageEnabled", e.target.checked)} />
-          </label>
           {(["dayLimitTokens", "milestoneUnit"] as const).map((k) => (
             <label key={k} className={"dyn-pet-settings-row" + (isBadNumValue(draft[k]) ? " bad" : "")}>
               <span>{t(`dash.cfg.${k}`)}<Info text={t(`settings.tip.${k}`)} /></span>
               <input type="number" value={draft[k]} onChange={(e) => setDraftKey(k, e.target.value)} />
             </label>
           ))}
-          <label className="dyn-pet-settings-row">
-            <span>{t("dash.cfg.dashboardSidebarEntry")}<Info text={t("settings.tip.dashboardSidebarEntry")} /></span>
-            <input type="checkbox" checked={!!draft.dashboardSidebarEntry} onChange={(e) => setDraftKey("dashboardSidebarEntry", e.target.checked)} />
-          </label>
           <div className="dyn-pet-settings-row">
             <span>{t("dash.cfg.exportPose")}<Info text={t("settings.tip.exportPose")} /></span>
             <select value={draft.exportPose} onChange={(e) => setDraftKey("exportPose", e.target.value)}>
