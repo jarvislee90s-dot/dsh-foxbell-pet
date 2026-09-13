@@ -20,7 +20,7 @@ import {
   ALL_DRAFT_KEYS, DASH_BOOL_KEYS, DASH_NUM_ROWS, SETTINGS_ALL_KEYS, SETTINGS_V22_KEYS,
   buildSavePatch, isBadNumValue, isDraftDirty, type DraftConfig,
 } from "../src/client/settingsdraft";
-import { fmtPct, fmtTokens, shortModel } from "../src/client/format";
+import { fmtInt, fmtPct, fmtTokens, shortModel } from "../src/client/format";
 import { clampRangeFrom, hitDeltaText, hourPoints, toolsMetrics, trendDirection, viewWindow, weekHit } from "../src/client/DashboardPanel";
 import { maxAnimCols, resolvePoseRow } from "../src/client/exportimage";
 import { lastN } from "../src/client/TrendChart";
@@ -590,6 +590,14 @@ describe("i18n 字典完整性", () => {
   });
 });
 
+describe("fmtInt（完整千分位，v2.2.1 大看板/导出对齐 Codex++ 数字口径）", () => {
+  it("千分位分隔 + 四舍五入 + 非有限归 0", () => {
+    expect(fmtInt(1269973)).toBe("1,269,973");
+    expect(fmtInt(0)).toBe("0");
+    expect(fmtInt(42.6)).toBe("43");
+    expect(fmtInt(Number.NaN)).toBe("0");
+  });
+});
 describe("fmtTokens（万/亿 格式化，formatTokens 客户端移植）", () => {
   it("小数值：四舍五入取整；0/负数/非有限安全归 0", () => {
     expect(fmtTokens(0)).toBe("0");

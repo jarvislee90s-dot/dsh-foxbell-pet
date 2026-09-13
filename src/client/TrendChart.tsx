@@ -19,12 +19,18 @@ export function lastN(days: { key: string; dayTotal: number; hitPct?: number }[]
 
 function pathOf(pts: { x: number; y: number }[], smooth: boolean): string {
   if (pts.length === 0) return "";
-  if (!smooth || pts.length < 3) return "M " + pts.map((p) => `${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" L ");
-  let d = `M ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`;
-  for (let i = 1; i < pts.length; i++) {
-    const p0 = pts[i - 1], p1 = pts[i];
-    const mx = (p0.x + p1.x) / 2;
-    d += ` C ${mx.toFixed(1)} ${p0.y.toFixed(1)} ${mx.toFixed(1)} ${p1.y.toFixed(1)} ${p1.x.toFixed(1)} ${p1.y.toFixed(1)}`;
+  const f = (n: number) => n.toFixed(1);
+  if (!smooth || pts.length < 3) return "M " + pts.map((p) => `${f(p.x)} ${f(p.y)}`).join(" L ");
+  // Catmull-Rom → 三次贝塞尔（v2.2.1：原中点直角贝塞尔呈平台阶梯，与 Codex++ 平滑曲线差距大）
+  let d = `M ${f(pts[0].x)} ${f(pts[0].y)}`;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[i - 1] ?? pts[i];
+    const p1 = pts[i];
+    const p2 = pts[i + 1];
+    const p3 = pts[i + 2] ?? p2;
+    const c1x = p1.x + (p2.x - p0.x) / 6, c1y = p1.y + (p2.y - p0.y) / 6;
+    const c2x = p2.x - (p3.x - p1.x) / 6, c2y = p2.y - (p3.y - p1.y) / 6;
+    d += ` C ${f(c1x)} ${f(c1y)}, ${f(c2x)} ${f(c2y)}, ${f(p2.x)} ${f(p2.y)}`;
   }
   return d;
 }

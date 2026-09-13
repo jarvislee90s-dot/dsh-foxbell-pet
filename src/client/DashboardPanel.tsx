@@ -8,7 +8,7 @@ import { appStore, cfgStore } from "./store";
 import { apiGetRange, type RangeSummary, type RouteUsage, type TrendDay, type TrendHour } from "./api";
 import { TrendChart, lastN } from "./TrendChart";
 import { t, getLang } from "./i18n";
-import { fmtPct, fmtTokens, shortModel } from "./format";
+import { fmtInt, fmtPct, fmtTokens } from "./format";
 import { fmtDur } from "./boardrows";
 import { exportDashboardImage, loadSprite, maxAnimCols, resolvePoseRow } from "./exportimage";
 import { pickQuote, fillQuote, type QuoteVars } from "./quotes";
@@ -239,10 +239,10 @@ export function DashboardPanel(): ReactElement {
   const totals = inRange && range ? range.totals : null;
 
   const grid: [string, string][] = [
-    [t("dash.g.userEst"), "~" + fmtTokens(totals ? totals.userEst : usage ? usage.userEst : 0) + t("dash.estimateSuffix") + " · " + t("dash.withSubagents")],
-    [t("dash.g.output"), fmtTokens(totals ? totals.outputTokens : usage ? usage.day.outputTokens : 0)],
-    [t("dash.g.requestTotal"), fmtTokens(totals ? totals.requestTotal : usage ? usage.requestTotal : 0)],
-    [t("dash.g.cacheRead"), fmtTokens(totals ? totals.cacheRead : usage ? usage.day.cacheReadTokens : 0)],
+    [t("dash.g.userEst"), "~" + fmtInt(totals ? totals.userEst : usage ? usage.userEst : 0) + t("dash.estimateSuffix") + " · " + t("dash.withSubagents")],
+    [t("dash.g.output"), fmtInt(totals ? totals.outputTokens : usage ? usage.day.outputTokens : 0)],
+    [t("dash.g.requestTotal"), fmtInt(totals ? totals.requestTotal : usage ? usage.requestTotal : 0)],
+    [t("dash.g.cacheRead"), fmtInt(totals ? totals.cacheRead : usage ? usage.day.cacheReadTokens : 0)],
     [t("dash.g.hitPct"), fmtPct(totals ? totals.hitPct : usage ? usage.cacheHitRate : 0)],
     [t("dash.g.requests"), String(totals ? totals.requestCount : trend && trend.days[13] ? trend.days[13].requestCount : 0)],
     [t("dash.g.asOf"), new Date().toLocaleTimeString()],
@@ -275,7 +275,7 @@ export function DashboardPanel(): ReactElement {
       `${t("dash.panelTitle")} · ${t(`dash.tab.${tab}`)}`,
       ...grid.map(([k, v]) => `${k}: ${v}`),
       `${t("dash.models")}:`,
-      ...models.map((m) => `${shortModel(m.model || m.route)}  ${fmtTokens(m.requestTotal)}`),
+      ...models.map((m) => `${m.model || m.route}  ${fmtTokens(m.requestTotal)}`),
     ];
     const text = lines.join("\n");
     try {
@@ -380,7 +380,7 @@ export function DashboardPanel(): ReactElement {
 
       <div className="dyn-pet-dash-hero">
         <div className="dyn-pet-dash-hero-label">{t("dash.heroTotal", { range: t(`dash.tab.${tab}`) })}</div>
-        <div className="dyn-pet-dash-hero-num">{fmtTokens(hero)}</div>
+        <div className="dyn-pet-dash-hero-num">{fmtInt(hero)}</div>
         {(tab === "5h" || tab === "7d") && trend ? (
           <div className="dyn-pet-dash-weekhit">
             {t("dash.weekHit", { a: fmtPct(weekHit(trend, 0)), b: fmtPct(weekHit(trend, 1)), d: hitDeltaText(trend) })}
@@ -388,9 +388,9 @@ export function DashboardPanel(): ReactElement {
         ) : null}
       </div>
 
-      <div className="dyn-pet-dash-grid">
+      <div className="dyn-pet-dash-rows">
         {grid.map(([k, v]) => (
-          <div key={k} className="dyn-pet-dash-cell"><span>{k}</span><strong>{v}</strong></div>
+          <div key={k} className="dyn-pet-dash-row"><span>{k}</span><strong>{v}</strong></div>
         ))}
       </div>
 
@@ -417,7 +417,7 @@ export function DashboardPanel(): ReactElement {
         <div className="dyn-pet-dash-card-head"><span>{t("dash.models")}</span></div>
         {models.length === 0 ? <div className="dyn-pet-dash-empty">{t("dash.noData")}</div> : models.slice(0, 6).map((m) => (
           <div key={m.route} className="dyn-pet-dash-model">
-            <span className="dyn-pet-dash-model-name" title={m.route}>{shortModel(m.model || m.route)}</span>
+            <span className="dyn-pet-dash-model-name" title={m.route}>{m.model || m.route}</span>
             <span className="dyn-pet-dash-model-val">{fmtTokens(m.requestTotal)}</span>
             <span className="dyn-pet-dash-model-bar"><i style={{ width: `${Math.max(4, (m.requestTotal / maxModel) * 100).toFixed(1)}%` }} /></span>
           </div>

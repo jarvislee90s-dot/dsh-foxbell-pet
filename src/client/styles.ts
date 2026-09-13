@@ -188,9 +188,9 @@ ${MINI_DETAIL_CSS}
 /* ---- v2.2 L3 大看板（Task 12，spec R5 Codex++ 排版：padding 16 / hero 28px 加粗 / 网格两列 /
    card 圆角 10px 次级背景 / model-bar 通栏 5px 圆角 / 胶囊选项卡）。
    面板语义（6.6 规则 7）：面板自滚——overflow:auto + height:100%，滚动不穿透外层 ---- */
-.dyn-pet-dash { padding: 16px; overflow: auto; height: 100%; box-sizing: border-box; color: #3b2f23; font-size: 13px; line-height: 1.5; }
+.dyn-pet-dash { padding: 20px 28px; overflow: auto; height: 100%; box-sizing: border-box; color: #3b2f23; font-size: 14px; line-height: 1.55; max-width: 1020px; margin: 0 auto; }
 .dyn-pet-dash-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
-.dyn-pet-dash-head h2 { margin: 0; font-size: 15px; font-weight: 700; color: #7a4a2b; }
+.dyn-pet-dash-head h2 { margin: 0; font-size: 17px; font-weight: 700; color: #7a4a2b; }
 .dyn-pet-dash-tabs { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .dyn-pet-dash-tab { border: 1px solid rgba(122,74,43,.35); background: #fff; color: #7a4a2b; border-radius: 999px; padding: 3px 12px; font-size: 12px; cursor: pointer; }
 .dyn-pet-dash-tab.is-active { background: #7a4a2b; color: #fff; border-color: #7a4a2b; }
@@ -207,27 +207,27 @@ ${MINI_DETAIL_CSS}
 .dyn-pet-dash-actbtn:hover { background: rgba(122,74,43,.08); }
 .dyn-pet-dash-hero { padding: 10px 2px 6px; }
 .dyn-pet-dash-hero-label { font-size: 12px; color: #a07050; }
-.dyn-pet-dash-hero-num { font-size: 28px; font-weight: 700; color: #7a4a2b; line-height: 1.25; }
+.dyn-pet-dash-hero-num { font-size: 40px; font-weight: 750; color: #7a4a2b; line-height: 1.2; letter-spacing: .5px; font-variant-numeric: tabular-nums; }
 .dyn-pet-dash-weekhit { font-size: 12px; color: #a07050; }
-.dyn-pet-dash-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0 12px; }
-.dyn-pet-dash-cell { border: 1px solid rgba(122,74,43,.18); border-radius: 10px; background: rgba(255,252,248,.65); padding: 7px 10px; display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.dyn-pet-dash-cell span { font-size: 11px; color: #a07050; }
-.dyn-pet-dash-cell strong { font-size: 14px; font-weight: 700; color: #7a4a2b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dyn-pet-dash-rows { display: grid; grid-template-columns: 1fr 1fr; column-gap: 56px; margin: 10px 0 14px; }
+.dyn-pet-dash-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 9px 2px; border-bottom: 1px solid rgba(122,74,43,.12); min-width: 0; }
+.dyn-pet-dash-row span { font-size: 14px; color: #6b7280; }
+.dyn-pet-dash-row strong { font-size: 14px; font-weight: 600; color: #1f2937; font-variant-numeric: tabular-nums; }
 .dyn-pet-dash-card { border: 1px solid rgba(122,74,43,.2); border-radius: 10px; background: rgba(255,252,248,.8); padding: 10px 12px; margin-bottom: 12px; }
 .dyn-pet-dash-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; font-size: 12.5px; font-weight: 700; color: #7a4a2b; }
 .dyn-pet-dash-meta { font-size: 11px; font-weight: 400; color: #a07050; }
 .dyn-pet-dash-trendwrap { position: relative; }
 .dyn-pet-dash-trendhit { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 .dyn-pet-dash-tooltip { position: absolute; transform: translate(-50%, -130%); background: rgba(47,42,38,.94); color: #f3e9dc; font-size: 11px; padding: 3px 8px; border-radius: 6px; pointer-events: none; white-space: nowrap; z-index: 2; }
-.dyn-pet-dash-model { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 12px; }
-.dyn-pet-dash-model-name { flex: none; width: 104px; color: #7a4a2b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dyn-pet-dash-model-val { flex: none; width: 56px; text-align: right; color: #a07050; font-variant-numeric: tabular-nums; }
+.dyn-pet-dash-model { display: flex; align-items: center; gap: 12px; padding: 5px 0; font-size: 14px; }
+.dyn-pet-dash-model-name { flex: none; min-width: 104px; max-width: 340px; color: #7a4a2b; font-weight: 600; white-space: nowrap; }
+.dyn-pet-dash-model-val { flex: none; min-width: 72px; text-align: right; color: #a07050; font-variant-numeric: tabular-nums; }
 .dyn-pet-dash-model-bar { flex: 1; height: 5px; border-radius: 999px; background: rgba(122,74,43,.12); overflow: hidden; }
 .dyn-pet-dash-model-bar i { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg,#3BA7FF,#8D6BFF); }
-.dyn-pet-dash-tools { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.dyn-pet-dash-tools { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; max-width: 640px; }
 .dyn-pet-dash-toolcell { border: 1px solid rgba(122,74,43,.15); border-radius: 10px; background: rgba(255,252,248,.65); padding: 6px 10px; display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.dyn-pet-dash-toolcell span { font-size: 11px; color: #a07050; }
-.dyn-pet-dash-toolcell strong { font-size: 13px; font-weight: 700; color: #7a4a2b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dyn-pet-dash-toolcell span { font-size: 12px; color: #6b7280; }
+.dyn-pet-dash-toolcell strong { font-size: 15px; font-weight: 600; color: #1f2937; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dyn-pet-dash-empty { color: #a07050; font-size: 12px; padding: 4px 0; }
 .dyn-pet-dash-foot { color: #a07050; font-size: 11px; padding-top: 2px; }
 /* ---- v2.2 侧栏看板入口图标（Task 13 R6）：sidebar.panellist 条目（dashboardSidebarEntry 门控注册）---- */
