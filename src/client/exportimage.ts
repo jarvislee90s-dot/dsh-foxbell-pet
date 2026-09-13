@@ -48,7 +48,7 @@ export function loadSprite(url: string | null): Promise<HTMLImageElement | null>
 /** 工具 2×2 指标由 DashboardPanel 的 toolsMetrics 装配后传入（本文件只负责绘制）。 */
 
 // ---- 版式常量（720×1600 竖版）----
-const W = 720, H = 1600;
+const W = 720, H = 1560;
 const M = 24;                 // 页边距
 const CARD = { x: M, y: M, w: W - M * 2, h: H - M * 2, r: 24 };
 const INK = "#1f2937";        // 主文字
@@ -157,58 +157,58 @@ export async function exportDashboardImage(input: ExportInput): Promise<Blob> {
   c.textAlign = "right";
   c.fillText(input.rangeLabel, W - PAD, 74);
   c.textAlign = "left";
-  c.strokeStyle = LINE; c.beginPath(); c.moveTo(PAD, 98); c.lineTo(W - PAD, 98); c.stroke();
+  c.strokeStyle = LINE; c.beginPath(); c.moveTo(PAD, 100); c.lineTo(W - PAD, 100); c.stroke();
 
-  // —— hero：累计 Token（完整千分位）——
+  // —— hero：累计 Token（完整千分位；字号对比收敛：56 上限，不再 72 压场）——
   c.fillStyle = SUB; c.font = "500 16px system-ui";
-  c.fillText("累计 Token", PAD, 134);
+  c.fillText("累计 Token", PAD, 136);
   c.fillStyle = INK;
-  const heroSize = input.hero.length > 12 ? 52 : input.hero.length > 9 ? 62 : 72;
+  const heroSize = input.hero.length > 12 ? 48 : input.hero.length > 9 ? 56 : 64;
   c.font = `750 ${heroSize}px system-ui`;
-  c.fillText(input.hero, PAD - 2, 208);
+  c.fillText(input.hero, PAD - 2, 206);
   c.fillStyle = SUB; c.font = "400 15px system-ui";
-  c.fillText(input.heroSub, PAD, 244);
-  c.strokeStyle = LINE; c.beginPath(); c.moveTo(PAD, 272); c.lineTo(W - PAD, 272); c.stroke();
+  c.fillText(input.heroSub, PAD, 242);
+  c.strokeStyle = LINE; c.beginPath(); c.moveTo(PAD, 270); c.lineTo(W - PAD, 270); c.stroke();
 
   // —— 指标行（label 左 / value 右）——
-  let y = 300;
+  let y = 298;
   for (const [k, v] of input.metrics) {
-    c.fillStyle = "#4b5563"; c.font = "400 16px system-ui";
+    c.fillStyle = "#4b5563"; c.font = "400 15px system-ui";
     c.fillText(k, PAD, y);
     c.fillStyle = INK; c.font = "600 16px system-ui";
     c.textAlign = "right";
     c.fillText(v, W - PAD, y);
     c.textAlign = "left";
-    y += 36;
+    y += 38;
   }
-  c.strokeStyle = LINE; c.beginPath(); c.moveTo(PAD, y - 14); c.lineTo(W - PAD, y - 14); c.stroke();
-  y += 6;
-
-  // —— 趋势卡 ——
-  c.fillStyle = INK; c.font = "600 17px system-ui";
-  c.fillText(input.trendTitle, PAD, y + 26);
-  c.fillStyle = SUB; c.font = "400 13px system-ui";
-  c.textAlign = "right"; c.fillText(input.peakLabel, W - PAD, y + 26); c.textAlign = "left";
-  drawTrendCard(c, input.points, PAD + 16, y + 58, CW - 32, 120);
-  y += 176;
   c.strokeStyle = LINE; c.beginPath(); c.moveTo(PAD, y + 2); c.lineTo(W - PAD, y + 2); c.stroke();
   y += 34;
 
+  // —— 趋势卡 ——
+  c.fillStyle = INK; c.font = "600 19px system-ui";
+  c.fillText(input.trendTitle, PAD, y + 24);
+  c.fillStyle = SUB; c.font = "400 14px system-ui";
+  c.textAlign = "right"; c.fillText(input.peakLabel, W - PAD, y + 24); c.textAlign = "left";
+  drawTrendCard(c, input.points, PAD + 16, y + 58, CW - 32, 120);
+  y += 216; // 图卡底(含 x 轴标签)与下节标题的呼吸间距（修复 9/6 标签与标题拥挤）
+  c.strokeStyle = LINE; c.beginPath(); c.moveTo(PAD, y); c.lineTo(W - PAD, y); c.stroke();
+  y += 34;
+
   // —— 按 Model 分布（全名不截断）——
-  c.fillStyle = INK; c.font = "600 17px system-ui";
+  c.fillStyle = INK; c.font = "600 19px system-ui";
   c.fillText("按 Model 分布", PAD, y);
-  y += 30;
+  y += 32;
   if (input.models.length === 0) {
     c.fillStyle = SUB; c.font = "400 15px system-ui";
     c.fillText("暂无数据", PAD, y + 16);
     y += 48;
   } else {
     for (const m of input.models) {
-      c.fillStyle = INK; c.font = "600 15px system-ui";
-      c.fillText(m.name, PAD, y + 14);                       // 全名（宽度 720 足够，不截断）
-      c.fillStyle = "#374151"; c.font = "500 14px system-ui";
-      c.textAlign = "right"; c.fillText(m.val, W - PAD, y + 14); c.textAlign = "left";
-      const barY = y + 24, barW = CW;
+      c.fillStyle = INK; c.font = "600 16px system-ui";
+      c.fillText(m.name, PAD, y + 15);
+      c.fillStyle = "#374151"; c.font = "500 15px system-ui";
+      c.textAlign = "right"; c.fillText(m.val, W - PAD, y + 15); c.textAlign = "left";
+      const barY = y + 26, barW = CW;
       c.fillStyle = "#eceef2";
       roundRectPath(c, PAD, barY, barW, 8, 4); c.fill();
       const fillW = Math.max(barW * 0.04, barW * Math.min(1, Math.max(0, m.share)));
@@ -218,55 +218,54 @@ export async function exportDashboardImage(input: ExportInput): Promise<Blob> {
         c.fillStyle = bg;
         roundRectPath(c, PAD, barY, fillW, 8, 4); c.fill();
       }
-      y += 46;
+      y += 48;
     }
   }
   c.strokeStyle = LINE; c.beginPath(); c.moveTo(PAD, y + 2); c.lineTo(W - PAD, y + 2); c.stroke();
-  y += 34;
+  y += 36;
 
   // —— 工具调用 2×2 ——
-  c.fillStyle = INK; c.font = "600 17px system-ui";
+  c.fillStyle = INK; c.font = "600 19px system-ui";
   c.fillText("工具调用", PAD, y);
-  y += 28;
+  y += 30;
   const cellW = (CW - 12) / 2, cellH = 58;
   input.tools2x2.forEach(([k, v], i) => {
     const cx = PAD + (i % 2) * (cellW + 12), cy = y + Math.floor(i / 2) * (cellH + 10);
     c.fillStyle = "#f7f8fa";
     roundRectPath(c, cx, cy, cellW, cellH, 10); c.fill();
-    c.fillStyle = SUB; c.font = "400 13px system-ui";
-    c.fillText(k, cx + 14, cy + 22);
+    c.fillStyle = SUB; c.font = "400 14px system-ui";
+    c.fillText(k, cx + 14, cy + 23);
     c.fillStyle = INK; c.font = "600 17px system-ui";
-    c.fillText(v, cx + 14, cy + 46);
+    c.fillText(v, cx + 14, cy + 47);
   });
-  y += (cellH + 10) * 2 + 18;
+  y += (cellH + 10) * 2 + 26;
 
-  // —— 聊天式底部：评语气泡（左） + 宠物立绘（右下，完整全身）——
-  const petH = Math.min(340, H - y - 56);
+  // —— 聊天式底部：宠物立绘（右）+ 评语气泡（紧贴宠物左侧，像从它嘴里说出）——
+  const petH = Math.min(360, H - y - 96);
   const petW = input.sprite && input.frameH > 0 && input.frameW > 0 ? petH * (input.frameW / input.frameH) : 0;
   const petX = W - PAD - petW;
-  const petY = H - M - 24 - petH;
-  // 气泡：白底圆角 + 左侧小尾巴，右缘与宠物保持 ≥24px
-  const bubbleRight = petX - 24;
-  const bubbleW = Math.min(300, bubbleRight - PAD - 8);
-  const bubbleX = PAD;
+  const petY = H - M - 40 - petH; // 底部锚定：紧跟工具区（无空窗），脚与页脚留 40px
+  // 气泡：白底圆角 + 右侧小尾巴指向宠物；右缘与宠物间距 20px（修复“距离太远/压住宠物”）
+  const bubbleRight = petX - 20;
+  const bubbleW = Math.min(320, bubbleRight - PAD - 8);
+  const bubbleX = bubbleRight - bubbleW;
   const bubbleLines = (() => {
-    c.font = "500 17px system-ui";
+    c.font = "500 18px system-ui";
     const lines: string[] = [];
     let line = "";
     for (const ch of input.quote) {
-      if (ch === "\n" || c.measureText(line + ch).width > bubbleW - 40) { lines.push(line); line = ch === "\n" ? "" : ch; }
+      if (ch === "\n" || c.measureText(line + ch).width > bubbleW - 44) { lines.push(line); line = ch === "\n" ? "" : ch; }
       else line += ch;
     }
     if (line) lines.push(line);
     return lines.length > 0 ? lines : [""];
   })();
-  const bubbleH = Math.max(56, 28 + bubbleLines.length * 24);
-  const bubbleY = petY + petH * 0.22;
+  const bubbleH = Math.max(60, 34 + bubbleLines.length * 26);
+  const bubbleY = petY + petH * 0.16; // 对齐宠物头部高度（说话位置）
   c.fillStyle = "#ffffff";
   roundRectPath(c, bubbleX, bubbleY, bubbleW, bubbleH, 14);
   c.fill();
   c.strokeStyle = "#ece5da"; c.lineWidth = 1; c.stroke();
-  // 尾巴（指向宠物）
   c.beginPath();
   c.moveTo(bubbleX + bubbleW, bubbleY + bubbleH / 2 - 9);
   c.lineTo(bubbleX + bubbleW + 12, bubbleY + bubbleH / 2);
@@ -274,19 +273,19 @@ export async function exportDashboardImage(input: ExportInput): Promise<Blob> {
   c.closePath();
   c.fillStyle = "#ffffff"; c.fill();
   c.strokeStyle = "#ece5da"; c.stroke();
-  c.fillStyle = "#4a3b2a"; c.font = "500 17px system-ui";
-  bubbleLines.forEach((line, i) => c.fillText(line, bubbleX + 20, bubbleY + 34 + i * 24));
-  // 立绘最后画（在气泡之上层，且布局上已保证不相交）
+  c.fillStyle = "#4a3b2a"; c.font = "500 18px system-ui";
+  bubbleLines.forEach((line, i) => c.fillText(line, bubbleX + 22, bubbleY + 38 + i * 26));
+  // 立绘最后画（与气泡已按几何分离：气泡右缘 ≤ petX-20）
   if (input.sprite && input.frameW > 0 && input.frameH > 0 && petW > 0) {
     c.drawImage(input.sprite, 0, input.poseRow * input.frameH, input.frameW, input.frameH, petX, petY, petW, petH);
   }
 
   // —— 页脚 ——
-  c.fillStyle = FAINT; c.font = "400 13px system-ui";
+  c.fillStyle = FAINT; c.font = "400 14px system-ui";
   c.fillText("纯 token · 含子代理 · 本地聚合", PAD, H - M - 16);
   c.textAlign = "right";
   c.fillText("DSH · Foxbell 用量看板", W - PAD, H - M - 16);
   c.textAlign = "left";
 
-  return await new Promise<Blob>((res, rej) => cv.toBlob((b) => (b ? res(b) : rej(new Error("canvas toBlob returned null"))), "image/png"));
+    return await new Promise<Blob>((res, rej) => cv.toBlob((b) => (b ? res(b) : rej(new Error("canvas toBlob returned null"))), "image/png"));
 }
