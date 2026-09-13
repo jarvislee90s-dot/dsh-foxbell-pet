@@ -48,7 +48,8 @@ export function loadSprite(url: string | null): Promise<HTMLImageElement | null>
 /** 工具 2×2 指标由 DashboardPanel 的 toolsMetrics 装配后传入（本文件只负责绘制）。 */
 
 // ---- 版式常量（720×1600 竖版）----
-const W = 720, H = 1560;
+const W = 720;
+let H = 1560;
 const M = 24;                 // 页边距
 const CARD = { x: M, y: M, w: W - M * 2, h: H - M * 2, r: 24 };
 const INK = "#1f2937";        // 主文字
@@ -244,10 +245,13 @@ export async function exportDashboardImage(input: ExportInput): Promise<Blob> {
   y += (cellH + 10) * 2 + 26;
 
   // —— 聊天式底部：宠物立绘（右）+ 评语气泡（紧贴宠物头部左侧，像从它嘴里说出）——
-  const petH = Math.min(380, H - y - 96);
-  const petW = input.sprite && input.frameH > 0 && input.frameW > 0 ? petH * (input.frameW / input.frameH) : 0;
+  // v2.2.1：立绘固定 360px 高（不随上方内容长度被压缩——用户报告"导出后宠物变小"根因）；
+  // 空间不足时加高画布而非缩小立绘。主界面「宠物大小」设置只影响桌面精灵，不参与导出（独立画布绘制）。
+  const PET_H = 360;
+  if (y + PET_H + 96 > H) H = y + PET_H + 96;
+  const petW = input.sprite && input.frameH > 0 && input.frameW > 0 ? PET_H * (input.frameW / input.frameH) : 0;
   const petX = W - PAD - petW;
-  const petY = H - M - 40 - petH; // 底部锚定：紧跟工具区（无空窗），脚与页脚留 40px
+  const petY = H - M - 40 - PET_H; // 底部锚定：紧跟工具区（无空窗），脚与页脚留 40px
   // 气泡：宽度自适应文本（上限 340），白底+淡暖影+渐变描边，右缘距宠物 18px，垂直对齐宠物头部
   c.font = "500 19px system-ui";
   const longestLine = (() => {
@@ -264,7 +268,7 @@ export async function exportDashboardImage(input: ExportInput): Promise<Blob> {
   const bubbleW = Math.min(340, Math.max(150, textW + 44), petX - 18 - PAD);
   const bubbleX = petX - 18 - bubbleW;
   const bubbleH = Math.max(62, 36 + longestLine.length * 27);
-  const bubbleY = petY + petH * 0.1;
+  const bubbleY = petY + PET_H * 0.1;
   // 淡影
   c.save();
   c.shadowColor = "rgba(122, 74, 43, 0.18)";
@@ -293,7 +297,7 @@ export async function exportDashboardImage(input: ExportInput): Promise<Blob> {
   longestLine.forEach((line, i) => c.fillText(line, bubbleX + 22, bubbleY + 40 + i * 27));
   // 立绘最后画（与气泡已按几何分离：气泡右缘 ≤ petX-18）
   if (input.sprite && input.frameW > 0 && input.frameH > 0 && petW > 0) {
-    c.drawImage(input.sprite, 0, input.poseRow * input.frameH, input.frameW, input.frameH, petX, petY, petW, petH);
+    c.drawImage(input.sprite, 0, input.poseRow * input.frameH, input.frameW, input.frameH, petX, petY, petW, PET_H);
   }
 
     // —— 页脚 ——
