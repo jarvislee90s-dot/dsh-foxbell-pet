@@ -28,8 +28,9 @@ function toolEntry(r: SummaryToolRow): string {
   return base + t("dash.boardToolDur", { inner: t("dash.toolTotal") + " " + fmtDur(r.ms) });
 }
 
-/** v2.2.1 黑板重排：参数行拆为「标签-数值」结构（每项一行、含义自明），替代原 4 行长文堆叠。 */
-export interface BoardKv { label: string; value: string }
+/** v2.2.1 黑板重排：参数行拆为「标签-数值」结构（每项一行、含义自明），替代原 4 行长文堆叠。
+ *  v2.2.2：工具行增发 entries（逐条目渲染，长串按条目边界换行不再溢出）；value 仍为拼接串契约（双侧测试钉住）。 */
+export interface BoardKv { label: string; value: string; entries?: string[] }
 
 /** 概览行（紧凑一条）：会话 / turn / 报错 */
 export function boardOverviewLine(s: DashboardSummary): string {
@@ -47,7 +48,7 @@ export function boardRows(s: DashboardSummary): BoardKv[] {
     { label: t("dash.cacheHit"), value: fmtTokens(tk.cacheRead) + "（" + pct + "%）" },
     { label: t("dash.output"), value: fmtTokens(tk.output) },
     { label: t("dash.yourInput") + t("dash.estimateSuffix") + " · " + t("dash.withSubagents"), value: "~" + fmtTokens(tk.userEst) },
-    { label: t("dash.boardToolsTop"), value: s.toolRows.length ? s.toolRows.map(toolEntry).join(" · ") : "—" },
+    { label: t("dash.boardToolsTop"), value: s.toolRows.length ? s.toolRows.map(toolEntry).join(" · ") : "—", entries: s.toolRows.length ? s.toolRows.map(toolEntry) : undefined },
     { label: t("dash.boardLongest"), value: fmtLongest(s.longest ? s.longest.ms : 0) },
   ];
   return rows;

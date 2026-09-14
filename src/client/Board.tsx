@@ -4,7 +4,7 @@
 // 自动消失由调用方（Pet.openBoard）的 ttl 定时器负责——Board 内不消费 ttlSec，仅作契约形状保留（与源一致）。
 // 样式 310px 版式（.dyn-pet-board*，源 CSS 原样移植；行 normal 换行 per 7e16d62）；scale 缩放由
 // 调用方（Pet 的 boardLayer 包装层 transform）承担——契约接口地图「位置与字号随三档缩放」适配点。
-import type { ReactElement } from "react";
+import { Fragment, type ReactElement } from "react";
 import { t } from "./i18n";
 import type { DashboardSnapshot } from "./api";
 import { boardOverviewLine, boardRows } from "./boardrows";
@@ -33,10 +33,21 @@ export function Board(props: {
           onClick={(e) => { e.stopPropagation(); props.onClose(); }}
         >✕</button>
       </div>
-      {/* v2.2.1：概览行 + 「标签-数值」明细行（每项一行，含义自明） */}
+      {/* v2.2.1：概览行 + 「标签-数值」明细行（每项一行，含义自明）
+          v2.2.2：工具行有 entries 时逐条目渲染（inline-block 条目整体换行，不在耗时段内部断行），
+          溢出修复的关键在数值段可收缩（styles .dyn-pet-board-kv .v flex:1 1 auto） */}
       <div className="dyn-pet-board-row">{boardOverviewLine(s)}</div>
       {boardRows(s).map((kv, i) => (
-        <div key={i} className="dyn-pet-board-kv"><span className="k">{kv.label}</span><span className="v">{kv.value}</span></div>
+        <div key={i} className={"dyn-pet-board-kv" + (kv.entries ? " dyn-pet-board-kv-tools" : "")}>
+          <span className="k">{kv.label}</span>
+          <span className="v">
+            {kv.entries
+              ? kv.entries.map((e2, j) => (
+                <Fragment key={j}>{j > 0 ? <span className="sep"> · </span> : null}<span className="entry">{e2}</span></Fragment>
+              ))
+              : kv.value}
+          </span>
+        </div>
       ))}
       {/* ---- v2.2 Task 11 加料三行（行序：既有行 → sparkline 行 → 模型 Top3 行 → 入口行；R4/R10）----
           防御式读取：trend/models 为 v2.2 增量字段，旧宿主缺省即整行跳过 */}

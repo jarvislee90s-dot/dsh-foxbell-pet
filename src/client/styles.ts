@@ -208,9 +208,13 @@ ${MINI_DETAIL_CSS}
 .dyn-pet-board-row + .dyn-pet-board-kv, .dyn-pet-board-kv + .dyn-pet-board-kv { border-top: 1px dashed rgba(255,255,255,.18); }
 .dyn-pet-board-kv { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 3px 0; }
 .dyn-pet-board-kv .k { min-width: 0; }
-.dyn-pet-board-kv .v { flex: none; }
+/* v2.2.2：数值段可收缩（原 flex:none 使长值整体溢出板宽被裁切）；短值右对齐观感不变 */
+.dyn-pet-board-kv .v { flex: 1 1 auto; min-width: 0; }
 .dyn-pet-board-kv .k { flex: none; color: rgba(255,255,255,.55); font-size: 11px; }
 .dyn-pet-board-kv .v { text-align: right; word-break: break-word; color: rgba(255,255,255,.92); text-shadow: 0 0 3px rgba(255,255,255,.18); }
+/* v2.2.2 工具行逐条目换行：entry 为 inline-block（整体换行单元，不在「（共 X 分钟）」内部断行；
+   单条目超宽时其内部照常软换行兜底），sep 间的空格是唯一换行点 */
+.dyn-pet-board-kv-tools .entry { display: inline-block; }
 /* v2.2.1 黑板模型行与大看板对齐口径统一：名称左对齐 + 数值右对齐固定宽 */
 .dyn-pet-board-model .v { flex: 1 1 auto; display: flex; align-items: baseline; gap: 10px; text-align: left; }
 .dyn-pet-board-model { display: flex; align-items: baseline; gap: 10px; min-width: 0; }

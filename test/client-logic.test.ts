@@ -678,6 +678,21 @@ describe("boardRows（小黑板行拼装，Task 7；v2.2.1 重排为标签-数�
     expect(en[5].value).toBe("2.0 min");
     setLang("zh");
   });
+  it("工具行增发 entries（v2.2.2 逐条目换行渲染）：单条/多条/空三条路径", () => {
+    setLang("zh");
+    const rows = boardRows(summary);
+    expect(rows[4].entries).toEqual(["Bash×1（共 5.0 秒）"]);
+    expect(rows[0].entries).toBeUndefined(); // 非工具行不发 entries
+    const empty: DashboardSummary = { ...summary, toolRows: [] };
+    expect(boardRows(empty)[4].entries).toBeUndefined();
+    const multi: DashboardSummary = { ...summary, toolRows: [
+      { name: "Read", count: 5, ms: 4000 },
+      { name: "Bash", count: 3, ms: 60000 },
+      { name: "Grep", count: 2, ms: 0 },
+    ] };
+    expect(boardRows(multi)[4].entries).toEqual(["Read×5（共 4.0 秒）", "Bash×3（共 1.0 分钟）", "Grep×2"]);
+    setLang("zh");
+  });
   it("耗时三档镜像宿主 formatDur；longest null → 「0 秒」桶；工具空 → —", () => {
     setLang("zh");
     expect(fmtDur(500)).toBe("500 毫秒");
