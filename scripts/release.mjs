@@ -124,6 +124,8 @@ if (!remoteRelease) {
   git('push', 'origin', `${tag}:refs/heads/${RELEASE_BRANCH}`)
   console.log(`  created ${RELEASE_BRANCH} @ ${tag}`)
 } else {
+  // Fresh clone / no local remote-tracking ref: materialize origin/release first, then verify ancestor (merge-base requires a local ref)
+  git('fetch', 'origin', `+refs/heads/${RELEASE_BRANCH}:refs/remotes/origin/${RELEASE_BRANCH}`)
   let ancestor = false
   try { git('merge-base', '--is-ancestor', `origin/${RELEASE_BRANCH}`, tag); ancestor = true } catch (e) {
     if (e.status !== 1) throw e
