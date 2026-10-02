@@ -6,8 +6,8 @@ DeepSeek Harness（DSH）Web 网页右下角可拖拽的**多宠物桌宠系统*
 
 ![内置宠物 Foxbell](reference/桃子衣服粉狐狸形象.png)
 
-> **v2.2.0 面向 dsh ≥ 0.1.2-rc.1**（rc.7/rc.8 等旧版不再支持，见下方兼容表；**0.1.5-rc.2 已逐项自检兼容**）。
-> 状态卡片色彩语义自 v2.0.0 起切换为 MAM 口径（**红=待审批 / 黄=运行中 / 绿=完成未读 / 深红+⚠=错误断联**），与 v1.x（绿运行/黄待批准/红报错/蓝完成）不同，详见 [CHANGELOG](CHANGELOG.md)。
+> **v2.3.0 适配 dsh 0.2.0-rc.2 桌面端运行时**（设置 API 迁移 entry-config；向下兼容 0.1.2-rc.1，见下方兼容表）。
+> 状态卡片色彩语义自 v2.0.0 起为 MAM 口径（**红=待审批 / 黄=运行中 / 绿=完成未读 / 深红+⚠=错误断联**），与 v1.x（绿运行/黄待批准/红报错/蓝完成）不同，详见 [CHANGELOG](CHANGELOG.md)。
 
 ## 预览
 
@@ -93,11 +93,14 @@ v1.4.0 效率看板一期整体移植到 v2 架构：宿主聚合、随 `/state`
 
 | 组件 | 要求 |
 |---|---|
-| DeepSeek Harness（DSH） | **≥ 0.1.2-rc.1**（Web profile，`dsh web`） |
-| rc.1 依赖面 | `session.snapshotEvents()`（B1）、`ctx.settings.installSection`（B2）、`dsh.client.inject` 包级依赖边语义（B3，本插件声明为空——只用平台种子模块 react） |
-| master（0.1.3-alpha.1） | 静态 diff 评估无破坏面（详见 IMPLEMENTATION_NOTES §9） |
-| 0.1.5-rc.2 | 协议面（事件/路由/settings）逐项自检兼容（v2.1.0 发布前回归） |
+| DeepSeek Harness（DSH） | **≥ 0.1.2-rc.1**（含 **0.2.0-rc.2 桌面端**；Web profile `dsh web` / 桌面 profile 均可） |
+| 0.2.x（0.2.0-rc.2） | ✅ v2.3.0 适配：设置迁移到 entry-config 模型（`Config` volatile 根即表单，配置按 Loader entry id 寻址）；客户端 `settingsScope` 服务与 `settings.plugin.item` 槽位已删除 → 改为 settings/describe+update RPC 适配器 + `settings.section` 整节注册 |
+| 0.1.x（0.1.2-rc.1+，含 0.1.5-rc.2） | ✅ 兼容层自动回退：`ctx.settings.installSection` 命名空间注册（B2）、`settings.plugin.item` 卡片槽、`settingsScope.bind` 语义由 RPC 适配器同形替代 |
 | v1.x（rc.7/rc.8 时代） | **不支持**（旧 `session.events` / `installSettingsSection` / `dsh-client-runtime` 在 rc.1 已删除；请使用本插件 v1.3.0） |
+
+> **依赖结构（v2.3 根因修复）**：`@deepseek-ai/dsh-settings` 不在 `dependencies` 中——
+> settings 服务一律由宿主运行时提供。插件自带副本会以 hoisted 依赖遮蔽运行时内置的
+> settings 插件行，导致 0.2 桌面端兼容性禁用与启动崩溃（详见 CHANGELOG [2.3.0] C2）。
 
 内置素材随包自带，无需额外下载；外部宠物素材由用户导入。
 

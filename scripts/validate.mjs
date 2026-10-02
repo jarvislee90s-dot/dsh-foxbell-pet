@@ -89,11 +89,16 @@ const srcClient = clientFiles.map((f) => readFileSync(path.join(root, f), 'utf8'
 const libClient = readFileSync(path.join(root, 'lib/client.js'), 'utf8')
 const libHost = existsSync(path.join(root, 'lib/index.js')) ? readFileSync(path.join(root, 'lib/index.js'), 'utf8') : ''
 const requireIn = (hay, needle, label) => { if (!hay.includes(needle)) fail(`missing ${label}`) }
-// 设置命名空间：宿主 installSection（B2 rc.1 服务方法）+ 客户端 bind/卡片 key 三处同串
-requireIn(srcHost, "installSection(ctx, FOXBELL_PET_NS", 'host settings registration via ctx.settings.installSection')
+// 设置接线（v2.1 双模型）：宿主 0.1 installSection / 0.2 entry-config；客户端 RPC 适配器 + ns 发现
+requireIn(srcHost, "installSection(ctx, FOXBELL_PET_NS", 'host 0.1 settings registration via ctx.settings.installSection')
 requireIn(srcHost, "'foxbell-pet'", 'settings namespace literal (host)')
-requireIn(srcClient, 'bind({ namespace: "foxbell-pet" })', 'settings scope bind (client)')
-requireIn(srcClient, 'key: "foxbell-pet"', 'settings card slot key (client)')
+requireIn(srcHost, "settings/document-updated", 'host 0.2 entry-config cache invalidation event')
+requireIn(srcHost, 'ENTRY_ID', 'host 0.2 entry id fallback constant')
+requireIn(srcHost, '.volatile()', 'Config volatile root (0.2 settings form requirement)')
+requireIn(srcClient, 'createHttpSettingsScope', 'settings HTTP RPC scope adapter (client)')
+requireIn(srcClient, 'NS_CANDIDATES', 'settings ns discovery candidates (client)')
+requireIn(srcClient, 'key: "foxbell-pet"', 'settings card slot key (0.1, client)')
+requireIn(srcClient, 'settings.section', 'settings section slot (0.2, client)')
 // 旧 API 零残留（B1/B2/B3 可 grep 自证）
 // 例外（2026-09-11 v2.1 移植契约裁定）：src/host/dashboard.js 系 v1.4.0 原样移植的双兼容事件读取器——
 // session.snapshotEvents() 优先，仅防御性容忍旧 .events 形态（协议面仍 snapshotEvents-only，契约 §5.6）。

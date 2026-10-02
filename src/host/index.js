@@ -1,9 +1,14 @@
 // Foxbell桌宠 v2 — 持久化 Host 插件（随 dsh web 自动加载）。
 //
-// rc.1 兼容（B1/B2/B3 见 IMPLEMENTATION_NOTES）：
+// 兼容矩阵（B1/B2/B3 见 IMPLEMENTATION_NOTES；C 系为 0.2 适配）：
 //   B1  会话事件数组属性 → session.snapshotEvents() 方法（state.js readEvents）
 //   B2  旧设置辅助函数（dsh-settings 0.1.0 时代）→ ctx.settings.installSection 服务方法
 //   B3  dsh.client.inject 改为包级依赖边语义，已删除的 client-runtime 包引用清零（package.json）
+//   C1  dsh-settings 0.2（entry-config 模型）：installSection/register 删除，插件自身
+//       导出的 volatile Config 即设置表单，describe 按 Loader entry id 寻址（见 apply 内
+//       settings 接线；@hytime/dsh-thinking-effort 同款双模型兼容层）
+//   C2  package.json 不再依赖 @deepseek-ai/dsh-settings（0.1.2-rc.1 会以 hoisted 副本
+//       遮蔽运行时内置 settings 插件行，触发 peerDependencies 兼容禁用 → 桌面端崩溃）
 //
 // 素材：内置 foxbell 从插件包 assets/ 读取（安装即用）；外部宠物商店在
 // ~/.dsh/foxbell-pet/pets/<id>/（node:fs 直写——rc.1 的 ctx.fs 沙箱可写根不含 ~/.dsh，
@@ -27,13 +32,25 @@ import { registerRoutes, ROUTE_PREFIX } from './routes.js'
 
 export const name = 'dsh-foxbell-pet'
 
-// settings 命名空间：与 client 半卡片注册（settings.plugin.item 的 key）与
+// settings 命名空间（0.1.x 模型）：与 client 半卡片注册（settings.plugin.item 的 key）与
 // settingsScope.bind({namespace}) 三处配对。rc.1 起 settingsNamespace 辅助函数已删除，
 // 命名空间就是裸小写连字符字符串（/^[a-z][a-z0-9-]*$/）。
+// 0.2.x（entry-config 模型）下没有注册命名空间，配置按 Loader entry id 寻址；
+// 本包 cordis.patch.yml 的 insert id 即 ENTRY_ID，客户端用它做 describe 候选匹配。
 export const FOXBELL_PET_NS = 'foxbell-pet'
+export const ENTRY_ID = 'dsh-foxbell-pet'
 export const ACTION_IDS = ['jumping', 'waving', 'failed', 'waiting', 'review', 'running']
 const Action = z.union(ACTION_IDS)
-export const Config = z.object({
+// C1 双 schema（v2.3 / dsh 0.2 适配）：
+//   ConfigSchema —— 功能 schema：默认值解析 + 校验（apply 入口与 0.1 installSection 注册用；
+//     直接调用/~standard.validate 均正常解析默认值）。
+//   Config —— 0.2 entry-config 表单描述符 = ConfigSchema.volatile()：dsh-settings 0.2 的
+//     describe() 只列出含 volatile 字段的 entry（volatileForm），update() 拒绝非 volatile
+//     路径写入；volatile 根让全部字段成为可热编辑表单。注意 schemastery 的 volatile 包装
+//     是 refs 化重包（extra("volatile")）——直接调用/validate 会丢弃值，这是 entry-config
+//     模型的既定行为（loader 对 volatile entry 走 raw 通道 fiber._config，不靠 schema 解析；
+//     @hytime/dsh-thinking-effort 同款，默认值全部由代码层 CONFIG_DEFAULTS 兜底）。
+export const ConfigSchema = z.object({
   muted: z.boolean().default(false),
   talkative: z.boolean().default(true),
   doneAction: Action.default('jumping'),
@@ -65,6 +82,9 @@ export const Config = z.object({
   dashboardSidebarEntry: z.boolean().default(false),
   exportPose: z.string().default('random'),
 })
+/** 全量默认值（代码层兜底：0.2 volatile 通道不解析 schema default，readConfig 以此垫底） */
+export const CONFIG_DEFAULTS = ConfigSchema({})
+export const Config = ConfigSchema.volatile()
 
 // 硬依赖注入：与 v1.3.0 相同（settings 为可选注入，见 apply 内 ctx.inject）。
 export const inject = ['webServer', 'fs', 'agents', 'sessions', 'sessionTitle']
@@ -125,31 +145,72 @@ export const __testables = { listPetsCached, loadManifestCached }
 
 export async function apply(ctx, config) {
   // 组合配置非法值不应拖垮整个插件：解析失败回落默认 schema 值
+  // （用 ConfigSchema 而非导出的 Config——后者是 volatile 表单描述符，调用会丢值）
   let entry
-  try { entry = Config(config ?? {}) } catch { entry = Config({}) }
+  try { entry = ConfigSchema(config ?? {}) } catch { entry = CONFIG_DEFAULTS }
 
-  // ---- B2：ctx.settings.installSection（dsh-settings 0.1.2-rc.1 服务方法）----
-  // settings 是可选服务（TUI/无 settings 部署静默降级）：hooks 形状 {setSource,onChange,validate?}。
-  // setSource 收到 thunk：settings 在场 = resolved scope getter；不在场 = entry 回退。
+  // ---- 设置接线（B2：0.1.x installSection；C1：0.2.x entry-config 双模型）----
+  // settings 是可选服务（TUI/无 settings 部署静默降级）。service 在场时配置以 settings
+  // 为唯一事实源；不在场时回落 apply 收到的 entry（组合配置），客户端 /state?pet= 提示兜底。
   let configSource = () => entry
-  // settings attach 标记：installSection 的 setSource 在 attach 时先于 onChange 被调；
-  // detach 时回落 entry thunk（此时仍视为「settings 曾接管」，配置以最后 resolved 值为准）。
   let settingsAttached = false
   const readConfig = () => {
     try {
       const v = configSource()
-      return v && typeof v === 'object' ? v : entry
+      // entry 含全量默认值：0.2 describe 投影只含已落盘字段，缺失键以默认值垫底
+      return v && typeof v === 'object' ? { ...entry, ...v } : entry
     } catch { return entry }
   }
   try {
-    ctx.inject(['settings'], (settingsCtx) => {
-      settingsCtx.settings.installSection(ctx, FOXBELL_PET_NS, Config, entry, {
-        setSource: (current) => { configSource = current; settingsAttached = true },
-        onChange: () => { /* 配置热更新：/state 每轮读 readConfig()，无需额外动作 */ },
-      })
+    ctx.inject(['settings'], (sctx) => {
+      const settings = sctx.settings
+      if (settings !== undefined && typeof settings.installSection === 'function') {
+        // dsh-settings 0.1.x（namespace 模型）：注册私有命名空间 FOXBELL_PET_NS。
+        // hooks 形状 {setSource,onChange,validate?}；setSource 收到 thunk：settings 在场
+        // = resolved scope getter；不在场 = entry 回退。
+        settings.installSection(ctx, FOXBELL_PET_NS, ConfigSchema, entry, {
+          setSource: (current) => { configSource = current; settingsAttached = true },
+          onChange: () => { /* 配置热更新：/state 每轮读 readConfig()，无需额外动作 */ },
+        })
+        return
+      }
+      if (settings !== undefined && typeof settings.describe === 'function') {
+        // dsh-settings 0.2.x（entry-config 模型）：无注册 API；本插件 entry 自身的
+        // volatile Config 即表单，describe() 按 entry id 返回投影值。读值走 describe
+        // 并以 settings/document-updated 事件失效缓存（写路径 settings.update 由
+        // 客户端 RPC 直达宿主 settings 服务，宿主只读）。
+        const fiber = (ctx && typeof ctx === 'object') ? ctx.fiber : null
+        const rowId = (fiber && typeof fiber === 'object' && fiber.entry && typeof fiber.entry === 'object'
+          && fiber.entry.options && typeof fiber.entry.options === 'object') ? fiber.entry.options.id : undefined
+        const entryId = typeof rowId === 'string' && rowId.length > 0 ? rowId : ENTRY_ID
+        let cachedValue = undefined // undefined = 缓存失效；null = 本轮读取失败（不缓存）
+        configSource = () => {
+          if (cachedValue === undefined) {
+            let value = null
+            try {
+              const descriptors = settings.describe()
+              if (Array.isArray(descriptors)) {
+                const d = descriptors.find((x) => x && typeof x === 'object' && x.ns === entryId)
+                if (d && d.value && typeof d.value === 'object') value = d.value
+              }
+            } catch { /* describe 抛错：本轮回落 entry */ }
+            if (value !== null) cachedValue = value
+            return value
+          }
+          return cachedValue
+        }
+        settingsAttached = true
+        sctx.effect(() => sctx.on('settings/document-updated', (ns) => {
+          if (ns === entryId) cachedValue = undefined
+        }))
+        // settings 服务卸载/重挂：scope 回落 entry，等待下一次 inject 重接线
+        sctx.effect(() => () => { configSource = () => entry; settingsAttached = false; cachedValue = undefined })
+        return
+      }
+      console.warn('[foxbell-pet] settings service present but exposes neither installSection nor describe')
     })
   } catch (err) {
-    console.warn('[foxbell-pet] settings installSection unavailable:', String(err && err.message || err))
+    console.warn('[foxbell-pet] settings wiring unavailable:', String(err && err.message || err))
   }
 
   // ---- 插件私有目录（~/.dsh/foxbell-pet/…）----

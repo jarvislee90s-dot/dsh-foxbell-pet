@@ -474,6 +474,72 @@ describe("configStore × settings scope（写后回读 + 冲突重试）", () =>
   });
 });
 
+describe("v2.1 settings 0.2 适配（ns 发现 + HTTP scope 适配器）", () => {
+  it("discoverNs：0.1 命名空间优先，0.2 entry id 次之，标记字段兜底，缺失为 null", async () => {
+    const { discoverNs } = await import("../src/client/config");
+    // 两个候选都在（异常场景）：0.1 注册命名空间优先
+    expect(discoverNs({ namespaces: [
+      { ns: "dsh-foxbell-pet", value: { muted: false } },
+      { ns: "foxbell-pet", value: { muted: false } },
+    ] })).toBe("foxbell-pet");
+    // 0.2 entry-config：只有 entry id
+    expect(discoverNs({ namespaces: [{ ns: "dsh-foxbell-pet", value: { muted: false } }] })).toBe("dsh-foxbell-pet");
+    // entry id 被自定义改名：标记字段（activePetId+doneAction）兜底
+    expect(discoverNs({ namespaces: [
+      { ns: "some-other" },
+      { ns: "renamed-pet", value: { activePetId: "foxbell", doneAction: "jumping", muted: true } },
+    ] })).toBe("renamed-pet");
+    // 无本插件配置节
+    expect(discoverNs({ namespaces: [{ ns: "llm-pi-ai", value: { providers: {} } }] })).toBeNull();
+    expect(discoverNs(null)).toBeNull();
+  });
+
+  it("createHttpSettingsScope：describe 就绪 → 快照 ready，set 走 settings/update（entry id ns）", async () => {
+    const { createHttpSettingsScope, __resetDiscoveredNsForTest } = await import("../src/client/config");
+    __resetDiscoveredNsForTest(); // 前一用例的 httpWrite 可能已缓存 0.1 命名空间
+    const onDisk: Record<string, unknown> = {};
+    const updateBodies: { ns: string; patch: Record<string, unknown> }[] = [];
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = ((input: unknown, init?: RequestInit) => {
+      const url = String(input);
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      if (url.includes("settings/update")) {
+        updateBodies.push({ ns: body.payload.args.ns, patch: body.payload.args.patch });
+        Object.assign(onDisk, body.payload.args.patch);
+        return Promise.resolve(new Response(JSON.stringify({ result: { ok: true } })));
+      }
+      if (url.includes("settings/describe")) {
+        // 0.2 entry-config 形状：ns = Loader entry id，value = resolved 投影，user = 用户层
+        return Promise.resolve(new Response(JSON.stringify({
+          result: { ok: true, value: { namespaces: [{
+            ns: "dsh-foxbell-pet",
+            value: { muted: false, talkative: true, activePetId: "foxbell", doneAction: "jumping" },
+            user: { ...onDisk },
+          }] } },
+        })));
+      }
+      return origFetch(input as RequestInfo, init);
+    }) as typeof fetch;
+    try {
+      const scope = createHttpSettingsScope();
+      expect(scope.getSnapshot().status).toBe("pending");
+      const detach = scope.subscribe(() => {});
+      await new Promise((r) => setTimeout(r, 50));
+      // subscribe 触发的首次 describe 命中 0.2 entry id → ready 且 value 投影进来
+      const snap = scope.getSnapshot();
+      expect(snap.status).toBe("ready");
+      expect(snap.value?.activePetId).toBe("foxbell");
+      expect(snap.user).toEqual({});
+      // set：发现到的 ns（entry id）随 patch 走 settings/update
+      await scope.set("activePetId", "conan");
+      expect(updateBodies).toEqual([{ ns: "dsh-foxbell-pet", patch: { activePetId: "conan" } }]);
+      detach();
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+  });
+});
+
 describe("i18n 字典完整性", () => {
   it("zh/en key sets identical", () => {
     const zh = new Set(dictKeys("zh"));

@@ -377,7 +377,18 @@ describe("scanPet / listPets", () => {
 
 // ---- R2 补强：symlink 目录口径 + 改名中途失败零副作用 ----
 describe("symlink 宠物目录（R2 安全自查）", () => {
-  it("scanPet 对 symlink 目录抛 pet-not-found（不跟随出商店根）", () => {
+  // Windows 非开发者模式/管理员无法创建 symlink：探测一次，无权限则跳过
+  // （防御逻辑本身不变；上方 stageFromFolder 用例的 try/catch 同款平台口径）。
+  const canSymlink = (() => {
+    try {
+      const d = fs.mkdtempSync(path.join(os.tmpdir(), "foxbell-slink-probe-"));
+      fs.symlinkSync(d, `${d}-link`, "dir");
+      fs.rmSync(`${d}-link`);
+      fs.rmSync(d, { recursive: true, force: true });
+      return true;
+    } catch { return false; }
+  })();
+  it.skipIf(!canSymlink)("scanPet 对 symlink 目录抛 pet-not-found（不跟随出商店根）", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "foxbell-slink-"));
     const petsDir = path.join(root, "pets");
     fs.mkdirSync(petsDir, { recursive: true });
@@ -391,7 +402,8 @@ describe("symlink 宠物目录（R2 安全自查）", () => {
 });
 
 describe("renamePet 中途失败（R2 边界自查 3d）", () => {
-  it("父目录只读导致 rename 失败 → rename-failed，源目录完好、无半成品新目录", () => {
+  // chmod 只读目录是 POSIX 语义（Windows 目录 ACL 不随 chmod 变只读，rename 照常成功）。
+  it.skipIf(process.platform === "win32")("父目录只读导致 rename 失败 → rename-failed，源目录完好、无半成品新目录", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "foxbell-rename-"));
     const petsDir = path.join(root, "pets");
     const dir = path.join(petsDir, "oldname");

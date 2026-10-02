@@ -6,7 +6,7 @@ A draggable **multi-pet desktop-pet system** for the DeepSeek Harness (DSH) Web 
 
 ![Built-in pet Foxbell](reference/桃子衣服粉狐狸形象.png)
 
-> **v2.2.0 targets dsh ≥ 0.1.2-rc.1** (older rc.7/rc.8-era harnesses are no longer supported; see the compatibility table below; **0.1.5-rc.2 verified compatible surface-by-surface**).
+> **v2.3.0 adapts to the dsh 0.2.0-rc.2 desktop runtime** (settings API migrated to the entry-config model; still compatible with 0.1.2-rc.1 — see the compatibility table below).
 > Starting with v2.0.0 the status-card color semantics follow MAM: **red = awaiting approval, yellow = running, green = done-unread, dark red + ⚠ = error/disconnected** (v1.x used green/yellow/red/blue). See [CHANGELOG](CHANGELOG.md).
 
 ## Screenshots
@@ -92,11 +92,15 @@ One data core, three levels of disclosure, each click going deeper: **L1 mini ba
 
 | Component | Requirement |
 |---|---|
-| DeepSeek Harness (DSH) | **≥ 0.1.2-rc.1** (Web profile, `dsh web`) |
-| rc.1 surfaces used | `session.snapshotEvents()` (B1), `ctx.settings.installSection` (B2), package-edge `dsh.client.inject` semantics (B3 — declared empty: only platform seed modules like react are required) |
-| master (0.1.3-alpha.1) | static-diff assessment found no breaking surface (IMPLEMENTATION_NOTES §9) |
-| 0.1.5-rc.2 | protocol surface (events/routes/settings) verified compatible item-by-item (regressed before the v2.1.0 release) |
+| DeepSeek Harness (DSH) | **≥ 0.1.2-rc.1** (incl. the **0.2.0-rc.2 desktop runtime**; both `dsh web` and the desktop profile work) |
+| 0.2.x (0.2.0-rc.2) | ✅ adapted in v2.3.0: settings moved to the entry-config model (the volatile-root `Config` is the form, addressed by Loader entry id); the removed client `settingsScope` service / `settings.plugin.item` slot are replaced by a settings/describe+update RPC adapter + a `settings.section` registration |
+| 0.1.x (0.1.2-rc.1+, incl. 0.1.5-rc.2) | ✅ compat layer falls back automatically: `ctx.settings.installSection` namespace registration (B2) and the `settings.plugin.item` card slot; the `settingsScope.bind` shape is served by the same RPC adapter |
 | v1.x (rc.7/rc.8 era) | **unsupported** (legacy `session.events` / `installSettingsSection` / `dsh-client-runtime` were removed in rc.1; use plugin v1.3.0 there) |
+
+> **Dependency layout (v2.3 root-cause fix):** `@deepseek-ai/dsh-settings` is NOT a runtime
+> dependency — the settings service always comes from the host runtime. Bundling a copy would
+> shadow the runtime's built-in settings plugin row (hoisted profile installs) and crash the
+> 0.2 desktop welcome flow (see CHANGELOG [2.3.0] C2).
 
 Built-in assets ship with the package; external pet assets are user-imported.
 

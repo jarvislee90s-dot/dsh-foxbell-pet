@@ -1,5 +1,10 @@
-// config.ts — 配置存储（localStorage + settings scope 双后端，乐观更新；v1.3.0 语义不变）。
+// config.ts — 配置存储（localStorage + settings RPC 双后端，乐观更新；v1.3.0 语义不变）。
 // v2 新增 scale（三档缩放）与 activePetId（激活宠物，默认 foxbell）。
+// v2.1（dsh 0.2 适配）：0.1.x 的客户端 settingsScope 服务在 0.2 已删除，配置后端改为
+// settings/describe + settings/update HTTP RPC 适配器（createHttpSettingsScope）——两个
+// RPC 的线缆形状在 0.1/0.2 一致，仅 ns 语义不同（0.1 = 注册命名空间 'foxbell-pet'；
+// 0.2 = Loader entry id，本包 cordis.patch.yml 的 insert id 'dsh-foxbell-pet'），ns 由
+// describe 动态发现（discoverNs：候选 id 优先，标记字段兜底）。
 // 旧保存配置（无 scale/activePetId）加载即得默认值，零报错。
 // localStorage 键沿用 dyn-pet-foxbell-* / dyn-foxbell-pet:* 前缀（不迁移，不碰 MAM 的 mam-* 键）。
 import { POSE_KEYS } from "./animations";
@@ -128,11 +133,91 @@ export function sanitizeConfig(raw: unknown): PetConfig {
   return out;
 }
 
-// ---- settings scope 类型（客户端 settingsScope.bind 返回形状，rc.1 仍在）----
+// ---- settings scope 类型（store 的远端后端接口；0.1.x 由 settingsScope.bind 提供，
+// ---- 0.2.x 由下方 createHttpSettingsScope 的 RPC 适配器提供）----
 export interface SettingsScopeLike {
   getSnapshot(): { status: string; value?: Record<string, unknown>; user?: Record<string, unknown> };
   subscribe(fn: () => void): () => void;
   set(field: string, value: unknown): Promise<void>;
+}
+
+// ---- settings RPC 底座（0.2 适配）----
+
+/** describe 响应里本插件配置节的候选 ns：0.1 注册命名空间在前，0.2 entry id 在后 */
+export const NS_CANDIDATES = ["foxbell-pet", "dsh-foxbell-pet"] as const;
+/** 标记字段（schema 独有组合）：entry id 改名/自定义安装名时的兜底匹配 */
+const NS_MARKER_KEYS = ["activePetId", "doneAction"];
+
+export interface SettingsNamespaceRow {
+  ns: string;
+  value?: unknown;
+  user?: Record<string, unknown>;
+}
+export interface SettingsDescribeView {
+  namespaces?: SettingsNamespaceRow[];
+}
+
+/** 宿主 web RPC 响应信封：{result: {ok, value}}（错误时 ok=false / 无 value） */
+export interface RpcEnvelope<T> {
+  result?: { ok?: boolean; value?: T };
+}
+
+/** 读出 describe 信封里的视图（无效/缺失 → null） */
+function describeViewOf(j: RpcEnvelope<SettingsDescribeView> | null | undefined): SettingsDescribeView | null {
+  const v = j?.result?.value;
+  return v && typeof v === "object" ? v : null;
+}
+
+let rpcSeq = 0;
+const nextRpcId = (tag: string): string =>
+  `foxbell-${tag}-${Date.now().toString(36)}-${(rpcSeq++).toString(36)}`;
+
+/** settings RPC POST（带 cookie 的 /api/settings/* 直连；与宿主 web RPC 同一端点）。
+ *  fetch 全局缺失（极端沙箱）时同步抛错转为 rejected promise，调用方统一走拒绝分支。 */
+function settingsRpc<T>(method: string, args: unknown): Promise<T> {
+  try {
+    return fetch(`/api/${method}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ type: "client-request", rpcId: nextRpcId("rpc"), method, payload: { args } }),
+    }).then((r) => {
+      if (!r.ok) throw new Error(`settings RPC ${method} HTTP ${r.status}`);
+      return r.json() as Promise<T>;
+    });
+  } catch (err) {
+    return Promise.reject(err);
+  }
+}
+
+/** 从 describe 视图发现本插件配置节的 ns；找不到返回 null（宿主未加载本插件/无 settings） */
+export function discoverNs(view: SettingsDescribeView | null | undefined): string | null {
+  const list = Array.isArray(view?.namespaces) ? (view as SettingsDescribeView).namespaces! : [];
+  const known = new Set(list.map((n) => n?.ns));
+  for (const c of NS_CANDIDATES) if (known.has(c)) return c;
+  for (const n of list) {
+    const v = n?.value;
+    if (v && typeof v === "object" && NS_MARKER_KEYS.every((k) => k in (v as Record<string, unknown>))) return n.ns;
+  }
+  return null;
+}
+
+/** 当前已发现的 ns（读写路径共用；首次 describe 成功前为 null） */
+let resolvedNs: string | null = null;
+
+/** @internal 测试隔离用：重置 ns 发现缓存（模块级单例状态，跨用例泄漏防护） */
+export function __resetDiscoveredNsForTest(): void {
+  resolvedNs = null;
+}
+
+/** 读一次 describe 以发现并记忆 ns（已发现时直接返回） */
+function ensureNs(): Promise<string | null> {
+  if (resolvedNs !== null) return Promise.resolve(resolvedNs);
+  return settingsRpc<RpcEnvelope<SettingsDescribeView>>("settings/describe", {})
+    .then((j) => {
+      resolvedNs = discoverNs(describeViewOf(j));
+      return resolvedNs;
+    })
+    .catch(() => null);
 }
 
 export interface ConfigStore {
@@ -154,44 +239,31 @@ export function createConfigStore(): ConfigStore {
   const SCOPE_SILENT_MAX = 2;
 
   /**
-   * HTTP 直写（/api/settings/update，与 settings/update RPC 同一宿主端点）。
-   * scope 的 fiber 被 dispose（模块热重载/面板重挂）后 scope.set 静默 resolve、
-   * 永不发网络请求；此时用这条带 cookie 的直写通道兜底，保证切换仍生效。
+   * HTTP 直写（settings/update RPC；0.1 = 命名空间，0.2 = entry id，ns 由 ensureNs 发现）。
+   * scope 的 fiber 被 dispose（模块热重载/面板重挂）后 scope.set 可能静默 resolve、
+   * 永不发网络请求；此时用这条直写通道兜底，保证切换仍生效。
    */
   const httpWrite = (k: string, v: unknown): Promise<void> =>
-    fetch("/api/settings/update", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        type: "client-request",
-        rpcId: `foxbell-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-        method: "settings/update",
-        payload: { args: { ns: "foxbell-pet", patch: { [k]: v } } },
-      }),
-    }).then((r) => {
-      if (!r.ok) throw new Error(`settings update HTTP ${r.status}`);
+    ensureNs().then((ns) => {
+      if (ns === null) throw new Error("foxbell-pet settings namespace not found");
+      return settingsRpc<RpcEnvelope<unknown>>("settings/update", { ns, patch: { [k]: v } }).then((j) => {
+        if (j?.result && j.result.ok === false) throw new Error("settings update rejected");
+      });
     });
 
   /**
-   * 真实校验：HTTP describe 读 user 层当前值。scope 快照是 mirror 缓存，
+   * 真实校验：HTTP describe 读 user 层当前值。scope 快照是缓存，
    * fiber 死后永不更新，不能作为收敛判据。
    */
   const readUser = (k: string): Promise<unknown | null> =>
-    fetch("/api/settings/describe", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        type: "client-request",
-        rpcId: `foxbell-desc-${Date.now().toString(36)}`,
-        method: "settings/describe",
-        payload: { args: {} },
-      }),
-    }).then((r) => r.json())
-      .then((j) => {
-        const ns = (j?.result?.value?.namespaces || []).find((n: { ns: string }) => n.ns === "foxbell-pet");
-        const user = ns?.user && typeof ns.user === "object" ? ns.user : null;
+    ensureNs().then((ns) =>
+      settingsRpc<RpcEnvelope<SettingsDescribeView>>("settings/describe", {}).then((j) => {
+        const view = describeViewOf(j);
+        const row = ns === null ? null : (view?.namespaces ?? []).find((n: SettingsNamespaceRow) => n.ns === ns);
+        const user = row?.user && typeof row.user === "object" ? row.user : null;
         return user && k in user ? user[k] : null;
-      });
+      }),
+    );
 
   /** scope.set settle 后回读校验：以真实 describe 为准，scope 缓存不可信 */
   const verifyWrite = (k: string, v: unknown, seq: number, tries: number): void => {
@@ -324,6 +396,76 @@ export function createConfigStore(): ConfigStore {
       prevUnsub = s.subscribe(sync);
       sync();
       return () => { if (prevUnsub) prevUnsub(); prevUnsub = null; scope = null; pending = {}; emit(); };
+    },
+  };
+}
+
+// ---- HTTP RPC 版 settings scope（v2.1 / dsh 0.2 适配）----
+// 0.1.x 的客户端 settingsScope 服务在 0.2 已删除；本适配器用 settings/describe +
+// settings/update RPC 提供同形 scope（getSnapshot/subscribe/set），store 逻辑零改动。
+// subscribe 以 8s 轮询 describe 模拟推送（双窗口配置同步；宿主侧 describe 每次全量
+// 投影，不宜更高频）；轮询仅在存在订阅者时运行，最后一个退订即停止。
+
+/** 适配器 describe 轮询间隔（ms）；导出供测试断言/覆盖 */
+export const SCOPE_POLL_MS = 8000;
+
+export function createHttpSettingsScope(): SettingsScopeLike {
+  const listeners = new Set<() => void>();
+  let snap: { status: string; value?: Record<string, unknown>; user?: Record<string, unknown> } = { status: "pending" };
+  let timer: ReturnType<typeof setInterval> | null = null;
+
+  const refresh = (): Promise<void> => {
+    try {
+      return settingsRpc<RpcEnvelope<SettingsDescribeView>>("settings/describe", {})
+        .then((j) => {
+          const view = describeViewOf(j);
+          if (resolvedNs === null) resolvedNs = discoverNs(view);
+          const row = resolvedNs === null
+            ? null
+            : (view?.namespaces ?? []).find((n) => n.ns === resolvedNs) ?? null;
+          // 命中配置节才 ready（value = 宿主 resolved 配置投影）；未命中保持 pending，
+          // 下轮重试（插件行尚未激活/宿主无 settings 的降级场景）。
+          snap = row && row.value && typeof row.value === "object"
+            ? {
+                status: "ready",
+                value: row.value as Record<string, unknown>,
+                user: (row.user ?? {}) as Record<string, unknown>,
+              }
+            : { status: "pending" };
+          for (const fn of [...listeners]) fn();
+        })
+        .catch(() => { /* 网络抖动/宿主不在场：保持上一次快照 */ });
+    } catch {
+      return Promise.resolve(); // fetch 全局缺失（极端环境）：静默，纯 localStorage 后端
+    }
+  };
+
+  const startTimer = () => {
+    if (timer !== null || typeof setInterval !== "function") return;
+    timer = setInterval(() => { void refresh(); }, SCOPE_POLL_MS);
+  };
+  const stopTimer = () => {
+    if (timer !== null) { clearInterval(timer); timer = null; }
+  };
+
+  return {
+    getSnapshot: () => snap,
+    subscribe(fn) {
+      listeners.add(fn);
+      startTimer();
+      void refresh();
+      return () => {
+        listeners.delete(fn);
+        if (listeners.size === 0) stopTimer();
+      };
+    },
+    set(field, value) {
+      return ensureNs().then((ns) => {
+        if (ns === null) throw new Error("foxbell-pet settings namespace not found");
+        return settingsRpc<RpcEnvelope<unknown>>("settings/update", { ns, patch: { [field]: value } }).then((j) => {
+          if (j?.result && j.result.ok === false) throw new Error("settings update rejected");
+        });
+      });
     },
   };
 }

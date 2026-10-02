@@ -504,10 +504,79 @@ attachScope 接线、六动作键在产物、About 版本串与 package.json 一
 - L4：语音时长探测依赖浏览器解码能力（opus/flac 在 Safari 可能 no-duration → 行徽标可点击重探，MAM 同款降级）。
 - L5：私有路由对本机其它进程无鉴权（D17 残余风险；与 harness 自身插件资产路由同水位）。
 - L6：内置 foxbell 语音组固定四组 31 条，随包发布不可编辑（任务非目标：不做语音内容生产）。
-- L7：`dsh.plugin.json` 冻结（任务禁令），其 version 字段停留 1.3.0（rc.1 不读取该文件，无运行时影响，A8）。
+- L7：（v2.1.0 已解）`dsh.plugin.json` version 已随发布同步至 2.1.0（engines 同步 `>=0.1.2-rc.1`；rc.1 起运行时不读取该文件，仅为元数据一致性）。
 - L8：跨浏览器多标签同时打开 WebUI 时，位置/配置经 localStorage 各标签独立读取（无 storage 事件跨标签同步——MAM 有多窗口同步，本插件单页 WebUI 场景收益低，未移植；配置面由 settings scope 服务端收敛）。多标签管理操作竞态的完整机制说明见 **D24**（宿主单线程同步 fs + 原子写 + 幂等读 → 无半成品状态，last-write-wins，1.5s 收敛；未自动化，QA §1.7 实机核对）。
 - L9：复审修复了宠物目录/文件 symlink 跟随缺陷（初版 existsSync/statSync 口径），现统一 lstat 不跟随——见 **D23**。手工在商店内放 symlink 的宠物一律按不存在处理（清单不收录、资产不伺服、激活 fatal）。
 
 ## 11. 人工实机 QA 清单
 
 见 `docs/QA-CHECKLIST.md`（rc.1 WebUI 安装、宠物全交互、四来源导入、热切换、守卫、缩放、TUI 降级逐项步骤与预期）。
+
+## 12. v2.3.0（基线 v2.2.2）— dsh 0.2.0-rc.2 桌面端适配（C 系列，2026-10-03）
+
+协议依据：桌面端 DeepSeek Harness 0.2.0-rc.2 运行时实测（app.asar 解包核对）+
+`@hytime/dsh-thinking-effort@0.3.7`（已验证干净加载的官方兼容样板）。§9 的 master 前向评估
+中「settings 🟢 无变化」在 0.2.0-rc.2 **不再成立**：settings 包整体重写（entry-config 模型）。
+
+### C1 设置 host 半：installSection → entry-config 双模型
+
+| 0.1.2-rc.1（namespace 模型） | 0.2.0-rc.2（entry-config 模型） |
+|---|---|
+| `settings.installSection(owner, ns, schema, entry, hooks)` 注册私有命名空间 | 注册 API（`installSection`/`register`）已删除 |
+| describe() 按注册命名空间 `foxbell-pet` 寻址 | describe() 按 **Loader entry id**（本包 cordis.patch.yml 的 insert id `dsh-foxbell-pet`）寻址；ns 行 = `entry.options.id` |
+| 任意 schema 均可注册 | `describe()` 只列出 `volatileForm(schema) ≠ undefined` 的 entry（**Config 必须有 volatile 字段**）；`update()` 拒绝非 volatile 路径 |
+| 配置变化经 scope hooks 推送 | 事件面只剩 `settings/document-updated`（参数 (entryId, revision)，describe 内部检测 raw 变化时发出） |
+
+宿主实现（src/host/index.js）：`ctx.inject(['settings'])` 内探测服务形状——有 `installSection`
+走 0.1 分支（原 B2 调用不变）；有 `describe` 走 0.2 分支：entry id 取 `ctx.fiber.entry.options.id`
+（容错回退常量 `ENTRY_ID`），配置值从 `settings.describe()` 投影（单飞缓存，
+`settings/document-updated(ns===entryId)` 失效），服务卸载经 inject scope effect 回落 entry thunk。
+写路径无宿主代码：客户端 RPC 直达宿主 settings 服务（见 C3）。
+
+**schema 双导出（实测修正）**：schemastery 的 `.volatile()` 是 `extra("volatile")` 的 refs 化
+重包——直接调用与 `~standard.validate` 都会**丢弃值**（`{muted:true}` → `{}`；@hytime 发行版与
+0.2 运行时自带 llm-pi-ai 同样如此，实测确认）。cordis loader 对 volatile entry 走 raw 通道
+（`fiber._config` 直赋），不依赖 schema 解析。因此拆为：`ConfigSchema`（功能 schema，默认值
+解析/校验，apply 入口与 0.1 installSection 注册用）+ `Config = ConfigSchema.volatile()`（0.2
+表单描述符，loader/describe 只读其 meta/dict）+ `CONFIG_DEFAULTS = ConfigSchema({})` 代码兜底；
+`readConfig()` 以 entry 默认值垫底合并 describe 投影（0.2 投影只含已落盘字段）。
+副作用（接受，@hytime 同款）：手写 cordis.patch.yml 行 config 在 0.2 下不再经 schema 解析进
+apply（配置一律走 settings UI/存储）。
+
+### C2 依赖结构：dsh-settings 移出 dependencies（根因修复）
+
+实测故障链：插件 dependencies 带入 `@deepseek-ai/dsh-settings@^0.1.2-rc.1` → 桌面 profile
+（`pnpm-workspace.yaml`: `nodeLinker: hoisted`）把它平铺进 `profile/node_modules/@deepseek-ai/` →
+dsh-base 的 `id: settings` 行（name `@deepseek-ai/dsh-settings`）从 profile 树解析到该副本 →
+`evaluatePluginCompatibility` 读其 peerDependencies（`^0.1.2-rc.1`）判定与运行时 0.2.0-rc.2
+不兼容 → `dsh: disabling profile plugin row "settings"` → settings 服务缺失 → 桌面欢迎流程
+`settings/describe` RPC 失败 → 主进程循环崩溃。
+
+修复：settings 服务一律由宿主运行时提供；插件 `dependencies` 只留 `@deepseek-ai/schemastery`
++ `yauzl`（@hytime 样板同构），`@deepseek-ai/dsh-settings@0.2.0-rc.2` 钉在 devDependencies
+（类型/测试对齐新 API）。**不使用 `dsh plugin allow-version` 豁免**（官方警告崩溃/丢数据，
+且治标不治本：运行时一升级 peer 精确版本即再崩）。另声明 peerDependencies
+（cordis ^4.0.1 / dsh >=0.1.2-rc.1 optional）与 engines.dsh，对齐官方插件元数据惯例。
+
+### C3 客户端半：settingsScope / settings.plugin.item / sessions 形状三处适配
+
+| 面 | 0.1.2-rc.1 | 0.2.0-rc.2 | 本插件适配 |
+|---|---|---|---|
+| 配置后端服务 | `ctx.get('settingsScope').bind({namespace})` | 服务已删除 | `createHttpSettingsScope()`：settings/describe + settings/update HTTP RPC 适配器（线缆形状两代一致，仅 ns 语义不同；ns 由 describe 动态发现：候选 `foxbell-pet`/`dsh-foxbell-pet` → 标记字段 activePetId+doneAction 兜底）；订阅以 8s 轮询模拟推送，store 乐观更新/写后回读逻辑零改动 |
+| 设置 UI 槽位 | `settings.plugin.item`（按 ns key 派发卡片） | 已删除；改为 `settings.section` 整节（导航行 + renderSlot 主体，agent-preset 同款） | 双槽位并注（未声明的槽位 inject 工厂不运行，无害）；设置卡根元素 li→div 适配 section 容器 |
+| 当前会话 id | `sessions.list.getSnapshot().current` | `{ids, byId}`，当前 = `retainedBy.mainView > 0`（ui-layout 同口径） | makeUseSessions 双形状归一化（0.1 current 字段优先） |
+
+其余面实测无破坏：webServer.register（exact/prefix）、agents.roots()、sessions.get(id)、
+session.snapshotEvents()、sessionTitle、fs（resolve/stat/readBytes，dsh-fs-local）、
+sandboxPolicy、`shell.overlay` / `sidebar.footer.action` 槽位、`__ModuleLoader__` 客户端模块
+体系（本包走静态批路径，非闭包动态包——fetch/setTimeout 可用，与 0.1 相同）。
+
+### C4 验证矩阵（v2.1）
+
+- 仓库内：typecheck / vitest 250 通过 +5 平台跳过（Windows 无 symlink 特权能力探测，断言不变）/ validate 11 节全绿（§5 守卫更新为双模型契约）。
+- 桌面端 profile 验收流程（结果见 CHANGELOG [2.1.0] 与发布提交）：desktop profile
+  `pnpm add dsh-foxbell-pet@github:jarvislee90s-dot/dsh-foxbell-pet` → ELECTRON_RUN_AS_NODE
+  手动拉起 dsh-desktop-host（stderr 不得出现 `disabling profile plugin row`，须打印
+  `dsh web: http://127.0.0.1:<port>/?token=<token>`）→ RPC `settings/describe`（result.ok、
+  namespaces 含 `dsh-foxbell-pet`）与 `llm/listConfigurableProviders`（result.ok）→ 桌面端
+  主界面桌宠出现可拖拽、设置页（settings.section「Foxbell 桌宠」节）可读写配置。

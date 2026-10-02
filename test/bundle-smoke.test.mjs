@@ -84,7 +84,7 @@ describe('built client bundle (lib/client.js)', () => {
     expect(exports.inject).toContain('slots')
   })
 
-  it('apply registers all three UI slots (overlay / sidebar toggle / settings card)', () => {
+  it('apply registers all UI slots (overlay / sidebar toggle / settings card + 0.2 settings section + dashboard main)', () => {
     const registered = runBundle()
     const exports = registered['dsh-foxbell-pet'].factory((id) =>
       id === 'react' ? React : id === 'react/jsx-runtime' ? jsxRuntime : id === 'react-dom' ? ReactDOM : undefined,
@@ -96,7 +96,7 @@ describe('built client bundle (lib/client.js)', () => {
     }
     exports.apply({ get: (svc) => (svc === 'slots' ? slots : undefined) })
     expect(slotNames).toEqual(
-      expect.arrayContaining(['shell.overlay', 'sidebar.footer.action', 'settings.plugin.item']),
+      expect.arrayContaining(['shell.overlay', 'sidebar.footer.action', 'settings.plugin.item', 'settings.section', 'main']),
     )
   })
 })

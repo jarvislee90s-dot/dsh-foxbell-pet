@@ -157,7 +157,18 @@ describe("manifestVoiceCapOnDisk (ignore 降级判定)", () => {
 });
 
 describe("checkPet symlink 目录（R2 安全自查）", () => {
-  it("pets/<id> 为符号链接目录 → fatal pet-dir-missing（不跟随链接扫描店外内容）", () => {
+  // Windows 非开发者模式/管理员无法创建 symlink：探测一次，无权限则跳过
+  // （防御逻辑本身不变；staging.test 既有 try/catch 同款平台口径）。
+  const canSymlink = (() => {
+    try {
+      const d = fs.mkdtempSync(path.join(os.tmpdir(), "foxbell-slink-probe-"));
+      fs.symlinkSync(d, `${d}-link`, "dir");
+      fs.rmSync(`${d}-link`);
+      fs.rmSync(d, { recursive: true, force: true });
+      return true;
+    } catch { return false; }
+  })();
+  it.skipIf(!canSymlink)("pets/<id> 为符号链接目录 → fatal pet-dir-missing（不跟随链接扫描店外内容）", () => {
     const { pets } = setup(false);
     const outside = fs.mkdtempSync(path.join(os.tmpdir(), "foxbell-guard-out-"));
     fs.writeFileSync(path.join(outside, "spritesheet.webp"), "outside-sheet");

@@ -1,9 +1,12 @@
 // index.tsx — 客户端半入口（__ModuleLoader__ bundle，esbuild cjs + banner/footer 包装）。
 // 槽位：shell.overlay（宠物本体 + 对话框宿主）/ sidebar.footer.action（🦊 开关）/
-//       settings.plugin.item key='foxbell-pet'（设置卡，与宿主 installSection ns 配对）/
+//       settings.plugin.item key='foxbell-pet'（0.1 设置卡，与宿主 installSection ns 配对）/
+//       settings.section id='foxbell-pet'（0.2 设置整节，v2.3 起双槽位并注）/
 //       main key='foxbell-dashboard'（L3 用量大看板，Task 13）/
 //       sidebar.panellist id='foxbell-dashboard'（📊 入口，dashboardSidebarEntry 门控）。
-// 防御式注入：slots/settingsScope/layout 任一不在场时静默降级，不抛错、不影响宿主。
+// 防御式注入：slots/sessions/layout 任一不在场时静默降级，不抛错、不影响宿主。
+// v2.3（dsh 0.2 适配）：settingsScope 客户端服务已删除 → 配置后端改为
+// createHttpSettingsScope()（settings/describe+update RPC 适配器，ns 自动发现）。
 import React from "react";
 import { Pet } from "./Pet";
 import { PetToggle } from "./PetToggle";
@@ -14,6 +17,7 @@ import { appStore, cfgStore, PANEL_ID, petStore, reportVisible, schedulePoll, se
 import { startVoiceOwnership } from "./voiceowner";
 import { t } from "./i18n";
 import { adoptStyles } from "./styles";
+import { createHttpSettingsScope } from "./config";
 
 interface SlotsLike {
   inject(key: string, cb: () => (() => void) | Iterable<() => void>): () => void;
@@ -29,18 +33,28 @@ interface ClientCtx {
   effect?(fn: () => void | (() => void)): void;
 }
 
-/** sessions 服务（客户端半，rc.1 契约）：`ctx.sessions.list` 是 ObservableSnapshot<SessionListState>
- *  （getSnapshot()/subscribe()），`current` 即当前选中会话 id（session-controller service.ts）。
- *  v1 时代槽位 props 携带 useSessions hook 的形态在 rc.1 无先例，改为直接读 list 快照——
+/** sessions 服务（客户端半）快照形状双兼容：
+ *  rc.1：list.getSnapshot() → { current }（当前选中会话 id）。
+ *  0.2：list.getSnapshot() → { ids, byId: { [id]: { retainedBy: { mainView } } } }，
+ *       「当前会话」= mainView 保留计数 > 0 的会话（dsh-client-ui-layout 同口径）。
  *  封装成选择器函数供 Pet 组件订阅；服务/字段缺失时恒返回 undefined（防御式）。 */
 function makeUseSessions(ctx: ClientCtx): (sel: (s: { current?: string }) => unknown) => unknown {
   const svc = ctx.get("sessions") as { list?: { getSnapshot?: () => unknown; subscribe?: (fn: () => void) => () => void } } | undefined;
   const list = svc && typeof svc === "object" ? svc.list : undefined;
   const ok = !!list && typeof list.getSnapshot === "function";
-  const read = () => {
+  const read = (): { current?: string } => {
     try {
-      const snap = list?.getSnapshot?.() as { current?: string } | null | undefined;
-      return snap && typeof snap === "object" ? snap : { current: undefined };
+      const snap = list?.getSnapshot?.() as Record<string, unknown> | null | undefined;
+      if (!snap || typeof snap !== "object") return { current: undefined };
+      if (typeof snap.current === "string" && snap.current.length > 0) return { current: snap.current };
+      const byId = snap.byId;
+      if (byId && typeof byId === "object") {
+        for (const [id, row] of Object.entries(byId as Record<string, { retainedBy?: { mainView?: unknown } } | undefined>)) {
+          const n = row?.retainedBy?.mainView;
+          if (typeof n === "number" && n > 0) return { current: id };
+        }
+      }
+      return { current: undefined };
     } catch {
       return { current: undefined };
     }
@@ -81,17 +95,11 @@ export function apply(ctx: ClientCtx): void {
     document.addEventListener("visibilitychange", schedulePoll);
   }
 
-  // settingsScope（rc.1 仍在）：配置双后端接线；不在场时纯 localStorage（v1.3.0 语义）
-  const settingsScope = ctx.get("settingsScope") as
-    | { bind(spec: { namespace: string }): import("./config").SettingsScopeLike }
-    | undefined;
-  if (settingsScope !== undefined) {
-    try {
-      const scope = settingsScope.bind({ namespace: "foxbell-pet" });
-      if (typeof ctx.effect === "function") ctx.effect(() => appStore.attachSettings(scope));
-      else appStore.attachSettings(scope);
-    } catch { /* 绑定失败：降级 localStorage */ }
-  }
+  // 配置后端：settingsScope 服务（0.1）已删除 → HTTP RPC 适配器（0.1/0.2 线缆形状
+  // 一致，ns 自动发现；绑定失败或宿主无 settings 时降级 localStorage）。
+  const scope = createHttpSettingsScope();
+  if (typeof ctx.effect === "function") ctx.effect(() => appStore.attachSettings(scope));
+  else appStore.attachSettings(scope);
 
   const useSessions = makeUseSessions(ctx);
   slots.inject("shell.overlay", () =>
@@ -106,14 +114,14 @@ export function apply(ctx: ClientCtx): void {
       (props) => React.createElement(PetToggle, props as { wide?: boolean }),
     ),
   );
-  // settings.plugin.item 是按 key（settings 命名空间）派发的卡片槽，
-  // key 必须与宿主 installSection 的 ns 一致（'foxbell-pet'）
+  // 0.1：settings.plugin.item 按 key（settings 命名空间）派发的卡片槽（未声明则不运行）
   slots.inject("settings.plugin.item", () =>
     slots.register(
       { name: "settings.plugin.item", key: "foxbell-pet" },
       () => React.createElement(SettingsCard),
     ),
   );
+
 
   // ---- v2.2 R6（Task 13）：L3 大看板注册 + 钻取开关闸 + 侧栏入口门控 ----
   // layout 是可选注入（旧宿主可能无此服务；cordis 对未在 inject 声明的服务做 ctx.get/属性访问，
@@ -139,6 +147,15 @@ export function apply(ctx: ClientCtx): void {
 
   // v2.2.1：sidebar.panellist 侧栏入口开关已移除——入口已有右键菜单 + 黑板链，
   // 且 rc.2 实测侧栏图标不投影（上游子槽生命周期），固定不注册侧栏图标。
+
+  // 0.2：settings.section 整节注册（与 @deepseek-ai/dsh-client-ui-agent-preset 同款；
+  // label 走本地 i18n thunk，renderSlot 只回调 thunk，无需 locale 命名空间）
+  slots.inject("settings.section", () =>
+    slots.register(
+      { name: "settings.section", id: "foxbell-pet", order: 30, label: () => t("settings.cardTitle") },
+      () => React.createElement(SettingsCard),
+    ),
+  );
 }
 
 // 模块级服务 inject：仅硬依赖 slots；timer/sessions/settingsScope 全部防御式 ctx.get

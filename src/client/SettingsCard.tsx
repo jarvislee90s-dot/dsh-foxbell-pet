@@ -1,4 +1,5 @@
-// SettingsCard.tsx — 设置卡（settings.plugin.item，key='foxbell-pet'）。
+// SettingsCard.tsx — 设置卡（v2.1 起双槽位复用：0.2 的 settings.section 整节主体 +
+// 0.1 的 settings.plugin.item 卡片槽，key='foxbell-pet'）。
 // 结构对齐官方 PluginCard：header 按钮 + chevron，默认折叠（useState(false)），
 // 展开区才渲染控件；双分区「配置」+「宠物管理」。
 // v2.1 草稿化（v1.4.0 SettingsCard 移植，源锚点 git show 886b303:src/client.js L1130-1235）：
@@ -96,7 +97,7 @@ export function SettingsCard(): React.ReactElement {
   const title = t("settings.cardTitle");
 
   return (
-    <li className={"dyn-pet-card" + (open ? " open" : "")}>
+    <div className={"dyn-pet-card" + (open ? " open" : "")}>
       <button
         type="button"
         className="dyn-pet-card-header"
@@ -230,6 +231,6 @@ export function SettingsCard(): React.ReactElement {
           </div>
         </div>
       ) : null}
-    </li>
+    </div>
   );
 }

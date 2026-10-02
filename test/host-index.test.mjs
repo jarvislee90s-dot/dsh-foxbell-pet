@@ -6,7 +6,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { Readable } from "node:stream";
-import { apply, Config, __testables } from "../src/host/index.js";
+import { apply, Config, ConfigSchema, CONFIG_DEFAULTS, __testables } from "../src/host/index.js";
 import { ROUTE_PREFIX } from "../src/host/routes.js";
 
 // ---- 假 cordis ctx + webServer（mock 注册表 + 直调 handler，routes.test.mjs 同款）----
@@ -65,8 +65,14 @@ beforeAll(() => {
 
 // ---- 12 项 Config 默认值（键名逐字契约：typo 会静默破坏客户端持久化）----
 describe("Config 12 字段（v2.1 效率看板）", () => {
+  it("导出面契约：Config 为 volatile 表单描述符（0.2 entry-config），ConfigSchema 为可解析功能 schema", () => {
+    expect(Config.meta.volatile).toBe(true);
+    expect(Config.type).toBe("object");
+    expect(ConfigSchema.meta.volatile).toBeUndefined();
+    expect(CONFIG_DEFAULTS.paceEnabled).toBe(true);
+  });
   it("键名与默认值逐字对齐计划契约", () => {
-    const resolved = Config({});
+    const resolved = ConfigSchema({});
     expect(resolved.paceEnabled).toBe(true);
     expect(resolved.paceIntenseEvents).toBe(12);
     expect(resolved.paceLongrunMin).toBe(3);
@@ -81,7 +87,7 @@ describe("Config 12 字段（v2.1 效率看板）", () => {
     expect(resolved.ttsEnabled).toBe(false);
   });
   it("旧配置无看板字段 → schema default 自动补齐，既有键不受影响", () => {
-    const resolved = Config({ muted: true, scale: 0.75 });
+    const resolved = ConfigSchema({ muted: true, scale: 0.75 });
     expect(resolved.muted).toBe(true);
     expect(resolved.scale).toBe(0.75);
     expect(resolved.paceEnabled).toBe(true);
@@ -144,12 +150,12 @@ describe("readConfig 接线（引擎消费 live 配置）", () => {
 // v2.2.1：exportQuote 移除（自定义评语内联看板头部，localStorage 草稿）----
 describe("Config v2.2 新增键（键名与默认值契约）", () => {
   it("dashboardSidebarEntry/exportPose 默认值", () => {
-    const resolved = Config({});
+    const resolved = ConfigSchema({});
     expect(resolved.dashboardSidebarEntry).toBe(false);
     expect(resolved.exportPose).toBe("random");
   });
   it("旧配置无新键 → schema default 自动补齐，既有键不受影响", () => {
-    const resolved = Config({ muted: true, ttsEnabled: true });
+    const resolved = ConfigSchema({ muted: true, ttsEnabled: true });
     expect(resolved.dashboardSidebarEntry).toBe(false);
     expect(resolved.exportPose).toBe("random");
     expect(resolved.muted).toBe(true);

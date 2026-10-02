@@ -2,6 +2,54 @@
 
 本文件记录本项目的所有重要变更。
 
+## [2.3.0] - 2026-10-03
+
+### 兼容性（适配 dsh 0.2.0-rc.2 运行时；向下兼容 0.1.2-rc.1）
+
+- **C1（设置 host 半，entry-config 模型）**：dsh-settings 0.2 删除了 `installSection`/`register`，
+  设置表单改为由插件自身导出的 `Config`（volatile 根）派生，`describe()` 按 Loader entry id
+  （本包 `cordis.patch.yml` 的 insert id `dsh-foxbell-pet`）寻址。宿主侧改为双模型兼容层
+  （参考 @hytime/dsh-thinking-effort@0.3.7 已验证结构）：检测到 `installSection` 走 0.1
+  命名空间注册；检测到 `describe` 走 0.2 entry-config——配置值从 `settings.describe()` 投影，
+  以 `settings/document-updated` 事件失效缓存（写路径不变：客户端 RPC 直达宿主 settings 服务）。
+  schema 拆为双导出：`Config = ConfigSchema.volatile()` 是 0.2 表单描述符（describe 只列出含
+  volatile 字段的 entry，update 拒绝非 volatile 路径写入）；`ConfigSchema` 保留可调用的
+  默认值解析/校验（apply 入口与 0.1 installSection 注册用）。实测注意：schemastery 的
+  `.volatile()` 是 refs 化重包，直接调用/`~standard.validate` 会**丢弃值**（loader 对 volatile
+  entry 走 raw 通道 `fiber._config`，不靠 schema 解析）——默认值由 `CONFIG_DEFAULTS` 代码兜底，
+  `readConfig()` 以 entry 默认值垫底合并 describe 投影（@hytime 同款运作方式，已实证）。
+- **C2（依赖结构，根因修复）**：`@deepseek-ai/dsh-settings` 从 `dependencies` 移至
+  `devDependencies`（钉 `0.2.0-rc.2`，仅供类型/测试对齐新 API）。此前插件带入的
+  dsh-settings@0.1.2-rc.1 会被 profile（`nodeLinker: hoisted`）平铺进 profile node_modules，
+  遮蔽运行时内置的 settings 插件行，cordis 加载器按其 peerDependencies
+  （`^0.1.2-rc.1`）判定与 dsh 0.2.0-rc.2 不兼容并禁用该行 → settings 服务缺失 →
+  桌面端欢迎流程 `settings/describe` RPC 失败、主进程连续崩溃。settings 服务一律由
+  宿主运行时提供，插件不再自带副本（与官方样例插件同构）。
+- 新增 `peerDependencies`（`@deepseek-ai/cordis ^4.0.1`、`@deepseek-ai/dsh >=0.1.2-rc.1`，
+  后者 optional）与 `engines.dsh` 声明；devDependencies 补钉 dsh-settings 0.2.0-rc.2 的
+  全套 peer（dsh-brand/dsh-session/dsh-invariants/cordis 精确版）以让 npm 严格解析可安装。
+
+### Changed — 客户端半（0.2 桌面端 UI 契约）
+
+- **设置后端**：0.1 的客户端 `settingsScope` 服务在 0.2 已删除。配置读写改为
+  `createHttpSettingsScope()` 适配器——`settings/describe` + `settings/update` HTTP RPC
+  （两端线缆形状一致，仅 ns 语义不同：0.1 = 注册命名空间 `foxbell-pet`；0.2 = entry id
+  `dsh-foxbell-pet`），ns 由 describe 动态发现（候选 id 优先、标记字段兜底），配置 store
+  的乐观更新/写后回读/冲突重试逻辑零改动；订阅侧以 8s 轮询 describe 模拟推送。
+- **设置 UI 槽位**：0.1 的 `settings.plugin.item` 卡片槽在 0.2 已删除，改为
+  `settings.section` 整节注册（设置页导航出现「Foxbell 桌宠」一节）；旧槽位注册保留
+  （槽位未声明时 inject 工厂不运行），双运行时都能出 UI。
+- **会话服务**：客户端 `sessions.list` 快照形状双兼容——0.1 `{current}` /
+  0.2 `{ids, byId}`（当前会话 = `retainedBy.mainView > 0`，与官方 ui-layout 同口径）。
+
+### Fixed
+
+- dsh 0.2.0-rc.2 桌面端安装本插件后无法启动（C2 根因）；0.2 下设置卡不出现、
+  配置写不进 settings（C1/客户端适配）。
+- 测试套件在 Windows（无 symlink 特权）环境下的 5 个环境性失败改为能力探测跳过
+  （防御逻辑断言不变）；bundle-smoke 补 `react-dom` external 桩（DialogHost 的
+  createPortal 属合法平台种子依赖）。
+
 ## [2.2.2] - 2026-09-15
 
 ### Fixed
@@ -73,7 +121,7 @@
 
 ### 兼容性
 - 宿主基线不变：**dsh ≥ 0.1.2-rc.1**；协议面（事件订阅/路由族/settings 服务）已在 **dsh 0.1.5-rc.2** 上逐项自检兼容，无破坏面
-- 旧 API 零残留守卫延续：`dashboard.js` 为 v1.4.0 原样移植的双兼容事件读取器（`session.snapshotEvents()` 优先），validate 对该精确表达式定向豁免，其余 `session.events` 用法依旧零容忍
+- 旧 API 零残留守卫延续：`dashboard.js` 为 v1.4.0 原样移植的双兼容事件读取器（`session.snapshotEvents()` 优先），validate 对该精确表达式定向豁免，其余 `session.events` 用法依旧零容忍(feat!: adapt to dsh 0.2.0-rc.2 runtime (settings entry-config model) — v2.1.0)
 
 ## [2.0.0] - 2026-09-07
 

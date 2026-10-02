@@ -453,7 +453,18 @@ describe("store-info", () => {
 
 // ---- R2 自审补强：symlink 不逃逸（按 id 寻址不出商店根）----
 describe("symlink 不逃逸（R2 安全自查）", () => {
-  it("pets/<id> 为符号链接目录：manifest/sheet 路由 404，不入清单，激活/scan 拒绝", async () => {
+  // Windows 非开发者模式/管理员无法创建 symlink：探测一次，无权限则跳过
+  // （防御逻辑本身不变；staging.test 既有 try/catch 同款平台口径）。
+  const canSymlink = (() => {
+    try {
+      const d = fs.mkdtempSync(path.join(os.tmpdir(), "foxbell-slink-probe-"));
+      fs.symlinkSync(d, `${d}-link`, "dir");
+      fs.rmSync(`${d}-link`);
+      fs.rmSync(d, { recursive: true, force: true });
+      return true;
+    } catch { return false; }
+  })();
+  it.skipIf(!canSymlink)("pets/<id> 为符号链接目录：manifest/sheet 路由 404，不入清单，激活/scan 拒绝", async () => {
     const outside = fs.mkdtempSync(path.join(os.tmpdir(), "foxbell-outside-"));
     fs.writeFileSync(path.join(outside, "spritesheet.webp"), "OUTSIDE-SECRET");
     fs.writeFileSync(path.join(outside, "manifest.json"), JSON.stringify({
@@ -477,7 +488,7 @@ describe("symlink 不逃逸（R2 安全自查）", () => {
     expect(scan.status).toBe(404);
     expect(scan.body.code).toBe("pet-not-found");
   });
-  it("真实宠物目录内符号链接语音文件：sendFile lstat 拒绝跟随；真实文件不受影响", async () => {
+  it.skipIf(!canSymlink)("真实宠物目录内符号链接语音文件：sendFile lstat 拒绝跟随；真实文件不受影响", async () => {
     const dir = path.join(env.petsRoot, "realpet");
     fs.mkdirSync(path.join(dir, "voice/general"), { recursive: true });
     fs.writeFileSync(path.join(dir, "spritesheet.webp"), "real-sheet");
