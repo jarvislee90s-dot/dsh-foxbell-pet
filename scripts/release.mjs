@@ -18,7 +18,9 @@ const DRY = process.argv.includes('--dry-run')
 const version = process.argv.slice(2).find((a) => !a.startsWith('--'))
 
 const git = (...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim()
-const run = (cmd, args) => execFileSync(cmd, args, { cwd: root, stdio: 'inherit' })
+// Windows：npm 是 npm.cmd，spawnSync 不经 shell 解析会 ENOENT —— 统一带 shell 解析
+// （args 均为本脚本内的固定字面量，无注入面）。
+const run = (cmd, args) => execFileSync(cmd, args, { cwd: root, stdio: 'inherit', shell: process.platform === 'win32' })
 const die = (msg) => { console.error(`\n✗ ${msg}`); process.exit(1) }
 const step = (msg) => console.log(`\n== ${msg}`)
 
