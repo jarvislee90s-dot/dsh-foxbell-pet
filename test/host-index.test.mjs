@@ -179,8 +179,13 @@ describe("listPetsCached mtime 指纹缓存", () => {
   it("root mtime 变化后重扫：返回新引用且内容反映新目录", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "foxbell-p2-"));
     try {
+      // mtime 粒度不确定性（Windows 目录 mtime 更新可迟滞/同 tick）用 utimesSync 显式
+      // 设置两个可区分 mtime 消除——与下方「清单编辑即时失效」用例同款确定性手法。
+      const base = 1_700_000_000_000;
+      fs.utimesSync(dir, new Date(base), new Date(base));
       const a = __testables.listPetsCached(dir);
       fs.mkdirSync(path.join(dir, "pet-a"));
+      fs.utimesSync(dir, new Date(base + 10_000), new Date(base + 10_000));
       const b = __testables.listPetsCached(dir);
       expect(b).not.toBe(a); // 目录 mtime 已变 → 必须重扫
       expect(b.map((p) => p.id)).toContain("pet-a");
