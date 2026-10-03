@@ -1,7 +1,7 @@
 // index.js 接线集成测试：真实 apply()（假 ctx/webServer，helper 与 routes.test.mjs 同款）
 // 驱动 GET /state，断言 v2.1 效率看板 dashboard 下发与 12 项 Config 默认值（键名逐字契约）。
 // DSH_HOME 重定向到临时目录（paths.js 尊重该变量），测试不触碰真实 ~/.dsh。
-import { describe, expect, it, beforeAll } from "vitest";
+import { describe, expect, it, beforeAll, vi } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -151,20 +151,21 @@ function makeSettingsMock() {
   return { settings, state, emit, listeners };
 }
 
-async function mount0x2(describeValue, opts = {}) {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), "foxbell-02-"));
+/** 通用挂载：inject 回调收到给定形状的 settings 服务（0.2 mock / 0.1 / neither / 缺席） */
+async function mountWithSettings(settings, opts = {}) {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "foxbell-svc-"));
   process.env.DSH_HOME = home;
-  const mock = opts.mock ?? makeSettingsMock();
-  mock.state.stored = { ...describeValue };
-  mock.state.ns = opts.entryId ?? mock.state.ns;
   const made = makeCtx();
   made.ctx.inject = (deps, cb) => {
     if (!Array.isArray(deps) || !deps.includes("settings")) return;
     cb({
-      settings: mock.settings,
+      settings,
       effect: (fn) => { const d = fn(); return () => { if (typeof d === "function") d(); }; },
       on: (name, cb2) => {
-        if (name === "settings/document-updated") { mock.listeners.add(cb2); return () => mock.listeners.delete(cb2); }
+        if (name === "settings/document-updated" && typeof opts.onEvent === "function") {
+          const off = opts.onEvent(cb2);
+          return typeof off === "function" ? off : () => {};
+        }
         return () => {};
       },
     });
@@ -174,6 +175,20 @@ async function mount0x2(describeValue, opts = {}) {
   return {
     home,
     dispatch: (p) => made.dispatch("GET", `${ROUTE_PREFIX}${p}`),
+  };
+}
+
+async function mount0x2(describeValue, opts = {}) {
+  const mock = opts.mock ?? makeSettingsMock();
+  mock.state.stored = { ...describeValue };
+  mock.state.ns = opts.entryId ?? mock.state.ns;
+  const h = await mountWithSettings(mock.settings, {
+    fiberEntryId: opts.fiberEntryId,
+    applyConfig: opts.applyConfig,
+    onEvent: (cb2) => { mock.listeners.add(cb2); return () => mock.listeners.delete(cb2); },
+  });
+  return {
+    ...h,
     mock,
     write: (patch) => { mock.state.stored = { ...mock.state.stored, ...patch }; mock.emit(mock.state.ns); },
   };
@@ -214,6 +229,51 @@ describe("settings 0.2 entry-config 接线（describe 投影 + 失效缓存）",
     expect(r.body.dashboard.pace).not.toBe(null); // 回落 entry 默认 paceEnabled=true
     // 抛错不缓存失败值：下一轮重新 describe → 恢复投影值
     expect((await h.dispatch("/state")).body.dashboard.pace).toBe(null);
+  });
+});
+
+// ---- 设置服务形状分支补全覆盖（0.2 describe 形状见上一组；此处钉住守卫链其余分支，
+// 防止未来重构静默弄丢 0.1 兼容或改变降级契约）----
+describe("settings 接线形状分支（0.1 installSection / neither / 回调内缺席）", () => {
+  it("0.1 installSection 形状：按 FOXBELL_PET_NS 注册 ConfigSchema，setSource 的 scope 值进入 /state", async () => {
+    const calls = [];
+    const h = await mountWithSettings({
+      installSection: (ctx, ns, schema, entry, hooks) => {
+        calls.push({ ns, isSchema: schema === ConfigSchema });
+        hooks.setSource(() => ({ paceEnabled: false })); // 模拟 0.1 宿主提供 scope getter
+      },
+    });
+    // 注册的是可调用的 ConfigSchema（默认值解析用），而非 volatile 表单描述符 Config
+    expect(calls).toEqual([{ ns: "foxbell-pet", isSchema: true }]);
+    const r = await h.dispatch("/state");
+    expect(r.status).toBe(200);
+    expect(r.body.dashboard.pace).toBe(null); // 0.1 scope 值生效（apply 传 {}，默认本为 true）
+  });
+
+  it("在场但既无 installSection 也无 describe → 告警一次并保持 entry 回退", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const h = await mountWithSettings({ somethingElse: true });
+      const r = await h.dispatch("/state");
+      expect(r.status).toBe(200);
+      expect(r.body.dashboard.pace).not.toBe(null); // entry 默认 paceEnabled=true
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(String(warnSpy.mock.calls[0][0])).toContain("neither installSection nor describe");
+    } finally { warnSpy.mockRestore(); }
+  });
+
+  it("inject 回调内服务缺席（undefined/null，不可达防御路径）→ 静默保持 entry 回退，不告警", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      for (const absent of [undefined, null]) {
+        warnSpy.mockClear();
+        const h = await mountWithSettings(absent);
+        const r = await h.dispatch("/state");
+        expect(r.status).toBe(200);
+        expect(r.body.dashboard.pace).not.toBe(null); // entry 默认值兜底
+        expect(warnSpy).not.toHaveBeenCalled();
+      }
+    } finally { warnSpy.mockRestore(); }
   });
 });
 

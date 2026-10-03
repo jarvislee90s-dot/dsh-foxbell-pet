@@ -193,7 +193,8 @@ export async function apply(ctx, config) {
       const rowId = (fiber && typeof fiber === 'object' && fiber.entry && typeof fiber.entry === 'object'
         && fiber.entry.options && typeof fiber.entry.options === 'object') ? fiber.entry.options.id : undefined
       const entryId = typeof rowId === 'string' && rowId.length > 0 ? rowId : ENTRY_ID
-      // describe 投影读取（纯函数）：非对象视图/行缺失/非对象 value/describe 抛错 → null
+      // describe 投影读取（纯函数）：describe 返回值非数组 / 本 entry 行缺失 /
+      // 行 value 非对象（含 null）/ describe 抛错 → 一律 null（失败不缓存，见下）
       const readEntryValue = () => {
         try {
           const descriptors = settings.describe()
