@@ -170,7 +170,8 @@ export async function apply(ctx, config) {
   try {
     ctx.inject(['settings'], (sctx) => {
       const settings = sctx.settings
-      if (settings !== undefined && typeof settings.installSection === 'function') {
+      if (settings === undefined || settings === null) return // 服务形状异常：保持 entry 回退
+      if (typeof settings.installSection === 'function') {
         // dsh-settings 0.1.x（namespace 模型）：注册私有命名空间 FOXBELL_PET_NS。
         // hooks 形状 {setSource,onChange,validate?}；setSource 收到 thunk：settings 在场
         // = resolved scope getter；不在场 = entry 回退。
@@ -180,42 +181,44 @@ export async function apply(ctx, config) {
         })
         return
       }
-      if (settings !== undefined && typeof settings.describe === 'function') {
-        // dsh-settings 0.2.x（entry-config 模型）：无注册 API；本插件 entry 自身的
-        // volatile Config 即表单，describe() 按 entry id 返回投影值。读值走 describe
-        // 并以 settings/document-updated 事件失效缓存（写路径 settings.update 由
-        // 客户端 RPC 直达宿主 settings 服务，宿主只读）。
-        const fiber = (ctx && typeof ctx === 'object') ? ctx.fiber : null
-        const rowId = (fiber && typeof fiber === 'object' && fiber.entry && typeof fiber.entry === 'object'
-          && fiber.entry.options && typeof fiber.entry.options === 'object') ? fiber.entry.options.id : undefined
-        const entryId = typeof rowId === 'string' && rowId.length > 0 ? rowId : ENTRY_ID
-        let cachedValue = undefined // undefined = 缓存失效；null = 本轮读取失败（不缓存）
-        configSource = () => {
-          if (cachedValue === undefined) {
-            let value = null
-            try {
-              const descriptors = settings.describe()
-              if (Array.isArray(descriptors)) {
-                const d = descriptors.find((x) => x && typeof x === 'object' && x.ns === entryId)
-                if (d && d.value && typeof d.value === 'object') value = d.value
-              }
-            } catch { /* describe 抛错：本轮回落 entry */ }
-            if (value !== null) cachedValue = value
-            return value
-          }
-          return cachedValue
-        }
-        // /state?pet= 提示的契约就是「settings 在场即忽略」：接线即视为 settings 接管，
-        // 即便 entry 尚未被 describe 列出（此时 readConfig 回落 entry 默认值，属启动瞬态）
-        settingsAttached = true
-        sctx.effect(() => sctx.on('settings/document-updated', (ns) => {
-          if (ns === entryId) cachedValue = undefined
-        }))
-        // settings 服务卸载/重挂：scope 回落 entry，等待下一次 inject 重接线
-        sctx.effect(() => () => { configSource = () => entry; settingsAttached = false; cachedValue = undefined })
+      if (typeof settings.describe !== 'function') {
+        console.warn('[foxbell-pet] settings service present but exposes neither installSection nor describe')
         return
       }
-      console.warn('[foxbell-pet] settings service present but exposes neither installSection nor describe')
+      // dsh-settings 0.2.x（entry-config 模型）：无注册 API；本插件 entry 自身的
+      // volatile Config 即表单，describe() 按 entry id 返回投影值。读值走 describe
+      // 并以 settings/document-updated 事件失效缓存（写路径 settings.update 由
+      // 客户端 RPC 直达宿主 settings 服务，宿主只读）。
+      const fiber = (ctx && typeof ctx === 'object') ? ctx.fiber : null
+      const rowId = (fiber && typeof fiber === 'object' && fiber.entry && typeof fiber.entry === 'object'
+        && fiber.entry.options && typeof fiber.entry.options === 'object') ? fiber.entry.options.id : undefined
+      const entryId = typeof rowId === 'string' && rowId.length > 0 ? rowId : ENTRY_ID
+      // describe 投影读取（纯函数）：非对象视图/行缺失/非对象 value/describe 抛错 → null
+      const readEntryValue = () => {
+        try {
+          const descriptors = settings.describe()
+          if (!Array.isArray(descriptors)) return null
+          const d = descriptors.find((x) => x && typeof x === 'object' && x.ns === entryId)
+          return d && d.value && typeof d.value === 'object' ? d.value : null
+        } catch { return null }
+      }
+      let cachedValue = undefined // undefined = 缓存失效；命中后存投影值（读取失败不缓存，下轮重试）
+      configSource = () => {
+        if (cachedValue === undefined) {
+          const value = readEntryValue()
+          if (value !== null) cachedValue = value
+          return value
+        }
+        return cachedValue
+      }
+      // /state?pet= 提示的契约就是「settings 在场即忽略」：接线即视为 settings 接管，
+      // 即便 entry 尚未被 describe 列出（此时 readConfig 回落 entry 默认值，属启动瞬态）
+      settingsAttached = true
+      sctx.effect(() => sctx.on('settings/document-updated', (ns) => {
+        if (ns === entryId) cachedValue = undefined
+      }))
+      // settings 服务卸载/重挂：scope 回落 entry，等待下一次 inject 重接线
+      sctx.effect(() => () => { configSource = () => entry; settingsAttached = false; cachedValue = undefined })
     })
   } catch (err) {
     console.warn('[foxbell-pet] settings wiring unavailable:', String(err && err.message || err))

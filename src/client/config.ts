@@ -226,6 +226,26 @@ function ensureNs(): Promise<string | null> {
     .catch(() => null);
 }
 
+/** 在 describe 视图里定位本插件配置行（ns 未知或行缺失 → null）。
+ *  形状非法的视图（namespaces 非数组/含 null 项）一律按「行缺失」处理而非抛错
+ *  ——比旧的内联版本更宽容，RPC 契约下不可达，属防御性口径统一。 */
+function rowOf(view: SettingsDescribeView | null, ns: string | null): SettingsNamespaceRow | null {
+  if (ns === null || !Array.isArray(view?.namespaces)) return null;
+  return (view as SettingsDescribeView).namespaces!.find((n) => n?.ns === ns) ?? null;
+}
+
+/** 写一个字段：先发现 ns（0.1 = 注册命名空间 / 0.2 = entry id），再 settings/update。
+ *  无 ns（宿主未加载本插件）或服务端拒绝 → reject，调用方各自走降级分支；
+ *  它同时是 scope.set 死引用（fiber dispose 后静默 resolve）时的直写兜底通道。 */
+function writeSetting(field: string, value: unknown): Promise<void> {
+  return ensureNs().then((ns) => {
+    if (ns === null) throw new Error("foxbell-pet settings namespace not found");
+    return settingsRpc<RpcEnvelope<unknown>>("settings/update", { ns, patch: { [field]: value } }).then((j) => {
+      if (j?.result && j.result.ok === false) throw new Error("settings update rejected");
+    });
+  });
+}
+
 export interface ConfigStore {
   getSnapshot(): PetConfig;
   subscribe(fn: () => void): () => void;
@@ -245,29 +265,14 @@ export function createConfigStore(): ConfigStore {
   const SCOPE_SILENT_MAX = 2;
 
   /**
-   * HTTP 直写（settings/update RPC；0.1 = 命名空间，0.2 = entry id，ns 由 ensureNs 发现）。
-   * scope 的 fiber 被 dispose（模块热重载/面板重挂）后 scope.set 可能静默 resolve、
-   * 永不发网络请求；此时用这条直写通道兜底，保证切换仍生效。
-   */
-  const httpWrite = (k: string, v: unknown): Promise<void> =>
-    ensureNs().then((ns) => {
-      if (ns === null) throw new Error("foxbell-pet settings namespace not found");
-      return settingsRpc<RpcEnvelope<unknown>>("settings/update", { ns, patch: { [k]: v } }).then((j) => {
-        if (j?.result && j.result.ok === false) throw new Error("settings update rejected");
-      });
-    });
-
-  /**
    * 真实校验：HTTP describe 读 user 层当前值。scope 快照是缓存，
    * fiber 死后永不更新，不能作为收敛判据。
    */
   const readUser = (k: string): Promise<unknown | null> =>
     ensureNs().then((ns) =>
       settingsRpc<RpcEnvelope<SettingsDescribeView>>("settings/describe", {}).then((j) => {
-        const view = describeViewOf(j);
-        const row = ns === null ? null : (view?.namespaces ?? []).find((n: SettingsNamespaceRow) => n.ns === ns);
-        const user = row?.user && typeof row.user === "object" ? row.user : null;
-        return user && k in user ? user[k] : null;
+        const user = rowOf(describeViewOf(j), ns)?.user;
+        return user && typeof user === "object" && k in user ? user[k] : null;
       }),
     );
 
@@ -280,7 +285,7 @@ export function createConfigStore(): ConfigStore {
       if (actual === v) { scopeSilent = 0; delete pending[k]; emit(); return; }
       // 真实 user 层不是我们的值 → 写被吞/scope 死：直接 HTTP 直写兜底（最多 3 轮）
       if (tries <= 0) { delete pending[k]; emit(); return; }
-      httpWrite(k, v).then(
+      writeSetting(k, v).then(
         () => verifyWrite(k, v, seq, tries - 1),
         () => { delete pending[k]; emit(); },
       );
@@ -341,7 +346,7 @@ export function createConfigStore(): ConfigStore {
         // 探测到后跳过 scope 直接 HTTP 直写；scope 健在则仍走 scope（享受 revision 栅栏）。
         // 超时保护：scope.set 的 promise 可能因队列卡死/通道挂起永不 settle，超时后 HTTP 直写兜底。
         if (scope === null || scopeSilent >= SCOPE_SILENT_MAX) {
-          httpWrite(k, v).then(
+          writeSetting(k, v).then(
             () => { delete pending[k]; emit(); },
             () => { delete pending[k]; emit(); },
           );
@@ -357,7 +362,7 @@ export function createConfigStore(): ConfigStore {
           setTimeout(() => {
             if (settled) return;
             if (writeSeq[k] !== seq) return;
-            httpWrite(k, v).then(
+            writeSetting(k, v).then(
               () => { delete pending[k]; emit(); },
               () => { delete pending[k]; emit(); },
             );
@@ -426,9 +431,7 @@ export function createHttpSettingsScope(): SettingsScopeLike {
         .then((j) => {
           const view = describeViewOf(j);
           if (resolvedNs === null) resolvedNs = discoverNs(view);
-          let row = resolvedNs === null
-            ? null
-            : (view?.namespaces ?? []).find((n) => n.ns === resolvedNs) ?? null;
+          const row = rowOf(view, resolvedNs);
           // 行缺失且 ns 已缓存：entry 可能被改名/重装 → 清缓存让下一轮重新发现（自愈）
           if (row === null && resolvedNs !== null) resolvedNs = null;
           // 命中配置节才 ready（value = 宿主 resolved 配置投影）；未命中保持 pending，
@@ -467,14 +470,7 @@ export function createHttpSettingsScope(): SettingsScopeLike {
         if (listeners.size === 0) stopTimer();
       };
     },
-    set(field, value) {
-      return ensureNs().then((ns) => {
-        if (ns === null) throw new Error("foxbell-pet settings namespace not found");
-        return settingsRpc<RpcEnvelope<unknown>>("settings/update", { ns, patch: { [field]: value } }).then((j) => {
-          if (j?.result && j.result.ok === false) throw new Error("settings update rejected");
-        });
-      });
-    },
+    set: writeSetting,
   };
 }
 
