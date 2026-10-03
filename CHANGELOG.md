@@ -2,6 +2,18 @@
 
 本文件记录本项目的所有重要变更。
 
+## [2.3.2] - 2026-10-03
+
+### Fixed
+
+- **桌面版（dsh desktop 0.2.0-rc.2）点击「📈 用量看板」面板不显示**：settings scope
+  ready 时 `cfgStore.getSnapshot` 每次调用都返回新合并对象，违反 useSyncExternalStore
+  的引用稳定契约。DashboardPanel 是客户端唯一以 uSES 消费 cfgStore 的组件，挂载即
+  「Maximum update depth exceeded」（Minified React error #185）被槽系统以
+  "slot entry crashed in 'main'" 卸载，表现为点击菜单后看板无反应。修复：合并结果按
+  输入身份缓存（local 引用 / scope 快照引用 / pending 键集），两次调用间引用稳定。
+  已在桌面 0.2.0-rc.2 运行时隔离复现验证（面板稳定挂载、console 零错误）。
+
 ## [2.3.1] - 2026-10-03
 
 ### Fixed — 客户端加固（v2.3.0 tag 后合入）

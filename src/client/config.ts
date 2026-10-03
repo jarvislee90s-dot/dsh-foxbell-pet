@@ -312,11 +312,21 @@ export function createConfigStore(): ConfigStore {
   };
   let local: PetConfig = { ...CFG_DEFAULT, ...loadLocal() };
   const emit = () => { for (const fn of [...listeners]) fn(); };
+  let resolveCache: { local: PetConfig; sv: unknown; pendingKeys: string; value: PetConfig } | null = null;
 
   const resolve = (): PetConfig => {
     if (scope === null) return local;
     const sv = scope.getSnapshot();
     if (!sv || sv.status !== "ready" || !sv.value || typeof sv.value !== "object") return local;
+    // useSyncExternalStore 契约（DashboardPanel 消费方）：两次调用间引用必须稳定，否则
+    // React 判定「渲染期间 store 变化」无限重渲染（Minified React error #185，实测于
+    // dsh 桌面版 0.2.0-rc.2：settings 在场 → scope ready → 每次调用新对象 → 看板挂载即崩）。
+    // 缓存键 = 输入身份：local 每次写整体替换；sv 是适配器的缓存快照（引用稳定）；
+    // pending 原地变异故以键集代身份（pending 值变化必伴随 local 替换或键集变化，
+    // 见 set/verifyWrite/attachScope seed 三处写点）。
+    const pendingKeys = Object.keys(pending).join("\u0000");
+    if (resolveCache && resolveCache.local === local && resolveCache.sv === sv
+      && resolveCache.pendingKeys === pendingKeys) return resolveCache.value;
     // 只取 CFG_DEFAULT 的键（scope 里可能残留已移除字段，不并入）
     const merged: PetConfig = { ...CFG_DEFAULT, ...local };
     (merged.usageEnabled as unknown) = true; // v2.2.1 恒开：遗留 yaml false 不再生效（悬浮窗内容完整性）
@@ -324,6 +334,7 @@ export function createConfigStore(): ConfigStore {
       if (pending[k] !== undefined) (merged[k] as unknown) = pending[k];
       else if (sv.value[k] !== undefined) (merged[k] as unknown) = sanitizeValue(k, sv.value[k]);
     }
+    resolveCache = { local, sv, pendingKeys, value: merged };
     return merged;
   };
 
