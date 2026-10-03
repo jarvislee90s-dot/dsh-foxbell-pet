@@ -134,6 +134,89 @@ describe("GET /state 下发 dashboard（默认配置，无会话）", () => {
   });
 });
 
+// ---- v2.3 / dsh 0.2：entry-config 设置接线（describe 投影 + document-updated 失效）----
+// mock 一个 0.2 形状的 settings 服务（有 describe、无 installSection），验证：
+// entry id 解析（ctx.fiber → ENTRY_ID 兜底）、live 值经 describe 投影进入 /state、
+// 本 ns 的 settings/document-updated 失效缓存而他 ns 不失效、describe 抛错回落 entry 默认值。
+function makeSettingsMock() {
+  const listeners = new Set();
+  const state = { stored: {}, ns: "dsh-foxbell-pet", throwOnce: 0 };
+  const settings = {
+    describe: () => {
+      if (state.throwOnce > 0) { state.throwOnce -= 1; throw new Error("describe transient failure"); }
+      return [{ ns: state.ns, value: { ...state.stored } }];
+    },
+  };
+  const emit = (ns) => { for (const l of [...listeners]) l(ns, 1); };
+  return { settings, state, emit, listeners };
+}
+
+async function mount0x2(describeValue, opts = {}) {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "foxbell-02-"));
+  process.env.DSH_HOME = home;
+  const mock = opts.mock ?? makeSettingsMock();
+  mock.state.stored = { ...describeValue };
+  mock.state.ns = opts.entryId ?? mock.state.ns;
+  const made = makeCtx();
+  made.ctx.inject = (deps, cb) => {
+    if (!Array.isArray(deps) || !deps.includes("settings")) return;
+    cb({
+      settings: mock.settings,
+      effect: (fn) => { const d = fn(); return () => { if (typeof d === "function") d(); }; },
+      on: (name, cb2) => {
+        if (name === "settings/document-updated") { mock.listeners.add(cb2); return () => mock.listeners.delete(cb2); }
+        return () => {};
+      },
+    });
+  };
+  if (opts.fiberEntryId !== undefined) made.ctx.fiber = { entry: { options: { id: opts.fiberEntryId } } };
+  await apply(made.ctx, opts.applyConfig ?? {});
+  return {
+    home,
+    dispatch: (p) => made.dispatch("GET", `${ROUTE_PREFIX}${p}`),
+    mock,
+    write: (patch) => { mock.state.stored = { ...mock.state.stored, ...patch }; mock.emit(mock.state.ns); },
+  };
+}
+
+describe("settings 0.2 entry-config 接线（describe 投影 + 失效缓存）", () => {
+  it("live 配置来自 describe 投影（默认路径下按 ENTRY_ID 寻址，ctx.fiber 缺席）", async () => {
+    const { dispatch } = await mount0x2({ paceEnabled: false });
+    const r = await dispatch("/state");
+    expect(r.status).toBe(200);
+    expect(r.body.dashboard.pace).toBe(null); // describe 值生效（apply 传 {}，默认本为 true）
+  });
+  it("ctx.fiber.entry.options.id 优先于 ENTRY_ID 兜底（自定义行 id）", async () => {
+    const { dispatch } = await mount0x2({ paceEnabled: false }, { entryId: "renamed-row", fiberEntryId: "renamed-row" });
+    const r = await dispatch("/state");
+    expect(r.body.dashboard.pace).toBe(null);
+  });
+  it("本 ns 的 settings/document-updated 失效缓存；他 ns 不失效", async () => {
+    const h = await mount0x2({ paceEnabled: false });
+    expect((await h.dispatch("/state")).body.dashboard.pace).toBe(null);
+    // 他 ns 事件：缓存不失效 → 仍旧旧值
+    h.mock.emit("some-other-plugin");
+    expect((await h.dispatch("/state")).body.dashboard.pace).toBe(null);
+    // 本 ns 写入 → 失效 → 新值生效（paceEnabled=true → idle 档非 null）
+    h.write({ paceEnabled: true });
+    const r2 = await h.dispatch("/state");
+    expect(r2.body.dashboard.pace).not.toBe(null);
+    expect(r2.body.dashboard.pace.tier).toBe("idle");
+  });
+  it("缓存失效后 describe 瞬时抛错 → 回落 entry 默认值，且失败值不缓存", async () => {
+    const mock = makeSettingsMock();
+    const h = await mount0x2({ paceEnabled: false }, { mock });
+    expect((await h.dispatch("/state")).body.dashboard.pace).toBe(null); // 首轮缓存 describe 值
+    mock.state.throwOnce = 1;
+    h.mock.emit(mock.state.ns); // 本 ns 失效 → 下一轮重读 describe（此轮抛错）
+    const r = await h.dispatch("/state");
+    expect(r.status).toBe(200);
+    expect(r.body.dashboard.pace).not.toBe(null); // 回落 entry 默认 paceEnabled=true
+    // 抛错不缓存失败值：下一轮重新 describe → 恢复投影值
+    expect((await h.dispatch("/state")).body.dashboard.pace).toBe(null);
+  });
+});
+
 describe("readConfig 接线（引擎消费 live 配置）", () => {
   it("paceEnabled: false 透传引擎 → dashboard.pace 为 null（关闭语义）", async () => {
     const { dispatch } = await mount({ paceEnabled: false });

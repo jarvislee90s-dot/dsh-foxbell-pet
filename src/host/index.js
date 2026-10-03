@@ -46,10 +46,15 @@ const Action = z.union(ACTION_IDS)
 //     直接调用/~standard.validate 均正常解析默认值）。
 //   Config —— 0.2 entry-config 表单描述符 = ConfigSchema.volatile()：dsh-settings 0.2 的
 //     describe() 只列出含 volatile 字段的 entry（volatileForm），update() 拒绝非 volatile
-//     路径写入；volatile 根让全部字段成为可热编辑表单。注意 schemastery 的 volatile 包装
-//     是 refs 化重包（extra("volatile")）——直接调用/validate 会丢弃值，这是 entry-config
-//     模型的既定行为（loader 对 volatile entry 走 raw 通道 fiber._config，不靠 schema 解析；
-//     @hytime/dsh-thinking-effort 同款，默认值全部由代码层 CONFIG_DEFAULTS 兜底）。
+//     路径写入；volatile 根让全部字段成为可热编辑表单。
+//   ⚠ 不要对 volatile Config 直接取值：schemastery 的 volatile 解析（调用/~standard.validate）
+//   返回的是 ref 单元 {get, [Symbol(cosmokit.volatile.write)]}——.get() 才是含默认值的完整
+//   解析结果；JSON.stringify(ref) 会打印 '{}'（函数不序列化），切勿据此误判「丢值」。
+//   loader 与 settings 服务沿线穿引 ref（fiber._config/_commitVolatile → describe 的
+//   plainConfig 解析），因此 describe 投影的 value 是默认值完备的；插件侧 apply 收到的
+//   config 是 ref 形状、经 ConfigSchema 归一后 entry 只剩默认值（行配置值经 describe 浮现，
+//   不进 entry thunk）——故 readConfig 以 {...entry, ...describeValue} 合并、CONFIG_DEFAULTS
+//   作无 settings 时的兜底（@hytime/dsh-thinking-effort 同款运作方式，已实证）。
 export const ConfigSchema = z.object({
   muted: z.boolean().default(false),
   talkative: z.boolean().default(true),
@@ -157,7 +162,8 @@ export async function apply(ctx, config) {
   const readConfig = () => {
     try {
       const v = configSource()
-      // entry 含全量默认值：0.2 describe 投影只含已落盘字段，缺失键以默认值垫底
+      // entry 含全量默认值（apply 收到的是 ref 形状，ConfigSchema 归一后只剩默认值）；
+      // 0.2 describe 投影本身默认值完备，此合并是双保险（0.1 scope 值同样安全覆盖）
       return v && typeof v === 'object' ? { ...entry, ...v } : entry
     } catch { return entry }
   }
@@ -199,6 +205,8 @@ export async function apply(ctx, config) {
           }
           return cachedValue
         }
+        // /state?pet= 提示的契约就是「settings 在场即忽略」：接线即视为 settings 接管，
+        // 即便 entry 尚未被 describe 列出（此时 readConfig 回落 entry 默认值，属启动瞬态）
         settingsAttached = true
         sctx.effect(() => sctx.on('settings/document-updated', (ns) => {
           if (ns === entryId) cachedValue = undefined

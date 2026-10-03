@@ -533,15 +533,19 @@ attachScope 接线、六动作键在产物、About 版本串与 package.json 一
 `settings/document-updated(ns===entryId)` 失效），服务卸载经 inject scope effect 回落 entry thunk。
 写路径无宿主代码：客户端 RPC 直达宿主 settings 服务（见 C3）。
 
-**schema 双导出（实测修正）**：schemastery 的 `.volatile()` 是 `extra("volatile")` 的 refs 化
-重包——直接调用与 `~standard.validate` 都会**丢弃值**（`{muted:true}` → `{}`；@hytime 发行版与
-0.2 运行时自带 llm-pi-ai 同样如此，实测确认）。cordis loader 对 volatile entry 走 raw 通道
-（`fiber._config` 直赋），不依赖 schema 解析。因此拆为：`ConfigSchema`（功能 schema，默认值
-解析/校验，apply 入口与 0.1 installSection 注册用）+ `Config = ConfigSchema.volatile()`（0.2
-表单描述符，loader/describe 只读其 meta/dict）+ `CONFIG_DEFAULTS = ConfigSchema({})` 代码兜底；
-`readConfig()` 以 entry 默认值垫底合并 describe 投影（0.2 投影只含已落盘字段）。
-副作用（接受，@hytime 同款）：手写 cordis.patch.yml 行 config 在 0.2 下不再经 schema 解析进
-apply（配置一律走 settings UI/存储）。
+**schema 双导出（机制复核修正）**：schemastery 的 `.volatile()` 解析（调用/
+`~standard.validate`）返回的是 **ref 单元** `{get, [Symbol(cosmokit.volatile.write)]}`——`.get()`
+即含默认值的完整解析结果；`JSON.stringify(ref)` 打印 `{}` 只是函数不序列化（初版据 此 误判
+「丢值」，已在 code review 中复核更正）。cordis loader 与 settings 服务沿线穿引 ref
+（`fiber._config` / `_commitVolatile` → describe 的 plainConfig 解析），describe 投影的 value
+因此默认值完备。插件侧 apply 收到的 config 是 ref 形状，`ConfigSchema(ref)` 归一后 entry 只剩
+默认值——行配置值经 describe 浮现、不进 entry thunk（@hytime 发行版同款行为，实测确认）。
+故拆为：`ConfigSchema`（功能 schema，默认值解析/校验，apply 入口与 0.1 installSection 注册用）
++ `Config = ConfigSchema.volatile()`（0.2 表单描述符）+ `CONFIG_DEFAULTS = ConfigSchema({})`
+无 settings 部署兜底；`readConfig()` 以 `{...entry, ...describeValue}` 合并属双保险。
+副作用（接受，@hytime 同款）：手写 cordis.patch.yml 行 config 不再进 apply 的 entry thunk
+（仍会经 describe 浮现；配置面以 settings UI/存储为准）。⚠ 维护警告：不要据「entry 只有
+默认值」把 readConfig 简化成直读 entry——0.2 下 live 值只能来自 describe 投影。
 
 ### C2 依赖结构：dsh-settings 移出 dependencies（根因修复）
 
@@ -571,10 +575,10 @@ session.snapshotEvents()、sessionTitle、fs（resolve/stat/readBytes，dsh-fs-l
 sandboxPolicy、`shell.overlay` / `sidebar.footer.action` 槽位、`__ModuleLoader__` 客户端模块
 体系（本包走静态批路径，非闭包动态包——fetch/setTimeout 可用，与 0.1 相同）。
 
-### C4 验证矩阵（v2.1）
+### C4 验证矩阵（v2.3）
 
-- 仓库内：typecheck / vitest 250 通过 +5 平台跳过（Windows 无 symlink 特权能力探测，断言不变）/ validate 11 节全绿（§5 守卫更新为双模型契约）。
-- 桌面端 profile 验收流程（结果见 CHANGELOG [2.1.0] 与发布提交）：desktop profile
+- 仓库内：typecheck / vitest 407+ 通过 +5 平台跳过（Windows 无 symlink 特权能力探测，断言不变）/ validate 11 节全绿（§5 守卫更新为双模型契约）；host 侧 0.2 describe 接线（entry id 解析/本 ns 失效/他 ns 不失效/抛错回落）有专项用例（host-index.test.mjs「settings 0.2 entry-config 接线」）。
+- 桌面端 profile 验收流程（实测全过，见 CHANGELOG [2.3.0] 与发布提交 v2.3.0）：desktop profile
   `pnpm add dsh-foxbell-pet@github:jarvislee90s-dot/dsh-foxbell-pet` → ELECTRON_RUN_AS_NODE
   手动拉起 dsh-desktop-host（stderr 不得出现 `disabling profile plugin row`，须打印
   `dsh web: http://127.0.0.1:<port>/?token=<token>`）→ RPC `settings/describe`（result.ok、

@@ -172,6 +172,9 @@ let rpcSeq = 0;
 const nextRpcId = (tag: string): string =>
   `foxbell-${tag}-${Date.now().toString(36)}-${(rpcSeq++).toString(36)}`;
 
+/** settings RPC 超时（ms）：挂起请求不至长期卡死 pending（浏览器与 Node ≥17.3 均支持） */
+const RPC_TIMEOUT_MS = 8000;
+
 /** settings RPC POST（带 cookie 的 /api/settings/* 直连；与宿主 web RPC 同一端点）。
  *  fetch 全局缺失（极端沙箱）时同步抛错转为 rejected promise，调用方统一走拒绝分支。 */
 function settingsRpc<T>(method: string, args: unknown): Promise<T> {
@@ -180,6 +183,9 @@ function settingsRpc<T>(method: string, args: unknown): Promise<T> {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ type: "client-request", rpcId: nextRpcId("rpc"), method, payload: { args } }),
+      ...(typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
+        ? { signal: AbortSignal.timeout(RPC_TIMEOUT_MS) }
+        : {}),
     }).then((r) => {
       if (!r.ok) throw new Error(`settings RPC ${method} HTTP ${r.status}`);
       return r.json() as Promise<T>;
@@ -420,9 +426,11 @@ export function createHttpSettingsScope(): SettingsScopeLike {
         .then((j) => {
           const view = describeViewOf(j);
           if (resolvedNs === null) resolvedNs = discoverNs(view);
-          const row = resolvedNs === null
+          let row = resolvedNs === null
             ? null
             : (view?.namespaces ?? []).find((n) => n.ns === resolvedNs) ?? null;
+          // 行缺失且 ns 已缓存：entry 可能被改名/重装 → 清缓存让下一轮重新发现（自愈）
+          if (row === null && resolvedNs !== null) resolvedNs = null;
           // 命中配置节才 ready（value = 宿主 resolved 配置投影）；未命中保持 pending，
           // 下轮重试（插件行尚未激活/宿主无 settings 的降级场景）。
           snap = row && row.value && typeof row.value === "object"

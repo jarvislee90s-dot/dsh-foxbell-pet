@@ -14,10 +14,14 @@
   以 `settings/document-updated` 事件失效缓存（写路径不变：客户端 RPC 直达宿主 settings 服务）。
   schema 拆为双导出：`Config = ConfigSchema.volatile()` 是 0.2 表单描述符（describe 只列出含
   volatile 字段的 entry，update 拒绝非 volatile 路径写入）；`ConfigSchema` 保留可调用的
-  默认值解析/校验（apply 入口与 0.1 installSection 注册用）。实测注意：schemastery 的
-  `.volatile()` 是 refs 化重包，直接调用/`~standard.validate` 会**丢弃值**（loader 对 volatile
-  entry 走 raw 通道 `fiber._config`，不靠 schema 解析）——默认值由 `CONFIG_DEFAULTS` 代码兜底，
-  `readConfig()` 以 entry 默认值垫底合并 describe 投影（@hytime 同款运作方式，已实证）。
+  默认值解析/校验（apply 入口与 0.1 installSection 注册用）。实测机制（已复核）：schemastery
+  的 `.volatile()` 解析（调用/`~standard.validate`）返回的是 **ref 单元** `{get,
+  [Symbol(cosmokit.volatile.write)]}`——`.get()` 即含默认值的完整解析结果，`JSON.stringify(ref)`
+  打印 `{}` 只是函数不序列化，并非丢值；loader 与 settings 服务沿线穿引 ref（`fiber._config`/
+  `_commitVolatile` → describe 的 plainConfig 解析），因此 describe 投影的 value 默认值完备。
+  插件侧 apply 收到的 config 是 ref 形状，经 `ConfigSchema` 归一后 entry 只剩默认值（行配置值
+  经 describe 浮现、不进 entry thunk）——`readConfig()` 以 `{...entry, ...describeValue}` 合并
+  属双保险，`CONFIG_DEFAULTS` 作无 settings 部署的兜底（@hytime 同款运作方式）。
 - **C2（依赖结构，根因修复）**：`@deepseek-ai/dsh-settings` 从 `dependencies` 移至
   `devDependencies`（钉 `0.2.0-rc.2`，仅供类型/测试对齐新 API）。此前插件带入的
   dsh-settings@0.1.2-rc.1 会被 profile（`nodeLinker: hoisted`）平铺进 profile node_modules，
@@ -41,6 +45,11 @@
   （槽位未声明时 inject 工厂不运行），双运行时都能出 UI。
 - **会话服务**：客户端 `sessions.list` 快照形状双兼容——0.1 `{current}` /
   0.2 `{ids, byId}`（当前会话 = `retainedBy.mainView > 0`，与官方 ui-layout 同口径）。
+
+> **配置跨 0.1 → 0.2 迁移**：宿主侧 0.1 命名空间（`foxbell-pet`）的存量值不做服务端迁移；
+> 延续靠客户端「首次 ready 将 localStorage 缺失字段 seed 进新配置面」（0.1 客户端本就双写
+> localStorage），同一浏览器内自动带入；换浏览器/清存储则回到默认值。0.1 运行时上设置推送
+> 由原 scope 订阅降为 8s 轮询（双窗口同步略延迟，写入路径不受影响）。
 
 ### Fixed
 
@@ -121,7 +130,7 @@
 
 ### 兼容性
 - 宿主基线不变：**dsh ≥ 0.1.2-rc.1**；协议面（事件订阅/路由族/settings 服务）已在 **dsh 0.1.5-rc.2** 上逐项自检兼容，无破坏面
-- 旧 API 零残留守卫延续：`dashboard.js` 为 v1.4.0 原样移植的双兼容事件读取器（`session.snapshotEvents()` 优先），validate 对该精确表达式定向豁免，其余 `session.events` 用法依旧零容忍(feat!: adapt to dsh 0.2.0-rc.2 runtime (settings entry-config model) — v2.1.0)
+- 旧 API 零残留守卫延续：`dashboard.js` 为 v1.4.0 原样移植的双兼容事件读取器（`session.snapshotEvents()` 优先），validate 对该精确表达式定向豁免，其余 `session.events` 用法依旧零容忍
 
 ## [2.0.0] - 2026-09-07
 
