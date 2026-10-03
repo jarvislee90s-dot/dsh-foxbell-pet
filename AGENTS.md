@@ -20,7 +20,8 @@
   CHANGELOG 条目存在、tag 未占用）→ 同步版本号三处（package.json 与 dsh.plugin.json 的
   version、src/client/PetMenu.tsx 的 `PLUGIN_VERSION = "vX.Y.Z"` About 版本字面量）→
   `build + validate + test` → 提交 `chore(release): vX.Y.Z` 并打 tag → push →
-  `release` 分支 fast-forward 到该提交并 push。
+  `release` 分支 fast-forward 到该提交并 push → 创建 GitHub Release（Releases 页即发版
+  记录，notes 取 CHANGELOG 对应版本节；gh 不可用时警告跳过，可事后手动补建）。
 
 - **禁止事项**：
   - 不要手工向 `release` 分支提交、merge 或 force-push（脚本只接受 fast-forward，历史分叉会中止）。

@@ -7,10 +7,13 @@
 //         → 同步版本号三处（package.json / dsh.plugin.json / About 版本字面量 PLUGIN_VERSION）
 //         → build + validate + test
 //         → 提交 chore(release): vX.Y.Z → 打 tag → push main + tag
-//         → release 分支快进到该提交并推送（远端不存在则创建；非祖先关系则中止，永不强推）。
+//         → release 分支快进到该提交并推送（远端不存在则创建；非祖先关系则中止，永不强推）
+//         → 创建 GitHub Release（Releases 页发版记录；notes 取 CHANGELOG 对应节；gh 不可用
+//           时警告跳过——发版已完成，可事后 gh release create 手动补建）。
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { readFileSync, writeFileSync } from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
@@ -67,6 +70,16 @@ const writeLiteralVersion = (v) => {
   writeFileSync(p, next)
 }
 
+/** 取 CHANGELOG 中该版本小节（含标题行，到下一个 ## [ 或文件尾）作为 GitHub Release notes */
+function changelogNotes(v) {
+  const text = readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8')
+  const m = new RegExp(`^## \\[${v}\\]`, 'm').exec(text)
+  if (m === null) die(`CHANGELOG.md 缺少 [${v}] 条目`)
+  const rest = text.slice(m.index)
+  const next = rest.indexOf('\n## [', 1)
+  return (next === -1 ? rest : rest.slice(0, next + 1)).trim() + '\n'
+}
+
 // ---------- 1. 前置校验（全部只读，dry-run 也完整执行） ----------
 if (!version) die('用法：npm run release -- <x.y.z> [--dry-run]（如 2.3.0）')
 if (!/^\d+\.\d+\.\d+(?:-[\w.-]+)?$/.test(version)) die(`版本号格式不合法：${version}`)
@@ -102,7 +115,7 @@ console.log(`  ${RELEASE_BRANCH} 分支：远端${remoteRelease ? '已存在（�
 
 if (DRY) {
   console.log(`\ndry-run 通过。将执行：${needBump ? 'bump 版本 → ' : ''}build + validate + test → ${
-    needBump ? '提交 → ' : ''}打 tag ${tag} → push main+tag → ${RELEASE_BRANCH} 快进并推送`)
+    needBump ? '提交 → ' : ''}打 tag ${tag} → push main+tag → ${RELEASE_BRANCH} 快进并推送 → 创建 GitHub Release`)
   process.exit(0)
 }
 
@@ -150,6 +163,26 @@ if (!remoteRelease) {
   if (!ancestor) die(`origin/${RELEASE_BRANCH} 不是 ${tag} 的祖先（历史分叉，可能有人绕过 main 改过 release）：请人工核查，脚本不做强推`)
   git('push', 'origin', `${tag}:refs/heads/${RELEASE_BRANCH}`)
   console.log(`  fast-forwarded ${RELEASE_BRANCH} → ${tag}`)
+}
+
+// ---------- 6. GitHub Release（Releases 页发版记录）----------
+// 发版本身已完成；此步失败只警告不中止（可事后手动 gh release create 补建）。
+step('GitHub Release（Releases 页发版记录）')
+try {
+  const exists = (() => {
+    try { execFileSync('gh', ['release', 'view', tag], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'ignore', 'ignore'] }); return true } catch { return false }
+  })()
+  if (exists) {
+    console.log(`  Release ${tag} 已存在，跳过`)
+  } else {
+    const notesFile = path.join(os.tmpdir(), `foxbell-release-notes-${version}.md`)
+    writeFileSync(notesFile, changelogNotes(version))
+    execFileSync('gh', ['release', 'create', tag, '--title', tag, '--notes-file', notesFile], { cwd: root, stdio: 'inherit' })
+    console.log(`  created GitHub Release ${tag}（notes 取自 CHANGELOG [${version}] 节）`)
+  }
+} catch (err) {
+  console.warn(`  ⚠ GitHub Release 未创建（${String(err && err.message || err)}）。发版已完成，可手动补：`)
+  console.warn(`    gh release create ${tag} --title ${tag} --notes-file <CHANGELOG [${version}] 节>`)
 }
 
 console.log(`\n✓ v${version} 已发布。外部稳定通道：dsh plugin --profile web add github:jarvislee90s-dot/dsh-foxbell-pet#release`)
