@@ -4,7 +4,8 @@
 //   用法：npm run release -- 2.3.0 [--dry-run]
 //   前置约定：CHANGELOG.md 已写好该版本条目（`## [x.y.z]`）。
 //   流程：前置校验（在 main / 工作区干净 / 与 origin-main 同步 / CHANGELOG 条目 / tag 未占用）
-//         → 同步 package.json + dsh.plugin.json 版本号 → build + validate + test
+//         → 同步版本号三处（package.json / dsh.plugin.json / About 版本字面量 PLUGIN_VERSION）
+//         → build + validate + test
 //         → 提交 chore(release): vX.Y.Z → 打 tag → push main + tag
 //         → release 分支快进到该提交并推送（远端不存在则创建；非祖先关系则中止，永不强推）。
 import { execFileSync } from 'node:child_process'
@@ -53,6 +54,19 @@ const writeVersion = (file, v) => {
   writeFileSync(p, JSON.stringify(obj, null, 2) + '\n')
 }
 
+// About 面板版本字面量（validate §8 要求与 package.json 三方一致；build 后进 lib/client.js）
+const VERSION_LITERAL_FILE = 'src/client/PetMenu.tsx'
+const literalVersion = () => {
+  const m = readFileSync(path.join(root, VERSION_LITERAL_FILE), 'utf8').match(/PLUGIN_VERSION\s*=\s*"v([\w.-]+)"/)
+  return m ? m[1] : null
+}
+const writeLiteralVersion = (v) => {
+  const p = path.join(root, VERSION_LITERAL_FILE)
+  const next = readFileSync(p, 'utf8').replace(/(PLUGIN_VERSION\s*=\s*"v)[\w.-]+(")/, `$1${v}$2`)
+  if (!next.includes(`"v${v}"`)) die(`${VERSION_LITERAL_FILE} 缺少 PLUGIN_VERSION = "vX.Y.Z" 字面量，无法同步版本号`)
+  writeFileSync(p, next)
+}
+
 // ---------- 1. 前置校验（全部只读，dry-run 也完整执行） ----------
 if (!version) die('用法：npm run release -- <x.y.z> [--dry-run]（如 2.3.0）')
 if (!/^\d+\.\d+\.\d+(?:-[\w.-]+)?$/.test(version)) die(`版本号格式不合法：${version}`)
@@ -70,7 +84,9 @@ if (!new RegExp(`^## \\[${version}\\]`, 'm').test(changelog)) die(`CHANGELOG.md 
 const pkgV = manifestVersion('package.json')
 const pluginV = manifestVersion('dsh.plugin.json')
 if (pkgV !== pluginV) die(`package.json(${pkgV}) 与 dsh.plugin.json(${pluginV}) 版本号不一致，先手工对齐再发版`)
-const needBump = pkgV !== version
+const litV = literalVersion()
+if (litV === null) die(`${VERSION_LITERAL_FILE} 缺少 PLUGIN_VERSION = "vX.Y.Z" 字面量（About 面板版本展示），请人工检查`)
+const needBump = pkgV !== version || litV !== version
 if (needBump && cmpVer(version, pkgV) < 0) die(`目标版本 ${version} 小于当前版本 ${pkgV}`)
 
 const tag = `v${version}`
@@ -81,7 +97,7 @@ if (execFileSync('git', ['ls-remote', '--tags', 'origin', `refs/tags/${tag}`], {
 const remoteRelease = execFileSync('git', ['ls-remote', '--heads', 'origin', RELEASE_BRANCH], { cwd: root, encoding: 'utf8' }).trim()
 
 console.log(`  分支 main ✓  工作区干净 ✓  与 origin/main 同步 ✓  CHANGELOG [${version}] ✓  tag ${tag} 可用 ✓`)
-console.log(`  当前版本 ${pkgV} → ${version}${needBump ? '（将同步两处清单）' : '（清单已就位，不再改动）'}`)
+console.log(`  当前版本 ${pkgV} → ${version}${needBump ? `（将同步两处清单 + About 版本字面量 v${litV}）` : '（清单与字面量均已就位，不再改动）'}`)
 console.log(`  ${RELEASE_BRANCH} 分支：远端${remoteRelease ? '已存在（将校验快进）' : '不存在（将首次创建）'}`)
 
 if (DRY) {
@@ -92,9 +108,10 @@ if (DRY) {
 
 // ---------- 2. 版本号 + 构建 + 测试 ----------
 if (needBump) {
-  step(`同步版本号 → ${version}（package.json + dsh.plugin.json）`)
+  step(`同步版本号 → ${version}（package.json + dsh.plugin.json + ${VERSION_LITERAL_FILE}）`)
   writeVersion('package.json', version)
   writeVersion('dsh.plugin.json', version)
+  writeLiteralVersion(version)
 }
 
 step('构建与校验（build + validate + test）')

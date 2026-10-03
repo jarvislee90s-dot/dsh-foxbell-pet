@@ -14,7 +14,8 @@
   ```
 
   脚本 `scripts/release.mjs` 自动完成：前置校验（在 main、工作区干净、与 origin/main 同步、
-  CHANGELOG 条目存在、tag 未占用）→ 同步 package.json 与 dsh.plugin.json 的 version →
+  CHANGELOG 条目存在、tag 未占用）→ 同步版本号三处（package.json 与 dsh.plugin.json 的
+  version、src/client/PetMenu.tsx 的 `PLUGIN_VERSION = "vX.Y.Z"` About 版本字面量）→
   `build + validate + test` → 提交 `chore(release): vX.Y.Z` 并打 tag → push →
   `release` 分支 fast-forward 到该提交并 push。
 
@@ -24,7 +25,8 @@
   - 手工打完 tag ≠ 已发版：外部用户装的是 `release` 分支，只有脚本跑完才算发布完成。
   - **是否发版、何时发版由用户决定**：agent 未经用户明确确认不得执行 `npm run release`
     （它会推送公共分支与 tag，属于对外发布动作）。
-- 版本号口径：package.json 与 dsh.plugin.json 的 `version` 必须一致（脚本发版时会校验/同步）。
+- 版本号口径（三处一致，validate §8 拦截、脚本发版时校验并同步）：package.json 与
+  dsh.plugin.json 的 `version`，以及 src/client/PetMenu.tsx 的 `PLUGIN_VERSION` 字面量。
 
 ## 构建与提交约定
 
