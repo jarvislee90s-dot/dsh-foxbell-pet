@@ -2,6 +2,30 @@
 
 本文件记录本项目的所有重要变更。
 
+## [2.3.1] - 2026-10-03
+
+### Fixed — 客户端加固（v2.3.0 tag 后合入）
+
+- **设置 RPC 超时**：客户端 `settingsRpc` 各请求加 8s `AbortSignal.timeout`，宿主挂起时
+  不再卡死 pending 状态。
+- **0.2 设置适配器自愈**：describe 视图中本插件行缺失（entry 改名/重装等）且 ns 已缓存时
+  清缓存并在下轮重新发现，避免按旧 ns 永久错配。
+- **依赖下限**：`@deepseek-ai/schemastery` 提至 `^3.18.4`（`.volatile()` API 的真实下限）。
+
+### 内部
+
+- 简化 0.2 适配代码（行为不变）：client 抽出 `rowOf`/`writeSetting` 助手消除四处重复；
+  host 设置接线改提前退出结构并抽 `readEntryValue` 纯函数。inject 回调内服务缺席属不可达
+  防御路径（cordis inject 语义下回调触发时服务必在场），旧代码对 undefined 误报警告、对
+  null 抛 TypeError，现统一为静默保持 entry 回退。
+- 测试：settings 接线形状分支全覆盖——0.1 `installSection` 注册参数与 scope 值生效、
+  既无 installSection 也无 describe 时告警一次、回调内服务缺席静默降级；`mount0x2` 抽出
+  通用 `mountWithSettings` 助手。另含 v2.3.0 tag 后合入的 host 0.2 接线 4 个专项用例。
+- 文档：更正 volatile 机制描述（`.volatile()` 解析返回 ref 单元、默认值不丢）并补配置跨
+  0.1→0.2 迁移说明（见 [2.3.0] 节内更新，随本版首次对外发布）。
+- 发版脚本：快进校验前物化 `origin/release` 引用（新 clone 无远端跟踪 ref 时不再误报
+  NOT a valid object）。
+
 ## [2.3.0] - 2026-10-03
 
 ### 兼容性（适配 dsh 0.2.0-rc.2 运行时；向下兼容 0.1.2-rc.1）
