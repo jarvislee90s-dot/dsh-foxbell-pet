@@ -7,6 +7,9 @@
 - **`main` 是开发分支**，随时合并新代码；**对外稳定版 = `release` 分支**，只在发版时由脚本快进。
   外部用户的安装命令固定指向 `github:jarvislee90s-dot/dsh-foxbell-pet#release`（README「安装」节），
   因此 main 上尚未发版的改动不影响外部用户。
+- **GitHub 仓库默认分支 = `release`**（刻意设置）：桌面端等粘贴仓库首页链接（无分支后缀）
+  安装时解析默认分支，即稳定版通道。注意：在 GitHub 网页上开 PR 时默认 base 会变成
+  release——**务必手动选 `main`**（本仓库 PR 一律目标 main）。
 - **发版唯一入口**：先在 `CHANGELOG.md` 写好 `## [x.y.z] - 日期` 条目，然后在 main 上执行
 
   ```sh

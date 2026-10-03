@@ -113,6 +113,10 @@ dsh plugin --profile web add github:jarvislee90s-dot/dsh-foxbell-pet#release
 `#release` 是**稳定版通道**（仓库 `release` 分支，只在版本发布时更新）。想尝鲜开发中的
 最新改动，可改用 `github:jarvislee90s-dot/dsh-foxbell-pet#main`（跟随 main，不保证稳定）。
 
+> 桌面端/网页端粘贴 GitHub 仓库首页链接安装也可以：仓库的 GitHub **默认分支已设为
+> `release`**，不带分支后缀的地址（如 `https://github.com/jarvislee90s-dot/dsh-foxbell-pet`）
+> 解析到的就是稳定版通道。
+
 > 插件的 `lib/` 构建产物随仓库提交，安装即用、无需本地构建；只有从源码开发时才需要
 > `npm run build`（见「开发」节）。
 

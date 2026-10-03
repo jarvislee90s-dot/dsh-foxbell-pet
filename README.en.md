@@ -112,6 +112,10 @@ dsh plugin --profile web add github:jarvislee90s-dot/dsh-foxbell-pet#release
 
 `#release` is the **stable channel** (the repo's `release` branch, updated only on version releases). To try work-in-progress changes, use `github:jarvislee90s-dot/dsh-foxbell-pet#main` (follows main, not guaranteed stable).
 
+> Pasting the GitHub repo homepage link (e.g. in the desktop app) also works: the repo's
+> GitHub **default branch is set to `release`**, so an address without a branch suffix
+> resolves to the stable channel.
+
 > The `lib/` build artifacts are committed with the repo, so the plugin works right
 > after install with no local build; `npm run build` is only needed when developing
 > from source (see "Development").
