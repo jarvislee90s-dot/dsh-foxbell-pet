@@ -15,7 +15,8 @@ import { DialogHost } from "./dialogs/DialogHost";
 import { DashboardPanel } from "./DashboardPanel";
 import { appStore, cfgStore, PANEL_ID, petStore, reportVisible, schedulePoll, setPanelSwitcher } from "./store";
 import { startVoiceOwnership } from "./voiceowner";
-import { t } from "./i18n";
+import { adoptLocaleService, t, type LocaleServiceLike } from "./i18n";
+import { useLang } from "./useLang";
 import { adoptStyles } from "./styles";
 import { createHttpSettingsScope } from "./config";
 
@@ -27,7 +28,7 @@ interface SlotsLike {
 interface ClientCtx {
   get(name: string): unknown;
   /** 回调式可选注入（cordis）：deps 中服务在场（当下或之后注册）才执行 cb，缺席永不执行且不抛错 */
-  inject?(deps: string[], cb: (c: { layout?: { selectPanel(id: string): void } }) => void): void;
+  inject?(deps: string[], cb: (c: { layout?: { selectPanel(id: string): void }; locale?: LocaleServiceLike }) => void): void;
   timeout?(fn: () => void, ms: number): () => void;
   interval?(fn: () => void, ms: number): () => void;
   effect?(fn: () => void | (() => void)): void;
@@ -75,6 +76,7 @@ function makeUseSessions(ctx: ClientCtx): (sel: (s: { current?: string }) => unk
 function OverlayEntry(props: Record<string, unknown>): React.ReactElement {
   const ctx = props.ctx as ClientCtx;
   const useSessions = props.useSessions as (sel: (s: { current?: string }) => unknown) => unknown;
+  useLang(); // 语言切换 → 本子树（宠物/黑板/迷你条/菜单/对话框）重渲染，渲染期 t() 取新语言
   return (
     <>
       <Pet ctx={ctx} useSessions={useSessions} />
@@ -134,6 +136,18 @@ export function apply(ctx: ClientCtx): void {
     ctx.inject(["layout"], (c) => {
       const layout = c && c.layout;
       if (layout && typeof layout.selectPanel === "function") setPanelSwitcher((id) => layout.selectPanel(id));
+    });
+  }
+
+  // ---- v2.3.3：语言跟随 DSH 应用语言设置（locale 服务，App 内热切换）----
+  // 同 layout 的可选注入模式：服务缺席（老宿主/TUI）回调不执行，detectLang 引擎 locale 兜底。
+  // 不做退订：客户端模块为应用级生命周期（与 layout 接线同款语义）。
+  if (typeof ctx.inject === "function") {
+    ctx.inject(["locale"], (c) => {
+      const locale = c && c.locale;
+      if (locale && typeof locale.getSnapshot === "function" && typeof locale.subscribe === "function") {
+        adoptLocaleService(locale);
+      }
     });
   }
 

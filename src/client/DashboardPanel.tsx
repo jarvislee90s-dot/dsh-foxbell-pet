@@ -8,6 +8,7 @@ import { appStore, cfgStore } from "./store";
 import { apiGetRange, type RangeSummary, type RouteUsage, type TrendDay, type TrendHour } from "./api";
 import { TrendChart, lastN } from "./TrendChart";
 import { t, getLang } from "./i18n";
+import { useLang } from "./useLang";
 import { fmtInt, fmtPct, fmtTokens } from "./format";
 import { fmtDur } from "./boardrows";
 import { exportDashboardImage, loadSprite, maxAnimCols, resolvePoseRow } from "./exportimage";
@@ -170,6 +171,7 @@ function ToolsGrid(props: { tools: ToolAgg[] }): ReactElement {
 export function DashboardPanel(): ReactElement {
   const snap = useSyncExternalStore(appStore.subscribe, appStore.getSnapshot);
   const cfg = useSyncExternalStore(cfgStore.subscribe, cfgStore.getSnapshot);
+  useLang(); // 独立槽入口（main），不经 OverlayEntry：语言切换需自行订阅重渲染
   const [tab, setTab] = useState<DashTab>("7d");
   const [custom, setCustom] = useState({ from: dayKey(new Date(Date.now() - 6 * 86400000)), to: dayKey(new Date()) });
   const [range, setRange] = useState<RangeSummary | null>(null);

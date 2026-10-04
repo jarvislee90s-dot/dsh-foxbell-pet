@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ANIM, FRAME_H, FRAME_W, frameStyle, LOOK_FRAMES, POSE_KEYS, SHEET_COLS } from "../src/client/animations";
 import {
-  clampPos, dragDirection, GRAVITY, DAMP, MIN_VX, pushSample, stepFall, throwVelocity,
+  clampPos, dragDirection, dragPos, GRAVITY, DAMP, MIN_VX, pushSample, stepFall, throwVelocity,
   viewportBounds, SQUASH_TIMING,
 } from "../src/client/physics";
 import { pickIndex, subtitleMs, MIN_SPEECH_MS } from "../src/client/voices";
@@ -15,7 +15,7 @@ import { DOT_COLOR, lightOf, taskPoseOf, truncate, countsFromDash } from "../src
 import {
   CFG_DEFAULT, CFG_SCALES, NUM_KEYS, NUM_RANGE, sanitizeConfig, sanitizeValue, guardSignature, type PetConfig,
 } from "../src/client/config";
-import { dictKeys, t, setLang, alertText } from "../src/client/i18n";
+import { adoptLocaleService, detectLang, dictKeys, getLang, langStore, t, setLang, alertText } from "../src/client/i18n";
 import {
   ALL_DRAFT_KEYS, DASH_BOOL_KEYS, DASH_NUM_ROWS, SETTINGS_ALL_KEYS, SETTINGS_V22_KEYS,
   buildSavePatch, isBadNumValue, isDraftDirty, type DraftConfig,
@@ -131,6 +131,25 @@ describe("physics (MAM usePetWindow 数值语义)", () => {
     const p2 = clampPos(99999, -10, 192, 208, 1000, 800, 76);
     expect(p2.x).toBe(1000 - 192);
     expect(p2.y).toBe(0);
+  });
+  // v2.3.3：拖拽路径钳制（根因：pointer capture 下指针出窗事件流持续，宠物可被甩出视口滞留）
+  it("dragPos clamps pointer drag into work area on all four edges", () => {
+    // 右缘：指针甩到 innerWidth+400（dx=20 偏移）→ x 钳到 maxX，不出窗
+    const right = dragPos(1000 + 400, 400, 20, 20, 192, 208, 1000, 800, 76);
+    expect(right.x).toBe(1000 - 192);
+    // 左缘：负 clientX → x=0
+    const left = dragPos(-300, 400, 20, 20, 192, 208, 1000, 800, 76);
+    expect(left.x).toBe(0);
+    // 上缘：负 clientY → y=0
+    const top = dragPos(500, -300, 20, 20, 192, 208, 1000, 800, 76);
+    expect(top.y).toBe(0);
+    // 下缘：超地面 → y=groundY
+    const bottom = dragPos(500, 9999, 20, 20, 192, 208, 1000, 800, 76);
+    expect(bottom.y).toBe(800 - 76 - 208);
+  });
+  it("dragPos passes through in-window positions unchanged", () => {
+    const p = dragPos(320, 240, 20, 20, 192, 208, 1000, 800, 76);
+    expect(p).toEqual({ x: 300, y: 220 });
   });
 });
 
@@ -565,6 +584,62 @@ describe("i18n 字典完整性", () => {
     setLang("en");
     expect(t("rpc.pet-exists", { name: "abc" })).toBe("Pet already exists: abc");
     setLang("zh");
+  });
+  // v2.3.3：语言跟随 DSH 应用 locale（根因：currentLang 只在模块加载时读一次 navigator.language，
+  // 与 dsh locale 服务解耦，App 内切换语言不影响宠物）
+  it("langStore: setLang 同值不通知、异值通知且 getSnapshot 更新（uSES 引用稳定=原始值）", () => {
+    setLang("zh");
+    let notified = 0;
+    const off = langStore.subscribe(() => { notified += 1; });
+    setLang("zh"); // 同值：幂等，不通知
+    expect(notified).toBe(0);
+    expect(langStore.getSnapshot()).toBe("zh");
+    setLang("en");
+    expect(notified).toBe(1);
+    expect(langStore.getSnapshot()).toBe("en");
+    setLang("en"); // 再同值仍不通知
+    expect(notified).toBe(1);
+    off();
+    setLang("zh"); // 退订后不再计数（恢复现场）
+    expect(notified).toBe(1);
+    expect(getLang()).toBe("zh");
+  });
+  it("adoptLocaleService: 采纳 locale 服务当前值并热跟随切换（zh↔en），退订即停", () => {
+    setLang("zh");
+    const listeners = new Set<() => void>();
+    let active = "en";
+    const svc = {
+      getSnapshot: () => ({ active, locales: [], revision: 1 }),
+      subscribe: (fn: () => void) => { listeners.add(fn); return () => { listeners.delete(fn); }; },
+    };
+    const off = adoptLocaleService(svc);
+    expect(getLang()).toBe("en"); // 采纳时立即生效
+    expect(t("rpc.pet-exists", { name: "x" })).toBe("Pet already exists: x");
+    active = "zh"; // App 内切回中文 → 通知 → 热切换
+    for (const fn of [...listeners]) fn();
+    expect(getLang()).toBe("zh");
+    expect(t("rpc.pet-exists", { name: "x" })).toBe("宠物已存在：x");
+    off();
+    active = "en";
+    for (const fn of [...listeners]) fn();
+    expect(getLang()).toBe("zh"); // 退订后不再跟随
+  });
+  it("adoptLocaleService: 非 zh 的 locale id（语言包自定义）一律归 en", () => {
+    setLang("zh");
+    const svc = {
+      getSnapshot: () => ({ active: "ja", locales: [], revision: 1 }),
+      subscribe: () => () => {},
+    };
+    adoptLocaleService(svc);
+    expect(getLang()).toBe("en");
+    setLang("zh"); // 恢复现场
+  });
+  it("detectLang 兜底：locale 服务缺席时按 navigator.language（引擎 locale）", () => {
+    vi.stubGlobal("navigator", { language: "en-US" });
+    expect(detectLang()).toBe("en");
+    vi.stubGlobal("navigator", { language: "zh-TW" });
+    expect(detectLang()).toBe("zh");
+    vi.unstubAllGlobals();
   });
   it("dash.* 效率看板键 zh/en 成对、键集在位、五口径名词统一（v2.2.1：命中率/请求次数）", () => {
     const expectedDash = [

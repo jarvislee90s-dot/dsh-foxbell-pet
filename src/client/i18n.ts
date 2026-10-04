@@ -1,5 +1,8 @@
 // i18n.ts — 插件内部 zh/en 字典（MAM locales pet.* 子树移植 + 本插件特有键）。
-// 语言判定：navigator.language（zh* → zh，其余 → en）；不集成 harness locale service。
+// 语言判定链（v2.3.3 起）：DSH 客户端 locale 服务（App 内语言设置，adoptLocaleService 热跟随）
+// → 服务缺席时回退 navigator.language（引擎 locale，模块加载时一次性，老宿主/TUI 兜底）。
+// 本文件保持零 react 依赖（vitest node 环境 react 为抛错 stub，i18n 被测试直接导入）；
+// React 消费侧钩子在 useLang.ts。
 import { fmtTokens } from "./format";
 
 export type Lang = "zh" | "en";
@@ -787,8 +790,40 @@ const EN: Dict = {
 const DICTS: Record<Lang, Dict> = { zh: ZH, en: EN };
 
 let currentLang: Lang = detectLang();
-export function setLang(l: Lang): void { currentLang = l; }
+const langListeners = new Set<() => void>();
+
+/** 语言写入（幂等）：值不变不通知（uSES 消费方零冗余渲染） */
+export function setLang(l: Lang): void {
+  if (l === currentLang) return;
+  currentLang = l;
+  for (const fn of [...langListeners]) fn();
+}
 export function getLang(): Lang { return currentLang; }
+
+/** 语言的可订阅快照（useLang 消费）：getSnapshot 返回原始值字符串，天然满足
+ *  useSyncExternalStore 引用稳定契约（v2.3.2 cfgStore #185 事故同款防线）。 */
+export const langStore = {
+  subscribe(fn: () => void): () => void {
+    langListeners.add(fn);
+    return () => { langListeners.delete(fn); };
+  },
+  getSnapshot(): Lang { return currentLang; },
+};
+
+/** DSH locale 服务的最小契约（LocaleRuntime 子集：getSnapshot().active + subscribe） */
+export interface LocaleServiceLike {
+  getSnapshot(): { active?: unknown };
+  subscribe(fn: () => void): () => void;
+}
+
+/** 采纳 DSH 客户端 locale 服务：立即按 active 对齐一次并热跟随其切换。
+ *  LocaleId 是开放字符串（内置恰为 "zh"/"en"，语言包可注册其他 id）——非 "zh" 一律
+ *  归 en（与字典 en 缺键回 zh 根的既有回退语义一致）。返回退订函数。 */
+export function adoptLocaleService(svc: LocaleServiceLike): () => void {
+  const adopt = (): void => { setLang(svc.getSnapshot().active === "zh" ? "zh" : "en"); };
+  adopt();
+  return svc.subscribe(adopt);
+}
 
 /** 查表 + {param} 风格插值；缺键回退 key 本身（非 zh 缺失回 zh 根字典）。
  *  lang 显式入参（Task 9）：t() 走全局 currentLang，alertText() 走调用方指定语言——

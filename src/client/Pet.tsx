@@ -5,7 +5,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ANIM, FRAME_H, FRAME_W, frameStyle, LOOK_FRAMES, type PetAnimKey } from "./animations";
 import {
-  clampPos, dragDirection, pushSample, SQUASH_TIMING, stepFall, throwVelocity, viewportBounds,
+  clampPos, dragDirection, dragPos, pushSample, SQUASH_TIMING, stepFall, throwVelocity, viewportBounds,
   type FallState, type Sample,
 } from "./physics";
 import {
@@ -457,7 +457,9 @@ export function Pet(props: PetProps): React.ReactElement | null {
     const winAnchor = d.samples[0];
     d.movedX = e.clientX - winAnchor.x;
     d.movedY = e.clientY - winAnchor.y;
-    setPos({ x: e.clientX - d.dx, y: e.clientY - d.dy });
+    // v2.3.3：拖拽位置过 clampPos（dragPos）——pointer capture 下指针出窗事件流持续，
+    // 不钳制宠物会被甩出视口滞留（物理关闭时还会持久化越界坐标）；采样/方向判定仍读原始指针坐标
+    setPos(dragPos(e.clientX, e.clientY, d.dx, d.dy, frameW, frameH, window.innerWidth, window.innerHeight, bottomMargin));
     const dir = dragDirection(d.movedX, d.movedY);
     if (dir && stateRef.current.drag !== dir) {
       stateRef.current.drag = dir;

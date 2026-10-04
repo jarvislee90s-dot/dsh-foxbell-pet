@@ -13,6 +13,7 @@ import { POSE_KEYS } from "./animations";
 import { appStore, cfgStore } from "./store";
 import { openDialog } from "./dialogs/host";
 import { t } from "./i18n";
+import { useLang } from "./useLang";
 import {
   DASH_BOOL_KEYS, DASH_NUM_ROWS,
   buildSavePatch, isBadNumValue, isDraftDirty, type DraftConfig,
@@ -45,6 +46,7 @@ function Info({ text }: { text: string }): React.ReactElement {
 }
 
 export function SettingsCard(): React.ReactElement {
+  useLang(); // 独立槽入口（settings.plugin.item / settings.section），不经 OverlayEntry：语言切换需自行订阅重渲染
   const [open, setOpen] = useState(false);
   const [cfg, setCfg] = useState<PetConfig>(cfgStore.getSnapshot());
   const [draft, setDraft] = useState<DraftConfig>(cfgStore.getSnapshot());

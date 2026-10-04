@@ -87,6 +87,19 @@ export function clampPos(x: number, y: number, frameW: number, frameH: number, v
   };
 }
 
+/**
+ * 拖拽路径的位置写入（v2.3.3 钳制修复）：指针坐标 − 按下偏移 → clampPos。
+ * pointer capture 下指针移出窗口后 pointermove 事件流仍在继续（clientX/Y 越界），
+ * 拖拽曾是全客户端唯一绕过 clampPos 的位置来源——不钳制则宠物可被甩出视口滞留窗外
+ * （物理关闭时松手还会原样持久化越界坐标，只能靠插件停用/重载才恢复）。
+ */
+export function dragPos(
+  clientX: number, clientY: number, dx: number, dy: number,
+  frameW: number, frameH: number, vw: number, vh: number, bottomMargin: number,
+): { x: number; y: number } {
+  return clampPos(clientX - dx, clientY - dy, frameW, frameH, vw, vh, bottomMargin);
+}
+
 /** 落地压扁回弹时序（MAM onLand）：60ms 压扁 → 240ms 回弹 → +260ms 清过渡并补跳 1500ms */
 export const SQUASH_TIMING = {
   squashMs: 60,

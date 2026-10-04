@@ -2,6 +2,22 @@
 
 本文件记录本项目的所有重要变更。
 
+## [2.3.3] - 2026-10-04
+
+### Fixed
+
+- **语言跟随 DSH 应用语言设置（热切换）**：宠物语言此前冻结在模块加载时的
+  `navigator.language`（浏览器引擎 locale），与 App 内语言设置完全解耦——设置里切中/英文
+  对宠物无效。现接入 DSH 客户端 locale 服务：`adoptLocaleService` 采纳 `active`（zh→zh，
+  其余→en）并热订阅切换；`langStore` + `useLang`（OverlayEntry / DashboardPanel /
+  SettingsCard 三个槽入口锚点）驱动重渲染，切换即时生效无需重启。locale 服务缺席
+  （老宿主/TUI）仍回退 `navigator.language` 兜底。
+- **拖拽钳制窗口边界**：pointer capture 下指针移出窗口后 pointermove 事件流持续，
+  `onPointerMove` 原样写入指针坐标（全客户端唯一绕过 clampPos 的位置来源）——惯性甩拽
+  可把宠物送出视口外滞留（物理关闭时松手还会持久化越界坐标，只能停用/重载插件恢复）。
+  新增 `dragPos`（指针位移 → clampPos）钳制拖拽路径：宠物停在窗口边缘、松手存储值必在
+  界内；采样/方向判定/物理坠落的甩掷语义不变。
+
 ## [2.3.2] - 2026-10-03
 
 ### Fixed
