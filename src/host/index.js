@@ -24,6 +24,8 @@ import path from 'node:path'
 import z from '@deepseek-ai/schemastery'
 import { storeRoot, petsRoot, stagingRoot, trashRoot, codexRoot } from './paths.js'
 import { createStateEngine } from './state.js'
+import { createCorpusCollector } from './corpus.js'
+import { sessionEvents } from './dashboard.js'
 import { loadManifest, parseManifest, SHEET_FILE, MANIFEST_FILE } from './manifest.js'
 import { BUILTIN_PET_ID, petIdProblem } from './petid.js'
 import { listPets, sweepStaging } from './scan.js'
@@ -306,6 +308,58 @@ export async function apply(ctx, config) {
     readConfig, // v2.1 看板 8 键 live 读（整对象透传，引擎逐键判型回退 BOARD_DEFAULTS）
   })
   engine.compute()
+
+  // ---- v2.4（Issue #9）：全语料用量采集——子代理与已收尾会话并入看板口径 ----
+  // agents.roots() 按契约只含顶层 agent；非根会话经 sessionQuery（live-preferred 全语料）
+  // 喂数：活会话内存快照零盘读、冷会话一次性 readSession 重放（进程内缓存，预算分轮）。
+  // 「含子代理」文案自此为真。服务缺失（老宿主无 sessionQuery）时静默降级为旧口径。
+  const sessionQuerySvc = (() => { try { return ctx.get('sessionQuery') } catch { return undefined } })()
+  let corpusTimer = null
+  if (sessionQuerySvc !== undefined) {
+    const corpus = createCorpusCollector({
+      listRecords: async () => {
+        const recs = await sessionQuerySvc.listSessions()
+        return (Array.isArray(recs) ? recs : []).map((r) => (r && r.header && typeof r.header.id === 'string')
+          ? { id: r.header.id, createdAt: r.header.createdAt, live: !!r.live }
+          : null)
+      },
+      readEvents: async (id) => {
+        const snap = await sessionQuerySvc.readSession(id)
+        if (!snap || !Array.isArray(snap.events)) return []
+        // 完整日志含 fork/续跑继承前缀（前 inheritedEventCount 条来自父会话，用量已在父会话
+        // 计入）——只取自身事件，防止谱系双计（v2.4.1 评审修复 Critical#1）
+        const skip = typeof snap.inheritedEventCount === 'number' && snap.inheritedEventCount > 0
+          ? Math.floor(snap.inheritedEventCount) : 0
+        return skip > 0 ? snap.events.slice(skip) : snap.events
+      },
+      liveEvents: (id) => {
+        try {
+          const s = sessions !== undefined ? sessions.get(id) : undefined
+          const evts = s ? sessionEvents(s) : null
+          if (!Array.isArray(evts)) return null
+          const skip = s && typeof s.inheritedEventCount === 'number' && s.inheritedEventCount > 0
+            ? Math.floor(s.inheritedEventCount) : 0
+          return skip > 0 ? evts.slice(skip) : evts
+        } catch { return null }
+      },
+      rootIds: () => (agents !== undefined ? agents.roots() : [])
+        .map((a) => (a && a.id !== undefined && a.id !== null ? String(a.id) : ''))
+        .filter(Boolean),
+      engine,
+      now: () => Date.now(),
+    })
+    void corpus.refresh() // 启动先收敛一轮（冷读预算内），其后低频增量
+    corpusTimer = setInterval(() => { void corpus.refresh() }, 10000)
+    // cordis effect(execute) 语义：立即执行 execute、其返回值才是卸载清理器——必须返回
+    // disposer（此前误写成直接 clearInterval，定时器在注册当场被清掉，采集只跑了启动一轮）
+    if (typeof ctx.effect === 'function') {
+      ctx.effect(() => () => { if (corpusTimer !== null) { clearInterval(corpusTimer); corpusTimer = null } }, 'foxbell-pet.corpusTimer')
+    }
+  }
+  // v2.4 真机验收观测点：corpusAvailable=false 表示宿主无 sessionQuery（静默降级旧口径）；
+  // diag.corpus 随每轮全量快照序列化（folds/rev 语义见 state.js corpusStats）。
+  diag.corpusAvailable = sessionQuerySvc !== undefined
+  Object.defineProperty(diag, 'corpus', { enumerable: true, get: () => engine.corpusStats })
 
   // ---- 激活宠物解析与 /state 快照 ----
   // settings 在场时配置为唯一事实源（客户端写 scope → 宿主读 resolved 值）；

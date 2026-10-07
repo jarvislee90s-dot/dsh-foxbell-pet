@@ -242,3 +242,49 @@
 
 - [ ] 9.1 `git -C <MAM 仓库路径> status --porcelain` → 空
 - [ ] 9.2 `git -C <harness 仓库路径> status --porcelain` → 空
+
+## 10. v2.4.0 子代理用量并入（Issue #9）真机验收
+
+> 修复内容：看板 token 统计此前只算 `agents.roots()` 的主会话；现经 `sessionQuery`
+> 全语料采集（`src/host/corpus.js`）并入子代理与已收尾会话。本节验收「并入正确 +
+> 宠物 UX 不回退 + 边界不双计」。symlink 安装下未提交的工作树改动即时生效。
+
+- [ ] 10.0 前置
+  - 步骤：仓库根 `npm run build && npm run validate && npx vitest run`（预期 VALIDATE OK /
+    420+ 用例全绿；注：本机 `test/host-index.test.mjs` 因 schemastery 环境问题在干净树上
+    也导入失败，属已知噪声，不计入）；`dsh plugin --profile web add <本仓库绝对路径>`
+    （若已装 release/main 通道版本，先卸载再装本地路径，命令以 `dsh plugin --help` 为准）；
+    重启 `dsh web` + 浏览器硬刷新（Cmd/Ctrl+Shift+R）。
+- [ ] 10.1 服务接线与启动收敛（观测点：`/state` 的 `diag.corpus*`）
+  - 步骤：DevTools → Network 过滤 `dyn-pet-foxbell`，找全量 `/state` 响应（非 unchanged），
+    查看 `diag.corpusAvailable` 与 `diag.corpus`；重启后每 ~10s 刷新观察 1–2 分钟。
+  - 预期：`corpusAvailable === true`（false = 宿主缺 sessionQuery，静默降级旧口径——
+    先解决环境再继续）；`diag.corpus.folds` 每 10s 一批（每批 ≤25，冷读预算）增长后稳定
+    在「近 32 天非根会话数」量级；同窗口 `dashboard.usage.grandTotal` 阶梯式上涨后稳定。
+- [ ] 10.2 核心验收：子代理扇出用量进「今日」（Issue 定案判据复刻）
+  - 步骤：① 记基线 A = 悬停宠物（或右键「🏷 今日用量」）迷你条的「请求输入」，精确值可
+    curl `/state` 取 `dashboard.usage.day.{inputTokens,cacheReadTokens}` 之和；
+    ② 主会话发扇出指令（示例：「用 Task 工具并行派 3 个子代理，分别把三段不同的长文本
+    压缩成要点清单」，子代理输出量越大判据越清晰）；③ 子代理全部完成后再等 ≤30s
+    （10s 采集周期 + 活→冷终读），取读数 B。
+  - 预期：B − A 包含全部子代理用量（重度扇出时显著大于主会话自身增量）；宠物状态卡
+    **不**出现子代理条目（scan 侧仍只认主会话）；`usage.trend` 当日桶与 hero 同步变大
+    （同一整点内趋势图也刷新——trend 门修复点）；看板「7 天」hero 同步包含该增量。
+- [ ] 10.3 独立口径对照（有逐事件复算工具时执行）
+  - 步骤：重跑 Issue #9 第二节的核对（主会话 / 主+子 分开统计），与插件 7 天 hero 对照。
+  - 预期：hero ≈「主+子」合计（修复前 ≈ 仅主、低约 59%）；5 小时窗 hero 同理一位对上。
+- [ ] 10.4 fork/续跑不双计（谱系继承前缀切片）
+  - 步骤：选一个历史用量大的会话，在 DSH UI 里 fork/续跑（只 fork、不发新消息），
+    等一轮采集（≤10s）。
+  - 预期：hero 增量 ≈ 0；若瞬间跳增 ≈ 父会话全部历史量，则继承前缀双计回归。
+- [ ] 10.5 重启恢复（冷读重放路径）
+  - 步骤：重启 `dsh web`（或桌面端重载插件），硬刷新，观察 `grandTotal` 1 分钟内变化。
+  - 预期：≤1 分钟回到重启前量级（`diag.corpus.folds` 分批重建后稳定）。
+- [ ] 10.6 宠物 UX 回归扫一眼
+  - 预期：状态卡只有主会话（红/黄/绿语义不变）；迷你条「本会话」行 = 最近**主**会话
+    （设计如此）；审批提醒 / 完成未读 / pace 档位 / 双击语音 / 位置记忆均正常；
+    Console 无新增报错，`/state` 仍 1.5s 一轮。
+- 已知预期行为（非 bug）：首轮收敛完成时，日阈值/里程碑警报可能相对启动前「跳档」补发
+  一次（历史存量并入，数字真实、按日去重只发一次）；创建于 32 天窗口外的**冷**历史不计入
+  （trend 14 日 + 区间 31 日的外沿）；宿主无 `sessionQuery` 时静默降级为旧口径
+  （`diag.corpusAvailable` 为 false）。

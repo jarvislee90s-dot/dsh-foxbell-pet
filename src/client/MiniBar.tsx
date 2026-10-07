@@ -97,7 +97,7 @@ export function MiniBar(props: {
             {t("dash.cacheHit") + " " + fmtTokens(day.cacheReadTokens || 0)
               + " · " + t("dash.output") + " " + fmtTokens(day.outputTokens || 0)}
           </div>
-          {/* 含子代理为口径说明、恒定出现（源无条件拼接：userEst 估算含子代理 token） */}
+          {/* 含子代理为口径说明、恒定出现（v2.4 起为真：全语料采集并入子代理与已收尾会话的折叠） */}
           <div className="dyn-pet-mini-row dyn-pet-mini-dim" style={{ fontSize: px(11) }}>
             {t("dash.yourInput") + " ~" + fmtTokens(u ? u.userEst || 0 : 0)
               + t("dash.estimateSuffix") + " · " + t("dash.withSubagents")}

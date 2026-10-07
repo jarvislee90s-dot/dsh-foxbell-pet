@@ -250,8 +250,11 @@ export function buildDashboard(sessionsData, cfg, now, alertPrev) {
  * （14 日 + 当日 24 整点桶）。recentCount：近 5 分钟活跃事件数——兼容层由 events5mCount
  * 现算，引擎由缓存 recent 裁剪提供。usage.counts 不在此产出：引擎组装时从 projects Map
  * 并入（本函数保持无会话表依赖）。
+ * v2.4（Issue #9）第 5 参 extraFolds：非根会话（子代理/已收尾）的折叠数组——只并入
+ * usage 侧（五桶/grand/userEst/models/tools/trend），scan 侧（approvals/summary/
+ * latestSession）仍只认 roots 条目（宠物卡片语义不变）。
  */
-export function aggregateFold(entries, cfg, now, alertPrev) {
+export function aggregateFold(entries, cfg, now, alertPrev, extraFolds) {
   const sessions = Array.isArray(entries) ? entries : []
   const live = cfg && typeof cfg === 'object' ? cfg : {}
   // 配置门逐键判型回退（v1.4.0 cfgB/cfgN 原样语义）
@@ -264,12 +267,16 @@ export function aggregateFold(entries, cfg, now, alertPrev) {
   let userEstToday = 0
   const approvals = []
   const perSessionMetrics = []
+  // v2.4（Issue #9）：用量侧全量折叠清单——roots 条目 + extraFolds（非根会话）。原实现
+  // 用量累加嵌在 if(m) 内，引擎/兼容两条路径的条目恒有 metrics，语义等价迁移。
+  const folds = []
   for (const s of sessions) {
     if (!s) continue
     const sid = s.id !== undefined && s.id !== null ? s.id : ''
     const stitle = s.title || sid
     const info = s.scan
     const m = info && info.metrics
+    if (s.folded) folds.push(s.folded)
     if (m) {
       if (m.lastEventTime !== null) {
         if (m.lastEventTime > aggLastEvent) aggLastEvent = m.lastEventTime
@@ -279,11 +286,7 @@ export function aggregateFold(entries, cfg, now, alertPrev) {
       const hasOpenTurn = (info.latestTurnStartSeq !== null && info.lastEnd !== null && info.latestTurnStartSeq > info.lastEnd.seq)
         || (info.latestTurnStartSeq !== null && info.lastEnd === null)
       if (hasOpenTurn) aggTurnOpen = true
-      const usage = s.folded.usage
-      userEstToday += s.folded.userEstByDay[dayKey] || 0
-      const dayB = usage.byDay[dayKey] || null
-      if (dayB) for (const k of USAGE_KEYS) dayUsage[k] += dayB[k]
-      grandTotal += usage.grand.inputTokens + usage.grand.outputTokens + usage.grand.cacheReadTokens + usage.grand.cacheWriteTokens
+      const dayB = (s.folded && s.folded.usage.byDay[dayKey]) || null
       if (m.lastEventTime !== null && m.lastEventTime > latestTime) {
         latestTime = m.lastEventTime
         const sB = dayB || zeroUsage()
@@ -293,11 +296,19 @@ export function aggregateFold(entries, cfg, now, alertPrev) {
       for (const pnd of m.pendingList) approvals.push({ id: sid + ':' + pnd.id, title: stitle, waitMin: Math.floor((nowMs - pnd.at) / 60000) })
     }
   }
+  for (const f of Array.isArray(extraFolds) ? extraFolds : []) if (f) folds.push(f)
+  for (const f of folds) {
+    const usage = f.usage
+    userEstToday += f.userEstByDay[dayKey] || 0
+    const dayB = usage.byDay[dayKey] || null
+    if (dayB) for (const k of USAGE_KEYS) dayUsage[k] += dayB[k]
+    grandTotal += usage.grand.inputTokens + usage.grand.outputTokens + usage.grand.cacheReadTokens + usage.grand.cacheWriteTokens
+  }
   // ---------- v2.2 快照扩展三段（folded 已缓存，零重扫成本） ----------
   // ① models 当日账（R2）：从 byDayRoute[dayKey] 日切片聚合（Task 1 交叉维度，跨日旧账不污染）
   const routeDay = {}
-  for (const s of sessions) {
-    const dayRoute = s && s.folded && s.folded.usage.byDayRoute && s.folded.usage.byDayRoute[dayKey]
+  for (const f of folds) {
+    const dayRoute = f.usage.byDayRoute && f.usage.byDayRoute[dayKey]
     if (!dayRoute) continue
     for (const [route, r] of Object.entries(dayRoute)) {
       const slash = route.indexOf('/')
@@ -314,8 +325,8 @@ export function aggregateFold(entries, cfg, now, alertPrev) {
   }
   // ①b tools 当日账（R5）：foldToolsByDay 的 { byDay } 日切片聚合（计数口径=带名 tool/call）
   const toolDay = {}
-  for (const s of sessions) {
-    const day = s && s.folded && s.folded.toolsByDay && s.folded.toolsByDay.byDay && s.folded.toolsByDay.byDay[dayKey]
+  for (const f of folds) {
+    const day = f.toolsByDay && f.toolsByDay.byDay && f.toolsByDay.byDay[dayKey]
     if (!day) continue
     for (const [name, v] of Object.entries(day)) {
       const a = toolDay[name] || (toolDay[name] = { name, count: 0, durMs: 0 })
@@ -358,7 +369,7 @@ export function aggregateFold(entries, cfg, now, alertPrev) {
       // models 由 v2.1 的 {} 二期占位桶转正为 RouteAgg[]（客户端 UsageSnapshot.models / Board 消费数组）。
       models: Object.values(routeDay).sort((a, b) => b.requestTotal - a.requestTotal).slice(0, 10), // v2.2.1 Top6→Top10（用户裁定：10 个模型全展示）
       tools: Object.values(toolDay).sort((a, b) => b.count - a.count).slice(0, 5),
-      trend: buildTrend(sessions.map((s) => (s && s.folded) ? s.folded.usage : null), nowMs),
+      trend: buildTrend(folds.map((f) => f.usage), nowMs),
     },
     alerts: newAlerts,
     approvals: cfgN('approvalFlickerMin') > 0 ? approvals.filter((x) => x.waitMin >= 0) : [],
@@ -385,7 +396,8 @@ export function createStateEngine(deps) {
   // 下一个事件（fp 变化触发重扫）才刷新。当日性随会话活动即时自愈，不为跨零点空闲专门重扫。
   const foldCache = new Map() // agentId → { fp, scan, folded, recent: number[] }；fp=事件数:末事件 seq
   const stats = { rescans: 0 } // 诊断计数：累计实际重扫次数（含首轮；fp 未变的轮次复用缓存不计数）
-  let trendCache = { hourKey: null, value: null } // trend 整点锚定节流（R3）
+  let corpusRev = 0 // v2.4.1 评审修复：corpus 折叠变更计数——trend 节流门据此感知子代理/冷会话到达（rescans 不覆盖该路径）
+  let trendCache = { hourKey: null, corpusRev: 0, value: null } // trend 整点锚定节流（R3）
 
   const compute = () => {
     const roots = (() => { try { return deps.roots() || [] } catch { return [] } })()
@@ -410,9 +422,16 @@ export function createStateEngine(deps) {
             stats.rescans += 1
             const recent = []
             for (const e of evts) if (e && typeof e.time === 'number' && ACTIVITY_TYPES.has(e.type) && e.time > now - 300000) recent.push(e.time)
-            c = { fp, scan: scanSession(session, deps.getTitle, dayStart.getTime(), evts), folded: foldEntry(evts), recent }
+            // fork/续跑会话的日志含继承前缀（前 inheritedEventCount 条来自父会话，其用量已在
+            // 父会话计入）——用量折叠只吃自身事件；scan（卡片/标题/回合）维持全量日志语义。
+            const inherited = session && typeof session.inheritedEventCount === 'number' && session.inheritedEventCount > 0
+              ? Math.floor(session.inheritedEventCount) : 0
+            c = { fp, scan: scanSession(session, deps.getTitle, dayStart.getTime(), evts), folded: foldEntry(inherited > 0 ? evts.slice(inherited) : evts), recent }
             foldCache.set(a.id, c)
           } else {
+            // 采集竞态自愈：corpus 写入的 scan-less 条目被根路径复用时补齐 scan 视图
+            // （同 fp 折叠直接沿用，scan 缺失会让 boardEntry 读 info.title 崩掉）
+            if (c.scan === null) c.scan = scanSession(session, deps.getTitle, dayStart.getTime(), evts)
             // 5 分钟活跃窗滑动：只裁剪，不重扫（谓词与 events5mCount 一致：time > now-300000）
             while (c.recent.length > 0 && c.recent[0] <= now - 300000) c.recent.shift()
           }
@@ -456,7 +475,14 @@ export function createStateEngine(deps) {
         return v && typeof v === 'object' ? v : {}
       } catch { return {} }
     })()
-    dashState = aggregateFold(boardEntries, cfgRaw, now, alertPrev)
+    // v2.4（Issue #9）：非根会话折叠并入聚合——foldCache 中不属于本轮 roots 的条目
+    // （corpus 采集器写入的子代理/已收尾会话，或根会话收尾后的遗留折叠）。根自身折叠已在
+    // boardEntries 内，seen 排除保证不双计；scan 侧（卡片/审批/黑板）不受影响。
+    const extraFolds = []
+    for (const [cid, c] of foldCache) {
+      if (!seen.has(cid) && c && c.folded) extraFolds.push(c.folded)
+    }
+    dashState = aggregateFold(boardEntries, cfgRaw, now, alertPrev, extraFolds)
     // v2.2 usage.counts（MiniBar 计数口径 follow-up）：引擎侧从 projects Map 并入
     // （与 list() 同口径：仅 status 非空的项目计数；aggregateFold 不产 counts）
     const counts = { approval: 0, running: 0, done: 0 }
@@ -470,8 +496,8 @@ export function createStateEngine(deps) {
     // trend 节流（R3 整点锚定）：整点变化或本轮任一指纹变化才采纳重算结果，否则复用缓存
     // （同整点且 folded 未变 → 重算值与缓存值等价，替换为纯性能优化）
     const hk = hourKeyOf(now)
-    if (trendCache.hourKey !== hk || stats.rescans !== rescansBefore) {
-      trendCache = { hourKey: hk, value: dashState.usage.trend }
+    if (trendCache.hourKey !== hk || stats.rescans !== rescansBefore || trendCache.corpusRev !== corpusRev) {
+      trendCache = { hourKey: hk, corpusRev, value: dashState.usage.trend }
     } else {
       dashState.usage.trend = trendCache.value
     }
@@ -541,7 +567,48 @@ export function createStateEngine(deps) {
     projects,
     queue,
     dashboard: () => dashState, // 效率看板聚合（首轮 compute 前为 null）
+    // ---------- v2.4（Issue #9）：非根会话折叠入口（corpus.js 采集器喂数） ----------
+    /** 写入/更新一条非根会话折叠。fromLive=true 为活期视角（可能缺终态尾巴，转冷时须终读）；
+     *  指纹（事件数:末事件 seq）未变且视角相同则跳过。若该 id 现持有根条目（采集竞态：
+     *  会话刚被恢复为根），保留其 scan/recent 由 roots 路径继续接管，只换折叠。 */
+    noteCorpusSession(id, evts, fromLive) {
+      if (typeof id !== 'string' || id === '') return
+      const arr = Array.isArray(evts) ? evts : []
+      const last = arr.length > 0 ? arr[arr.length - 1] : null
+      const fp = arr.length + ':' + (last && typeof last.seq === 'number' ? last.seq : -1)
+      const prev = foldCache.get(id)
+      if (prev && prev.fp === fp && prev.fromLive === !!fromLive) return
+      corpusRev += 1 // 折叠集合变更：trend 节流门据此失效缓存
+      foldCache.set(id, {
+        fp,
+        scan: prev ? prev.scan : null,
+        folded: foldEntry(arr),
+        recent: prev && Array.isArray(prev.recent) ? prev.recent : [],
+        corpus: true,
+        fromLive: !!fromLive,
+      })
+    },
+    /** 是否需要一次冷读（readSession 终读）：无条目、或现有折叠是活期视角（fromLive!==false，
+     *  含根路径遗留的无标记条目）→ true；已有冷折叠（不可变）→ false。 */
+    corpusNeedsColdRead(id) {
+      const c = foldCache.get(id)
+      return c ? c.fromLive !== false : true
+    },
+    /** 存储侧删除的会话出账：只删 corpus 标记条目；根路径写入的条目（无标记）保持旧语义。 */
+    pruneCorpus(keepIds) {
+      const keep = keepIds instanceof Set ? keepIds : new Set(Array.isArray(keepIds) ? keepIds : [])
+      for (const [id, c] of foldCache) {
+        if (c && c.corpus && !keep.has(id)) { foldCache.delete(id); corpusRev += 1 }
+      }
+    },
     get stats() { return stats }, // v2.2 诊断：rescans 重扫计数（测试/Task 6 contentRev 消费）
+    // v2.4 诊断（真机验收观测点）：folds=corpus 标记折叠条数（子代理/已收尾会话），
+    // rev=corpus 变更计数。/state 的 diag.corpus 透传——启动收敛期 folds 应分批增长后稳定。
+    get corpusStats() {
+      let folds = 0
+      for (const c of foldCache.values()) if (c && c.corpus) folds += 1
+      return { folds, rev: corpusRev }
+    },
     ack(agentId) {
       const p = projects.get(agentId)
       if (p) p.unread = false
