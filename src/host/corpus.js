@@ -43,15 +43,20 @@ export function createCorpusCollector(deps, opt = {}) {
     ? Math.floor(opt.coldBudget)
     : CORPUS_COLD_READS_PER_CYCLE
   let busy = false
+  let disposed = false
+  let cycle = 0
+  const failedAt = new Map()
   let backoff = 0 // 连续整轮失败后的跳轮计数（防悬空宿主操作每 10s 堆积）
   async function refresh() {
-    if (busy || !deps || !deps.engine) return
+    if (disposed || busy || !deps || !deps.engine) return
     if (backoff > 0) { backoff -= 1; return }
     busy = true
+    cycle += 1
     const t0 = Date.now()
     let liveN = 0, coldN = 0, failN = 0
     try {
       const records = await withTimeout(deps.listRecords(), CORPUS_HOST_TIMEOUT_MS, 'listSessions')
+      if (disposed) return
       const keep = new Set()
       let roots = new Set()
       try {
@@ -61,33 +66,61 @@ export function createCorpusCollector(deps, opt = {}) {
       const nowMs = typeof deps.now === 'function' ? deps.now() : Date.now()
       const horizon = nowMs - CORPUS_WINDOW_MS
       const coldQueue = []
+      const oldColdQueue = []
       for (const r of Array.isArray(records) ? records : []) {
         if (!r || typeof r.id !== 'string' || r.id === '') continue
         keep.add(r.id)
         if (roots.has(r.id)) continue // 根会话：compute() 活路径独占，corpus 不碰（防双计）
-        // 窗口过滤只挡冷读（readSession 重放）；活会话内存折叠零盘读、今日用量必须在场
-        if (!r.live && typeof r.createdAt === 'number' && Number.isFinite(r.createdAt) && r.createdAt < horizon) continue
+        // createdAt 只决定冷读优先级，不是活动发生的证明。旧会话排在近期候选之后，
+        // 未核对前覆盖必须保持 loading/limited，不能静默当成窗口外零用量。
+        const old = !r.live && typeof r.createdAt === 'number' && Number.isFinite(r.createdAt) && r.createdAt < horizon
         if (r.live) {
           const evts = typeof deps.liveEvents === 'function' ? deps.liveEvents(r.id) : null
           if (Array.isArray(evts)) { deps.engine.noteCorpusSession(r.id, evts, true); liveN += 1; continue }
           // 枚举与读取之间死亡 → 落入冷读队列补终态
         }
-        coldQueue.push(r.id)
+        if (old) oldColdQueue.push(r.id)
+        else coldQueue.push(r.id)
       }
       let budget = coldBudget
-      for (const id of coldQueue) {
-        if (budget <= 0) break
-        if (deps.engine.corpusNeedsColdRead(id) !== true) continue // 冷折叠已缓存（不可变）
-        budget -= 1
-        try {
-          const evts = await withTimeout(deps.readEvents(id), CORPUS_HOST_TIMEOUT_MS, 'readSession ' + id)
-          deps.engine.noteCorpusSession(id, evts, false)
-          coldN += 1
-        } catch (err) {
-          failN += 1 // 单会话失败：下轮重试；计数进本轮摘要日志
-          console.warn('[foxbell-pet] corpus readSession failed: ' + id + ' -> ' + String(err && err.message || err))
-          if (failN >= 3) break // 读路径整体不健康时尽早止损，等下一轮
+      const needsRead = (id) => deps.engine.corpusNeedsColdRead(id) === true
+      for (const id of failedAt.keys()) if (!keep.has(id)) failedAt.delete(id)
+      const byLastFailure = (a, b) => (failedAt.get(a) ?? 0) - (failedAt.get(b) ?? 0)
+      coldQueue.sort(byLastFailure)
+      oldColdQueue.sort(byLastFailure)
+      const oldPending = oldColdQueue.some(needsRead)
+      // 近期积压时仍给旧候选预留 1 次，避免旧会话永久饥饿；其余服从原每轮预算。
+      const recentCap = oldPending && coldQueue.some(needsRead) ? Math.max(0, budget - 1) : budget
+      if (coldQueue.some(needsRead) || oldPending) deps.engine.noteCoverage?.('loading')
+      const readQueue = async (queue, cap) => {
+        for (const id of queue) {
+          if (disposed || budget <= 0 || cap <= 0 || failN >= 3) break
+          if (!needsRead(id)) continue
+          budget -= 1
+          cap -= 1
+          try {
+            const evts = await withTimeout(deps.readEvents(id), CORPUS_HOST_TIMEOUT_MS, 'readSession ' + id)
+            if (disposed) return
+            if (!Array.isArray(evts)) throw new Error('readSession returned a malformed event list')
+            deps.engine.noteCorpusSession(id, evts, false)
+            coldN += 1
+            failedAt.delete(id)
+          } catch (err) {
+            failedAt.set(id, cycle)
+            failN += 1 // 读取失败不推进终读标记；下轮重试并限制全量覆盖声明
+            console.warn('[foxbell-pet] corpus readSession failed: ' + id + ' -> ' + String(err && err.message || err))
+          }
         }
+      }
+      if (oldPending && recentCap < budget && (coldQueue.some((id) => failedAt.has(id)) || (budget === 1 && cycle % 2 === 0))) {
+        await readQueue(oldColdQueue, 1)
+      }
+      await readQueue(coldQueue, budget === 1 && cycle % 2 !== 0 ? 1 : recentCap)
+      await readQueue(oldColdQueue, budget)
+      if (disposed) return
+      if (typeof deps.engine.noteCoverage === 'function') {
+        const pending = coldQueue.some(needsRead) || oldColdQueue.some(needsRead)
+        deps.engine.noteCoverage(failN > 0 ? 'limited' : pending ? 'loading' : 'ready')
       }
       deps.engine.pruneCorpus(keep) // 存储侧删除的会话：折叠随之出账（keep 含全部本轮记录 + 根）
       if (liveN + coldN + failN > 0) {
@@ -96,11 +129,13 @@ export function createCorpusCollector(deps, opt = {}) {
       }
       backoff = 0
     } catch (err) {
+      if (disposed) return
+      if (deps.engine && typeof deps.engine.noteCoverage === 'function') deps.engine.noteCoverage('limited')
       // 本轮整体失败：保留现状重试——warn 留痕便于实机诊断。仅「超时/挂起」类失败退避
       // （悬空宿主操作随每轮堆积）；普通报错（服务未起等）下轮照常直试。
       console.warn('[foxbell-pet] corpus refresh failed: ' + String(err && err.message || err))
       if (/timed out/.test(String(err && err.message || err))) backoff = Math.min(backoff + 2, CORPUS_BACKOFF_MAX_ROUNDS)
     } finally { busy = false }
   }
-  return { refresh }
+  return { refresh, dispose() { disposed = true } }
 }

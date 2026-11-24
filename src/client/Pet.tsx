@@ -15,7 +15,7 @@ import {
 } from "./config";
 import { MIN_SPEECH_MS } from "./voices";
 import type { VoiceGroup } from "./validation";
-import { appStore, ackProject, cfgStore, openDashboardPanel, petStore, playDefaultAlertSound, voicePlayer, type ActivePetRuntime } from "./store";
+import { appStore, ackProject, cfgStore, petStore, playDefaultAlertSound, voicePlayer, type ActivePetRuntime } from "./store";
 import { isVoiceOwner } from "./voiceowner";
 import { apiPost, type ActivateResult, type GuardIssue, type PaceTier, type ProjectCard } from "./api";
 import { DOT_COLOR, DOT_HALO, lightOf, taskPoseOf } from "./statuscards";
@@ -25,6 +25,8 @@ import { Sign } from "./Sign";
 import { MiniBar, type MiniMode } from "./MiniBar";
 import { Board, type BoardMode } from "./Board";
 import { openDialog } from "./dialogs/host";
+import { useSessionSpeed } from "./session-speed";
+import { openDashboardEntry, openMiniBarDetail } from "./dashboard-entries";
 
 const BOTTOM_MARGIN = 76; // 精灵底边距视口底（v1 默认 bottom:76 落点，随 scale 缩放）
 const LOOK_FRAME_MS = 250;
@@ -734,6 +736,9 @@ export function Pet(props: PetProps): React.ReactElement | null {
     });
   }, [snap]);
 
+  const miniSpeedActive = visible && miniMode !== null && board === null && !dragging && stateRef.current.drag === null;
+  const sessionTps = useSessionSpeed(currentId ?? null, miniSpeedActive);
+
   // 小黑板：fragment 层渲染（源 L924-926：farewell 要在宠物隐藏后仍显示；无 summary 时 Board 自身返回 null）。
   // 定位（Task 11 R4 重锚定；终审修复：黑板层经 transform:scale 缩放，锚点须用缩放后宽度
   // BOARD_W*scale，否则 1.25 档下黑板右缘压住宠物 ~65px）——左优先 left = petX - BOARD_W*scale - 12，
@@ -757,7 +762,7 @@ export function Pet(props: PetProps): React.ReactElement | null {
           mode={board.mode}
           ttlSec={cfg.boardTtlSec}
           onClose={closeBoard}
-          onOpenPanel={() => { closeBoard(); openDashboardPanel(); }} // v2.2 R6 入口行：关黑板 + 开 L3 大看板（钻取链 L2→L3；Task 13 落地真切换，layout 缺席时静默降级）
+          onOpenPanel={() => openDashboardEntry(closeBoard)} // v2.2 R6 入口行：关黑板 + 开 L3 大看板（钻取链 L2→L3；Task 13 落地真切换，layout 缺席时静默降级）
         />
       </div>
     );
@@ -860,7 +865,8 @@ export function Pet(props: PetProps): React.ReactElement | null {
               mode={miniMode}
               scale={scale}
               usageOn={cfg.usageEnabled}
-              onDetail={() => openBoard("manual")} // v2.2 R6：详情 » 钻取 → 黑板（L2 主链；hover/manual 共用此挂载点）
+              sessionTps={sessionTps}
+              onDetail={() => openMiniBarDetail(openBoard)} // v2.2 R6：详情 » 钻取 → 黑板（L2 主链；hover/manual 共用此挂载点）
             />
           </div>
         ) : null}
@@ -921,7 +927,7 @@ export function Pet(props: PetProps): React.ReactElement | null {
             onSwitchPet={(id) => { closeMenu(); void switchTo(id); }}
             onMiniUsage={() => { closeMenu(); setMiniMode("manual"); }} // 🏷 今日用量：手动迷你条（源 miniOpen）
             onBoardSummary={() => { closeMenu(); openBoard("manual"); }} // 📊 查看最近总结：关菜单 + 开黑板（源 boardOpen）
-            onOpenDashboard={() => { closeMenu(); openDashboardPanel(); }} // 📈 用量看板：关菜单 + 开 L3 大看板（v2.2 R6；Task 13）
+            onOpenDashboard={() => openDashboardEntry(closeMenu)} // 📈 用量看板：关菜单 + 开 L3 大看板（v2.2 R6；Task 13）
             onSessionPick={(p) => { closeMenu(); onProjectClick(p); }} // 🗂 会话一览点选：关菜单 + 跳会话（源 SessionsPage onPick）
             sessions={snap?.projects ?? []}
           />

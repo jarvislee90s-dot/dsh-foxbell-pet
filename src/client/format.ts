@@ -31,3 +31,13 @@ export function shortModel(name: string): string {
 export function fmtPct(x: number): string {
   return (x * 100).toFixed(1) + "%";
 }
+
+/** 金额显示：有限金额固定两位小数；未知（null/空/非法）显示破折号，绝不把缺价写成 0。 */
+export function fmtMoney(amount: string | number | null | undefined): string {
+  if (amount === null || amount === undefined || amount === "") return "—";
+  const n = typeof amount === "number" ? amount : Number(amount);
+  if (!Number.isFinite(n)) return "—";
+  // 用 toFixed 前先按十进制四舍五入，避免 2.005 因二进制表示落到 2.00。
+  const scaled = Math.round((n + Number.EPSILON * Math.sign(n || 1)) * 100) / 100;
+  return scaled.toFixed(2);
+}

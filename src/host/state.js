@@ -14,8 +14,10 @@
 import {
   sessionEvents, PACE_LABELS, derivePaceTier, dateKeyOf, zeroUsage, foldUsage,
   evaluateAlerts, summarize, summarizeStructured, estimateUserTokensByDay, hitRate, ageLabel,
-  buildTrend, foldToolsByDay, hourKeyOf, summarizeRange,
+  buildTrend, foldToolsByDay, hourKeyOf, summarizeRange, blocksTextOf, estimateTokens as estimateUsageTokens,
 } from './dashboard.js'
+import { foldSpeedFacts, querySpeed } from './speed.js'
+import { aggregateUsageWindow, resolveUsageSpan } from './usage-window.js'
 
 /** 文本助手（与 v1.3.0 相同：词元感知截断，CJK 每字 1 词元） */
 export function blocksText(blocks) {
@@ -204,16 +206,52 @@ export function derive(a, info, prev, newCompletion) {
   return null
 }
 
+// Keep recent activity as numbers only. The legacy daily summaries remain available
+// for wider windows; a 5h export may not substitute an entire day's activity.
+function foldRecentActivity(events, now) {
+  const records = new Map()
+  const seen = new Set()
+  const cutoff = Number.isFinite(now) ? now - 24 * 3_600_000 : -Infinity
+  for (const event of Array.isArray(events) ? events : []) {
+    if (!event || !Number.isFinite(event.time) || event.time < cutoff || !event.data) continue
+    if (event.type !== 'user/message' && event.type !== 'tool/call' && event.type !== 'tool/result') continue
+    if (Number.isSafeInteger(event.seq)) {
+      if (seen.has(event.seq)) continue
+      seen.add(event.seq)
+    }
+    const at = event.time
+    let activity = records.get(at)
+    if (!activity) records.set(at, activity = { userEst: 0, tools: new Map() })
+    if (event.type === 'user/message') {
+      activity.userEst += estimateUsageTokens(blocksTextOf(event.data.content))
+      continue
+    }
+    const name = typeof event.data.name === 'string' ? event.data.name.trim() : ''
+    if (!name) continue
+    let tool = activity.tools.get(name)
+    if (!tool) activity.tools.set(name, tool = { name, count: 0, durMs: 0 })
+    if (event.type === 'tool/call') tool.count += 1
+    else if (Number.isFinite(event.data.durationMs) && event.data.durationMs > 0) tool.durMs += event.data.durationMs
+  }
+  return records
+}
+
 /**
  * 单会话折叠（v2.2 Task 4）：引擎增量缓存的最小单位。usage 三维账（foldUsage：
  * byDay/byHour/byRoute/byDayRoute/grand/requestCount）+ 用户输入按日估算 + 工具调用按日。
  * 引擎按指纹缓存折叠结果；时间派生量（pace/approvals/summary 行）不进缓存、每轮重算。
  */
-export function foldEntry(evts) {
+export function foldEntry(evts, options = {}) {
   return {
-    usage: foldUsage(evts),
+    usage: foldUsage(evts, { lastUsage: options.lastUsage }),
+    speed: foldSpeedFacts(evts, {
+      sessionId: options.sessionId,
+      now: options.now,
+      firstTokenTime: options.firstTokenTime,
+    }),
     userEstByDay: estimateUserTokensByDay(evts),
     toolsByDay: foldToolsByDay(evts),
+    recentActivity: foldRecentActivity(evts, options.now),
   }
 }
 
@@ -235,7 +273,7 @@ export function buildDashboard(sessionsData, cfg, now, alertPrev) {
       id: sid,
       title: s.title || sid,
       scan: scanInfo(evts, 0),
-      folded: foldEntry(evts),
+      folded: foldEntry(evts, { sessionId: sid, now: nowMs }),
       recentCount: events5mCount(evts, nowMs), // 兼容路径现算 5min 活跃数（引擎路径由缓存 recent 提供）
     }]
   })
@@ -397,12 +435,25 @@ export function createStateEngine(deps) {
   const foldCache = new Map() // agentId → { fp, scan, folded, recent: number[] }；fp=事件数:末事件 seq
   const stats = { rescans: 0 } // 诊断计数：累计实际重扫次数（含首轮；fp 未变的轮次复用缓存不计数）
   let corpusRev = 0 // v2.4.1 评审修复：corpus 折叠变更计数——trend 节流门据此感知子代理/冷会话到达（rescans 不覆盖该路径）
+  let usageRevision = 0
+  let coverage = 'limited'
   let trendCache = { hourKey: null, corpusRev: 0, value: null } // trend 整点锚定节流（R3）
+  let lastSpeedPrune = -Infinity
+  const pruneSpeed = (now) => {
+    if (!Number.isFinite(now) || now < lastSpeedPrune) return
+    lastSpeedPrune = now
+    for (const entry of foldCache.values()) {
+      const speed = entry.folded?.speed
+      const cutoff = now - 86_400_000
+      if (speed?.some((fact) => fact.at <= cutoff)) entry.folded.speed = speed.filter((fact) => fact.at > cutoff)
+    }
+  }
 
   const compute = () => {
     const roots = (() => { try { return deps.roots() || [] } catch { return [] } })()
     const seen = new Set()
     const now = deps.now()
+    pruneSpeed(now)
     const dayStart = new Date(now); dayStart.setHours(0, 0, 0, 0)
     const boardEntries = []
     const rescansBefore = stats.rescans // 本轮是否有任一指纹变化（trend 节流判据之一）
@@ -426,7 +477,15 @@ export function createStateEngine(deps) {
             // 父会话计入）——用量折叠只吃自身事件；scan（卡片/标题/回合）维持全量日志语义。
             const inherited = session && typeof session.inheritedEventCount === 'number' && session.inheritedEventCount > 0
               ? Math.floor(session.inheritedEventCount) : 0
-            c = { fp, scan: scanSession(session, deps.getTitle, dayStart.getTime(), evts), folded: foldEntry(inherited > 0 ? evts.slice(inherited) : evts), recent }
+            c = {
+              fp,
+              scan: scanSession(session, deps.getTitle, dayStart.getTime(), evts),
+              folded: foldEntry(inherited > 0 ? evts.slice(inherited) : evts, {
+                sessionId: String(a.id), now, lastUsage: deps.lastUsage, firstTokenTime: deps.firstTokenTime,
+              }),
+              recent,
+            }
+            usageRevision += 1
             foldCache.set(a.id, c)
           } else {
             // 采集竞态自愈：corpus 写入的 scan-less 条目被根路径复用时补齐 scan 视图
@@ -561,6 +620,58 @@ export function createStateEngine(deps) {
     return summarizeRange(folds, tools, ests, fromKey, toKey)
   }
 
+  const usageFacts = () => {
+    const facts = []
+    for (const c of foldCache.values()) {
+      if (c && c.folded && Array.isArray(c.folded.usage.facts)) facts.push(...c.folded.usage.facts)
+    }
+    return { facts, coverage, revision: usageRevision }
+  }
+  const speedFacts = () => {
+    const facts = []
+    const now = deps.now()
+    pruneSpeed(now)
+    for (const c of foldCache.values()) {
+      if (!Array.isArray(c.folded?.speed)) continue
+      for (const fact of c.folded.speed) if (fact.at > now - 86_400_000 && fact.at <= now) facts.push(fact)
+    }
+    return { facts, coverage: typeof deps.firstTokenTime === 'function' ? coverage : 'unsupported', revision: usageRevision }
+  }
+  const usageWindow = (query) => {
+    const now = deps.now()
+    const span = resolveUsageSpan(query, now)
+    const tools = new Map()
+    let userEst = 0, activitySessions = 0
+    for (const { folded } of foldCache.values()) {
+      const hasUsage = folded.usage.facts?.some((fact) => fact.at >= span.from && fact.at < span.to)
+      let hasActivity = false
+      if (query.preset === '5h') {
+        for (const [at, activity] of folded.recentActivity) {
+          if (at < span.from || at >= span.to) continue
+          hasActivity = true
+          userEst += activity.userEst
+          for (const tool of activity.tools.values()) {
+            let total = tools.get(tool.name)
+            if (!total) tools.set(tool.name, total = { name: tool.name, count: 0, durMs: 0 })
+            total.count += tool.count
+            total.durMs += tool.durMs
+          }
+        }
+      } else {
+        const fromDay = dateKeyOf(span.from), toDay = dateKeyOf(span.to - 1)
+        hasActivity = [...Object.keys(folded.userEstByDay), ...Object.keys(folded.toolsByDay.byDay)]
+          .some((day) => day >= fromDay && day <= toDay)
+      }
+      if (hasUsage || hasActivity) activitySessions += 1
+    }
+    const hourly = query.preset === '5h' ? { userEst, tools: [...tools.values()].sort((a, b) => b.count - a.count) } : {}
+    return { ...aggregateUsageWindow({ ...usageFacts(), query, span, now, rangeSummary, ...hourly }), activitySessions }
+  }
+  const speedWindow = (range, selectedKey) => {
+    const current = speedFacts()
+    return querySpeed(current.facts, { range, selectedKey }, deps.now(), current.coverage)
+  }
+
   return {
     compute,
     list,
@@ -579,10 +690,11 @@ export function createStateEngine(deps) {
       const prev = foldCache.get(id)
       if (prev && prev.fp === fp && prev.fromLive === !!fromLive) return
       corpusRev += 1 // 折叠集合变更：trend 节流门据此失效缓存
+      usageRevision += 1
       foldCache.set(id, {
         fp,
         scan: prev ? prev.scan : null,
-        folded: foldEntry(arr),
+        folded: foldEntry(arr, { sessionId: id, now: deps.now(), lastUsage: deps.lastUsage, firstTokenTime: deps.firstTokenTime }),
         recent: prev && Array.isArray(prev.recent) ? prev.recent : [],
         corpus: true,
         fromLive: !!fromLive,
@@ -598,7 +710,7 @@ export function createStateEngine(deps) {
     pruneCorpus(keepIds) {
       const keep = keepIds instanceof Set ? keepIds : new Set(Array.isArray(keepIds) ? keepIds : [])
       for (const [id, c] of foldCache) {
-        if (c && c.corpus && !keep.has(id)) { foldCache.delete(id); corpusRev += 1 }
+        if (c && c.corpus && !keep.has(id)) { foldCache.delete(id); corpusRev += 1; usageRevision += 1 }
       }
     },
     get stats() { return stats }, // v2.2 诊断：rescans 重扫计数（测试/Task 6 contentRev 消费）
@@ -616,5 +728,16 @@ export function createStateEngine(deps) {
     nextSeq: () => seq,
     contentRev, // v2.2 Task 6：内容修订号（/state ?since 短路 + 全量快照顶层 rev）
     rangeSummary, // v2.2 Task 6：/dashboard/range 的引擎入口（R3）
+    get usageRevision() { return usageRevision },
+    usageFacts,
+    speedFacts,
+    usageWindow,
+    speedWindow,
+    noteCoverage(value) {
+      if (value !== coverage && (value === 'ready' || value === 'loading' || value === 'limited')) {
+        coverage = value
+        usageRevision += 1
+      }
+    },
   }
 }

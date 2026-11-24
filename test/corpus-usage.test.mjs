@@ -228,7 +228,7 @@ describe('createCorpusCollector（sessionQuery 采集器）', () => {
     expect(deps.coldReads).toEqual(['sub-done'])
   })
 
-  it('活期折叠转冷触发一次终读（补齐活期尾巴）；root id 跳过；窗口外 createdAt 跳过', async () => {
+  it('活期折叠转冷触发一次终读；root 跳过；createdAt 只排序、不再把旧会话当成零用量', async () => {
     const eng = engineHarness([{ id: 'main', status: 'running' }], new Map([['main', makeSession(mainEvents())]]))
     const finalEvents = subEvents().concat([
       ev('assistant/message', 2, NOW - 5 * 1000, { turn: 0, step: 1, usage: { inputTokens: 7, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 } }),
@@ -250,8 +250,8 @@ describe('createCorpusCollector（sessionQuery 采集器）', () => {
     // 预置活期折叠（模拟上一轮 live 时写入）
     eng.noteCorpusSession('sub-1', subEvents(), true)
     await createCorpusCollector(deps).refresh()
-    expect(deps.coldReads).toEqual(['sub-1']) // fromLive → 强制终读一次
-    expect(deps.coldReads).not.toContain('ancient') // 窗口外不读
+    expect(deps.coldReads).toEqual(['sub-1', 'ancient']) // 近期先读，旧候选随后核对
+    expect(eng.usageFacts().coverage).toBe('ready')
     eng.compute()
     // main(1000) + sub-1 终读(2000+7)
     expect(eng.dashboard().usage.day.inputTokens).toBe(3007)

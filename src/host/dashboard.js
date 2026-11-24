@@ -1,6 +1,8 @@
 // 效率看板一期 —— 宿主侧纯函数集（无副作用、无宿主依赖，可被 node --test 直接测试）。
 // 事件读取双兼容：rc.1+ 的 session.snapshotEvents() 优先，老版回退 session.events 属性。
 
+import { foldUsageFacts } from './usage-facts.js'
+
 export function sessionEvents(session) {
   if (session && typeof session.snapshotEvents === 'function') {
     try {
@@ -74,73 +76,40 @@ export function hourKeyOf(ms) {
 const UNKNOWN_ROUTE = '未知'
 const routeBuckets = () => ({ inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, requestCount: 0 })
 
-export function foldUsage(evts) {
+export function foldUsage(evts, { lastUsage } = {}) {
   const byDay = {}
   const byHour = {}
   const byRoute = {}
   const byDayRoute = {}
   const grand = zeroUsage()
   let requestCount = 0
-  let lastKey = null
-  let lastBuckets = null
-  let lastDay = null
-  let lastHour = null
-  let lastRoute = null
-  // 冲回后全零的壳桶就地摘除：同 (turn,step) 替换不留 0 值残桶（否则旧路由/小时/日以 0 壳污染切片）
-  const pruneIfEmpty = (parent, key) => {
-    const t = parent && parent[key]
-    if (!t) return
-    if (USAGE_KEYS.every((k) => !t[k]) && !t.requestCount) delete parent[key]
-  }
-  const apply = (b, day, hour, route, sign) => {
+  const facts = foldUsageFacts(evts, { lastUsage })
+  for (const fact of facts) {
+    const day = dateKeyOf(fact.at)
+    const hour = hourKeyOf(fact.at)
+    const src = fact.route
+    const route = src.provider && src.model ? src.provider + '/' + src.model : UNKNOWN_ROUTE
     const d = byDay[day] || (byDay[day] = zeroUsage())
     const h = byHour[hour] || (byHour[hour] = zeroUsage())
     const r = byRoute[route] || (byRoute[route] = routeBuckets())
     const dr = byDayRoute[day] || (byDayRoute[day] = {})
     const rd = dr[route] || (dr[route] = routeBuckets())
     for (const k of USAGE_KEYS) {
-      const v = (b[k] || 0) * sign
-      grand[k] += v
-      d[k] += v
-      h[k] += v
-      r[k] += v
-      rd[k] += v
+      const value = fact.tokens[k] || 0
+      grand[k] += value
+      d[k] += value
+      h[k] += value
+      r[k] += value
+      rd[k] += value
     }
-    r.requestCount += sign
-    rd.requestCount += sign
-    d.requestCount = (d.requestCount || 0) + sign
-    h.requestCount = (h.requestCount || 0) + sign
-    requestCount += sign
-    if (sign < 0) {
-      pruneIfEmpty(byRoute, route)
-      pruneIfEmpty(byDayRoute[day], route)
-      if (byDayRoute[day] && !Object.keys(byDayRoute[day]).length) delete byDayRoute[day]
-      pruneIfEmpty(byDay, day)
-      pruneIfEmpty(byHour, hour)
-    }
+    r.requestCount += 1
+    rd.requestCount += 1
+    d.requestCount = (d.requestCount || 0) + 1
+    h.requestCount = (h.requestCount || 0) + 1
+    requestCount += 1
   }
-  for (const ev of Array.isArray(evts) ? evts : []) {
-    const d = ev && ev.data
-    if (!d) continue
-    if (ev.type === 'llm/retry-started') {
-      lastKey = null; lastBuckets = null; lastDay = null; lastHour = null; lastRoute = null
-      continue
-    }
-    if (ev.type !== 'assistant/message' || !d.usage || typeof d.usage !== 'object') continue
-    if (typeof ev.time !== 'number' || !Number.isFinite(ev.time)) continue // 无时间戳的样本无法归日，跳过（防 NaN 桶）
-    const u = d.usage
-    const b = {}
-    for (const k of USAGE_KEYS) b[k] = typeof u[k] === 'number' && Number.isFinite(u[k]) && u[k] > 0 ? u[k] : 0
-    const key = d.turn + ':' + d.step
-    const day = dateKeyOf(ev.time)
-    const hour = hourKeyOf(ev.time)
-    const src = routeSource(ev)
-    const route = src ? src.provider + '/' + src.model : UNKNOWN_ROUTE
-    if (key === lastKey && lastBuckets && lastDay) apply(lastBuckets, lastDay, lastHour, lastRoute, -1)
-    apply(b, day, hour, route, 1)
-    lastKey = key; lastBuckets = b; lastDay = day; lastHour = hour; lastRoute = route
-  }
-  return { byDay, byHour, byRoute, byDayRoute, grand, requestCount }
+  // Existing consumers keep their byte-compatible buckets; new consumers share these exact facts.
+  return { byDay, byHour, byRoute, byDayRoute, grand, requestCount, facts }
 }
 
 // ---------- 组件②：阈值阶梯与里程碑（跨阈值判定，天然一次性） ----------

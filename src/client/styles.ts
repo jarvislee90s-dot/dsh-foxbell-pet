@@ -235,7 +235,7 @@ ${MINI_DETAIL_CSS}
 /* ---- v2.2 L3 大看板（Task 12，spec R5 Codex++ 排版：padding 16 / hero 28px 加粗 / 网格两列 /
    card 圆角 10px 次级背景 / model-bar 通栏 5px 圆角 / 胶囊选项卡）。
    面板语义（6.6 规则 7）：面板自滚——overflow:auto + height:100%，滚动不穿透外层 ---- */
-.dyn-pet-dash { padding: 20px 28px; overflow: auto; height: 100%; box-sizing: border-box; color: #3b2f23; font-size: 16px; line-height: 1.6; max-width: 1020px; margin: 0 auto; }
+.dyn-pet-dash { padding: 20px 28px; overflow: auto; height: 100%; box-sizing: border-box; color: #3b2f23; font-size: 16px; line-height: 1.6; max-width: 1020px; margin: 0 auto; background: var(--dsh-color-background, #fff); }
 .dyn-pet-dash-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 .dyn-pet-dash-head h2 { margin: 0; font-size: 20px; font-weight: 700; color: #7a4a2b; }
 .dyn-pet-dash-tabs { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
@@ -260,7 +260,7 @@ ${MINI_DETAIL_CSS}
 .dyn-pet-dash-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 9px 2px; border-bottom: 1px solid rgba(122,74,43,.12); min-width: 0; }
 .dyn-pet-dash-row span { font-size: 16px; color: #6b7280; }
 .dyn-pet-dash-row strong { font-size: 16px; font-weight: 600; color: #1f2937; font-variant-numeric: tabular-nums; }
-.dyn-pet-dash-card { border: 1px solid rgba(122,74,43,.2); border-radius: 10px; background: rgba(255,252,248,.8); padding: 10px 12px; margin-bottom: 12px; }
+.dyn-pet-dash-card { border: 1px solid rgba(122,74,43,.16); border-radius: 10px; background: var(--dsh-color-background, #fff); padding: 10px 12px; margin-bottom: 12px; }
 .dyn-pet-dash-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; font-size: 17px; font-weight: 700; color: #7a4a2b; }
 .dyn-pet-dash-meta { font-size: 14px; font-weight: 400; color: #a07050; }
 .dyn-pet-dash-trendwrap { position: relative; }
@@ -268,7 +268,7 @@ ${MINI_DETAIL_CSS}
 .dyn-pet-dash-tooltip { position: absolute; transform: translate(-50%, -130%); background: rgba(47,42,38,.94); color: #f3e9dc; font-size: 11px; padding: 3px 8px; border-radius: 6px; pointer-events: none; white-space: nowrap; z-index: 2; }
 .dyn-pet-dash-model { display: grid; grid-template-columns: var(--model-name-w, 200px) var(--model-val-w, 84px) 1fr; align-items: center; gap: 12px; padding: 5px 0; font-size: 16px; }
 /* v2.2.1 进度条等长：名称列/数值列宽由 Panel 内 JS 以「最长行」实测写入 CSS 变量，所有行进度条起点一致 */
-.dyn-pet-dash-model-name { flex: none; min-width: 0; max-width: 100%; color: #7a4a2b; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dyn-pet-dash-model-name { flex: none; min-width: 0; max-width: 100%; color: #7a4a2b; font-weight: 600; white-space: normal; overflow-wrap: anywhere; line-height: 1.35; }
 .dyn-pet-dash-model-val { text-align: right; color: #a07050; font-variant-numeric: tabular-nums; }
 .dyn-pet-dash-model-bar { flex: 1; height: 5px; border-radius: 999px; background: rgba(122,74,43,.12); overflow: hidden; }
 .dyn-pet-dash-model-bar i { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg,#3BA7FF,#8D6BFF); }
@@ -278,6 +278,82 @@ ${MINI_DETAIL_CSS}
 .dyn-pet-dash-toolcell strong { font-size: 17px; font-weight: 600; color: #1f2937; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dyn-pet-dash-empty { color: #a07050; font-size: 12px; padding: 4px 0; }
 .dyn-pet-dash-foot { color: #a07050; font-size: 14px; padding-top: 2px; }
+/* ---- Native usage/cost/speed extension: same main column, DSH theme tokens + Foxbell fallbacks. ---- */
+.dyn-pet-dash-shell { height: 100%; min-height: 0; display: flex; flex-direction: column; color: var(--dsh-color-text, #3b2f23); }
+.dyn-pet-dash-page-tabs { flex: none; display: flex; gap: 8px; padding: 12px 28px 0; max-width: 1020px; width: 100%; box-sizing: border-box; margin: 0 auto; }
+.dyn-pet-dash-page { flex: 1 1 auto; min-height: 0; }
+.dyn-pet-dash-page[hidden] { display: none; }
+.dyn-pet-dash-actbtn:disabled { opacity: .45; cursor: not-allowed; }
+.dyn-pet-dash-actions { flex-wrap: wrap; }
+.dyn-pet-dash-notice { color: var(--dsh-color-text-secondary, #806b59); font-size: 12px; margin: 5px 0; }
+.dyn-pet-dash-error { color: var(--dsh-color-danger, #a43232); background: color-mix(in srgb, currentColor 8%, transparent); border-radius: 8px; padding: 7px 10px; margin: 7px 0; font-size: 13px; }
+.dyn-pet-dash-collapse { width: 100%; border: 0; background: transparent; cursor: pointer; text-align: left; padding: 0; }
+.dyn-pet-dash-card-head select, .dyn-pet-speed-filters input, .dyn-pet-speed-filters select { border: 1px solid color-mix(in srgb, currentColor 25%, transparent); border-radius: 7px; background: var(--dsh-color-background, #fff); color: inherit; padding: 4px 7px; font: inherit; font-size: 12px; }
+.dyn-pet-dash-tab:focus-visible, .dyn-pet-dash-actbtn:focus-visible, .dyn-pet-speed-series-row:focus-visible { outline: 2px solid var(--dsh-color-primary, #3ba7ff); outline-offset: 2px; }
+.dyn-pet-cost-head, .dyn-pet-cost-row { display: grid; grid-template-columns: minmax(160px,1.6fr) minmax(96px,1fr) minmax(76px,.8fr) 82px 40px; gap: 10px; align-items: start; }
+.dyn-pet-cost-head { color: var(--dsh-color-text-secondary, #806b59); font-size: 11px; padding: 8px 2px 3px; }
+.dyn-pet-cost-row { padding: 8px 2px; border-top: 1px solid color-mix(in srgb, currentColor 10%, transparent); font-size: 13px; }
+.dyn-pet-cost-row > span:first-child { min-width: 0; white-space: normal; overflow-wrap: anywhere; line-height: 1.35; }
+.dyn-pet-cost-row strong { display: flex; flex-direction: column; font-variant-numeric: tabular-nums; }
+.dyn-pet-cost-row small { color: var(--dsh-color-text-secondary, #806b59); font-weight: 400; }
+.dyn-pet-cost-provider { color: var(--dsh-color-text-secondary, #806b59); font-size: 12px; font-weight: 700; padding-top: 7px; }
+.dyn-pet-cost-detail { padding: 6px 8px 10px; background: color-mix(in srgb, currentColor 4%, transparent); border-radius: 7px; font-size: 11px; }
+.dyn-pet-cost-detail-row { display: grid; grid-template-columns: 1.3fr .7fr 1fr .8fr 1fr; gap: 5px; padding-top: 5px; }
+.dyn-pet-price-dialog-focus { display: contents; }
+.dyn-pet-price-rule { border: 1px solid color-mix(in srgb, currentColor 18%, transparent); border-radius: 8px; margin: 0 0 10px; padding: 9px; }
+.dyn-pet-price-rule-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.dyn-pet-price-rule label, .dyn-pet-price-cells label { display: flex; flex-direction: column; gap: 3px; font-size: 11px; }
+.dyn-pet-price-rule input, .dyn-pet-price-rule select { min-width: 0; border: 1px solid color-mix(in srgb, currentColor 25%, transparent); border-radius: 6px; background: var(--dsh-color-background, #fff); color: inherit; padding: 5px; }
+.dyn-pet-price-cells { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 7px; margin: 7px 0; }
+.dyn-pet-price-windows { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; margin: 7px 0; }
+.dyn-pet-price-windows input { width: 52px; }
+.dyn-pet-speed-current { display: grid; grid-template-columns: auto auto 1fr; align-items: baseline; gap: 12px; padding: 10px 2px; }
+.dyn-pet-speed-current strong { font-size: 25px; }
+.dyn-pet-speed-current small { color: var(--dsh-color-text-secondary, #806b59); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dyn-pet-speed-filters { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 10px; }
+.dyn-pet-speed-filters input { flex: 1 1 180px; }
+.dyn-pet-speed-layout { display: grid; grid-template-columns: minmax(190px,280px) minmax(0,1fr); gap: 12px; align-items: start; }
+.dyn-pet-speed-series { order: 1; display: flex; flex-direction: column; gap: 5px; }
+.dyn-pet-speed-detail { order: 2; min-width: 0; }
+.dyn-pet-speed-series-row { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; border: 1px solid color-mix(in srgb, currentColor 14%, transparent); border-radius: 8px; background: transparent; color: inherit; padding: 8px; text-align: left; cursor: pointer; }
+.dyn-pet-speed-series-row.is-active { border-color: var(--dsh-color-primary, #3ba7ff); background: color-mix(in srgb, currentColor 6%, transparent); }
+.dyn-pet-speed-series-row span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dyn-pet-speed-series-row small { color: var(--dsh-color-text-secondary, #806b59); }
+.dyn-pet-speed-metrics { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 7px; margin-bottom: 8px; }
+.dyn-pet-speed-metrics > div { display: flex; flex-direction: column; border: 1px solid color-mix(in srgb, currentColor 12%, transparent); border-radius: 8px; padding: 7px; min-width: 0; }
+.dyn-pet-speed-metrics span, .dyn-pet-speed-metrics small { color: var(--dsh-color-text-secondary, #806b59); font-size: 11px; }
+.dyn-pet-speed-metrics strong { font-size: 18px; }
+.dyn-pet-speed-chart { position: relative; min-width: 0; }
+.dyn-pet-speed-chart svg { display: block; width: 100%; height: auto; min-height: 210px; overflow: visible; }
+.dyn-pet-speed-grid { stroke: color-mix(in srgb, currentColor 12%, transparent); stroke-width: 1; }
+.dyn-pet-speed-axis { fill: var(--dsh-color-text-secondary, #806b59); font-size: 10px; font-variant-numeric: tabular-nums; }
+.dyn-pet-speed-line { stroke: var(--dsh-color-primary, #3ba7ff); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.dyn-pet-speed-mark { fill: var(--dsh-color-primary, #3ba7ff); stroke: var(--dsh-color-background, #fff); stroke-width: 2; }
+.dyn-pet-speed-crosshair { stroke: var(--dsh-color-text-secondary, #806b59); stroke-width: 1; pointer-events: none; }
+.dyn-pet-speed-chart circle[role="button"] { cursor: pointer; }
+.dyn-pet-speed-chart circle[role="button"]:focus-visible { outline: none; stroke: var(--dsh-color-primary, #3ba7ff); stroke-width: 2; }
+.dyn-pet-speed-tooltip { display: flex; flex-direction: column; gap: 2px; position: absolute; right: 10px; top: 10px; max-width: min(360px,90%); padding: 8px 10px; border-radius: 8px; background: var(--dsh-color-elevated, rgba(47,42,38,.94)); color: var(--dsh-color-text, #f3e9dc); font-size: 11px; pointer-events: none; }
+.dyn-pet-speed-table { margin-top: 8px; font-size: 11px; }
+.dyn-pet-speed-table table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.dyn-pet-speed-table th, .dyn-pet-speed-table td { text-align: left; border-bottom: 1px solid color-mix(in srgb, currentColor 10%, transparent); padding: 4px; }
+.dyn-pet-dash-shell { container: foxbell-dashboard / inline-size; }
+@container foxbell-dashboard (max-width: 760px) {
+  .dyn-pet-dash { padding: 14px; }
+  .dyn-pet-speed-layout { display: flex; flex-direction: column; }
+  .dyn-pet-speed-detail { order: 1; width: 100%; }
+  .dyn-pet-speed-series { order: 2; width: 100%; }
+  .dyn-pet-speed-metrics { grid-template-columns: 1fr 1fr; }
+  .dyn-pet-cost-head, .dyn-pet-cost-row { grid-template-columns: minmax(0,1.2fr) minmax(0,1fr) minmax(0,.8fr) minmax(0,.7fr) auto; gap: 4px; }
+  .dyn-pet-cost-row > * { min-width: 0; overflow-wrap: anywhere; }
+  .dyn-pet-cost-detail-row { grid-template-columns: 1fr 1fr; }
+  .dyn-pet-price-cells { grid-template-columns: 1fr 1fr; }
+  .dyn-pet-speed-current { grid-template-columns: 1fr auto; }
+  .dyn-pet-speed-current small { grid-column: 1 / -1; }
+}
+@media (forced-colors: active) {
+  .dyn-pet-speed-line, .dyn-pet-speed-mark { stroke: CanvasText; }
+  .dyn-pet-speed-mark { fill: CanvasText; }
+}
 /* ---- v2.2 侧栏看板入口图标（Task 13 R6）：sidebar.panellist 条目（dashboardSidebarEntry 门控注册）---- */
 .dyn-pet-sideicon { font-size: 20px; text-align: center; padding: 6px 0; cursor: pointer; user-select: none; -webkit-user-select: none; }
 `;

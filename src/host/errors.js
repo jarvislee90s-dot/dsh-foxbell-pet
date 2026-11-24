@@ -27,13 +27,18 @@ export function internal(detail) {
   return new PetError('internal', detail)
 }
 
-const STATUS_404 = new Set(['pet-not-found', 'staging-not-found', 'pet-dir-missing', 'audio-not-found', 'sheet-not-found'])
+const STATUS_404 = new Set(['pet-not-found', 'staging-not-found', 'pet-dir-missing', 'audio-not-found', 'sheet-not-found', 'capability-unavailable'])
+const STATUS_403 = new Set(['owner-required'])
+const STATUS_409 = new Set(['revision-conflict'])
 const STATUS_500 = new Set(['internal', 'copy-failed', 'delete-failed', 'rename-failed', 'finalize-move-failed',
   'finalize-scan-failed', 'manifest-write-failed', 'manifest-backup-failed', 'staging-create-failed',
-  'tmp-write-failed', 'download-failed', 'manifest-request-failed'])
+  'tmp-write-failed', 'download-failed', 'manifest-request-failed', 'pricing-store-corrupt',
+  'pricing-store-read-failed', 'pricing-store-write-failed'])
 
 export function statusOfCode(code) {
   if (STATUS_404.has(code)) return 404
+  if (STATUS_403.has(code)) return 403
+  if (STATUS_409.has(code)) return 409
   if (STATUS_500.has(code)) return 500
   return 400
 }
@@ -45,6 +50,8 @@ export const ALL_RPC_CODES = [
   'audio-format-unsupported',
   'audio-not-found',
   'audio-relpath-invalid',
+  'bad-request',
+  'capability-unavailable',
   'copy-failed',
   'delete-failed',
   'download-failed',
@@ -64,6 +71,7 @@ export const ALL_RPC_CODES = [
   'manifest-too-large',
   'manifest-write-failed',
   'origin-forbidden',
+  'owner-required',
   'pet-dir-missing',
   'pet-exists',
   'pet-name-dot-prefix',
@@ -75,8 +83,13 @@ export const ALL_RPC_CODES = [
   'pet-not-found',
   'pet-not-on-petdex',
   'petdex-no-zip',
+  'pricing-rules-invalid',
+  'pricing-store-corrupt',
+  'pricing-store-read-failed',
+  'pricing-store-write-failed',
   'redirect-forbidden',
   'redirect-too-many',
+  'revision-conflict',
   'sheet-not-found',
   'slug-invalid',
   'slug-parse-failed',

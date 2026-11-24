@@ -14,7 +14,7 @@ import { SettingsCard } from "./SettingsCard";
 import { DialogHost } from "./dialogs/DialogHost";
 import { DashboardPanel } from "./DashboardPanel";
 import { appStore, cfgStore, PANEL_ID, petStore, reportVisible, schedulePoll, setPanelSwitcher } from "./store";
-import { startVoiceOwnership } from "./voiceowner";
+import { startVoiceOwnership, stopVoiceOwnership } from "./voiceowner";
 import { adoptLocaleService, t, type LocaleServiceLike } from "./i18n";
 import { useLang } from "./useLang";
 import { adoptStyles } from "./styles";
@@ -28,7 +28,7 @@ interface SlotsLike {
 interface ClientCtx {
   get(name: string): unknown;
   /** 回调式可选注入（cordis）：deps 中服务在场（当下或之后注册）才执行 cb，缺席永不执行且不抛错 */
-  inject?(deps: string[], cb: (c: { layout?: { selectPanel(id: string): void }; locale?: LocaleServiceLike }) => void): void;
+  inject?(deps: string[], cb: (c: { layout?: { selectPanel(id: string): void }; locale?: LocaleServiceLike; effect?: ClientCtx["effect"] }) => void): void;
   timeout?(fn: () => void, ms: number): () => void;
   interval?(fn: () => void, ms: number): () => void;
   effect?(fn: () => void | (() => void)): void;
@@ -39,11 +39,21 @@ interface ClientCtx {
  *  0.2：list.getSnapshot() → { ids, byId: { [id]: { retainedBy: { mainView } } } }，
  *       「当前会话」= mainView 保留计数 > 0 的会话（dsh-client-ui-layout 同口径）。
  *  封装成选择器函数供 Pet 组件订阅；服务/字段缺失时恒返回 undefined（防御式）。 */
-function makeUseSessions(ctx: ClientCtx): (sel: (s: { current?: string }) => unknown) => unknown {
-  const svc = ctx.get("sessions") as { list?: { getSnapshot?: () => unknown; subscribe?: (fn: () => void) => () => void } } | undefined;
-  const list = svc && typeof svc === "object" ? svc.list : undefined;
-  const ok = !!list && typeof list.getSnapshot === "function";
+type SessionsListLike = { getSnapshot?: () => unknown; subscribe?: (fn: () => void) => () => void };
+let sessionsList: SessionsListLike | undefined;
+const sessionsListeners = new Set<() => void>();
+
+/** Cordis forbids ctx.get on undeclared services; the sessions service arrives through
+ *  the optional inject callback below and is published here for every consumer. */
+function setSessionsList(service: unknown): void {
+  const list = (service as { list?: SessionsListLike } | undefined)?.list;
+  sessionsList = list && typeof list.getSnapshot === "function" ? list : undefined;
+  for (const listener of [...sessionsListeners]) listener();
+}
+
+function makeUseSessions(): (sel: (s: { current?: string }) => unknown) => unknown {
   const read = (): { current?: string } => {
+    const list = sessionsList;
     try {
       const snap = list?.getSnapshot?.() as Record<string, unknown> | null | undefined;
       if (!snap || typeof snap !== "object") return { current: undefined };
@@ -60,14 +70,15 @@ function makeUseSessions(ctx: ClientCtx): (sel: (s: { current?: string }) => unk
       return { current: undefined };
     }
   };
-  // 恒定 hook（内部 useState/useEffect 无条件调用）：服务缺席时退化为一次性 undefined 读取
+  // 恒定 hook（内部 useState/effect 无条件调用）：服务缺席时退化为 undefined 读取
   return function useSessions(sel: (s: { current?: string }) => unknown): unknown {
-    const [value, setValue] = React.useState(() => (ok ? sel(read()) : undefined));
+    const [value, setValue] = React.useState(() => sel(read()));
     React.useEffect(() => {
-      if (!ok) return;
       const sync = () => setValue(sel(read()));
+      sessionsListeners.add(sync);
+      const off = typeof sessionsList?.subscribe === "function" ? sessionsList.subscribe(sync) : undefined;
       sync();
-      return typeof list?.subscribe === "function" ? list.subscribe(sync) : undefined;
+      return () => { sessionsListeners.delete(sync); if (typeof off === "function") off(); };
     }, []);
     return value;
   };
@@ -89,13 +100,20 @@ export function apply(ctx: ClientCtx): void {
   const slots = (ctx.get("slots") ?? (ctx as unknown as { slots?: unknown }).slots) as SlotsLike | undefined;
   if (slots === undefined) return; // TUI/无 slots：静默不激活 UI
   adoptStyles();
-  reportVisible(petStore.visible);
-  appStore.start();
-  startVoiceOwnership(); // v2.2.1：唯一发声方选主（多标签页仅持锁页播放自动播报，防语音重叠）
-  // P4：页签显隐切换立刻重排轮询节奏（可见回 1.5s / 隐藏降 5s）；无 document 环境（TUI/测试）守卫
-  if (typeof document !== "undefined") {
-    document.addEventListener("visibilitychange", schedulePoll);
-  }
+  const start = () => {
+    reportVisible(petStore.visible);
+    appStore.start();
+    startVoiceOwnership();
+    if (typeof document !== "undefined") document.addEventListener("visibilitychange", schedulePoll);
+    return () => {
+      if (typeof document !== "undefined") document.removeEventListener("visibilitychange", schedulePoll);
+      appStore.stop();
+      stopVoiceOwnership();
+      setPanelSwitcher(null);
+    };
+  };
+  if (typeof ctx.effect === "function") ctx.effect(start);
+  else start();
 
   // 配置后端：settingsScope 服务（0.1）已删除 → HTTP RPC 适配器（0.1/0.2 线缆形状
   // 一致，ns 自动发现；绑定失败或宿主无 settings 时降级 localStorage）。
@@ -103,7 +121,9 @@ export function apply(ctx: ClientCtx): void {
   if (typeof ctx.effect === "function") ctx.effect(() => appStore.attachSettings(scope));
   else appStore.attachSettings(scope);
 
-  const useSessions = makeUseSessions(ctx);
+  if (typeof ctx.inject === "function") ctx.inject(["sessions"], (c) => setSessionsList((c as { sessions?: unknown }).sessions));
+  else setSessionsList((() => { try { return ctx.get("sessions") } catch { return undefined } })());
+  const useSessions = makeUseSessions();
   slots.inject("shell.overlay", () =>
     slots.register(
       { name: "shell.overlay", id: "foxbell-pet", order: 100 },
@@ -135,18 +155,25 @@ export function apply(ctx: ClientCtx): void {
   if (typeof ctx.inject === "function") {
     ctx.inject(["layout"], (c) => {
       const layout = c && c.layout;
-      if (layout && typeof layout.selectPanel === "function") setPanelSwitcher((id) => layout.selectPanel(id));
+      if (layout && typeof layout.selectPanel === "function") {
+        const attach = () => {
+          setPanelSwitcher((id) => layout.selectPanel(id));
+          return () => setPanelSwitcher(null);
+        };
+        if (typeof c.effect === "function") c.effect(attach);
+        else attach();
+      }
     });
   }
 
   // ---- v2.3.3：语言跟随 DSH 应用语言设置（locale 服务，App 内热切换）----
   // 同 layout 的可选注入模式：服务缺席（老宿主/TUI）回调不执行，detectLang 引擎 locale 兜底。
-  // 不做退订：客户端模块为应用级生命周期（与 layout 接线同款语义）。
   if (typeof ctx.inject === "function") {
     ctx.inject(["locale"], (c) => {
       const locale = c && c.locale;
       if (locale && typeof locale.getSnapshot === "function" && typeof locale.subscribe === "function") {
-        adoptLocaleService(locale);
+        if (typeof c.effect === "function") c.effect(() => adoptLocaleService(locale));
+        else adoptLocaleService(locale);
       }
     });
   }
@@ -155,7 +182,7 @@ export function apply(ctx: ClientCtx): void {
   slots.inject("main", () =>
     slots.register(
       { name: "main", key: PANEL_ID },
-      () => React.createElement(DashboardPanel),
+      () => React.createElement(DashboardPanel, { useSessions }),
     ),
   );
 

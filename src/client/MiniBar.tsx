@@ -51,6 +51,8 @@ export function MiniBar(props: {
   scale: PetScale;
   /** cfg.usageEnabled（Fix E）：只门控用量行 */
   usageOn: boolean;
+  /** DSH 当前会话的原生累计 decode 速度；null/undefined 时不渲染，绝不补零。 */
+  sessionTps?: number | null;
   /** v2.2 R6：提供时渲染尾部「详情 »」钻取按钮行（迷你条唯一可点元素 → 开黑板） */
   onDetail?: () => void;
 }): ReactElement {
@@ -109,6 +111,11 @@ export function MiniBar(props: {
         <div className="dyn-pet-mini-row dyn-pet-mini-dim" style={{ fontSize: px(11) }}>
           {t("dash.sessionReq") + " " + t("dash.request") + " "
             + (sessReq !== null ? fmtTokens(sessReq) : "—") + " · " + sess.title}
+        </div>
+      ) : null}
+      {typeof props.sessionTps === "number" && Number.isFinite(props.sessionTps) && props.sessionTps > 0 ? (
+        <div className="dyn-pet-mini-row dyn-pet-mini-dim" style={{ fontSize: px(11) }}>
+          {t("speed.current") + " " + props.sessionTps.toFixed(1) + " tok/s"}
         </div>
       ) : null}
       {/* v2.2 R6 钻取按钮（迷你条唯一可点元素）：pointerdown 亦拦下（与 .dyn-pet-entry 同模式）——

@@ -25,12 +25,18 @@ import z from '@deepseek-ai/schemastery'
 import { storeRoot, petsRoot, stagingRoot, trashRoot, codexRoot } from './paths.js'
 import { createStateEngine } from './state.js'
 import { createCorpusCollector } from './corpus.js'
-import { sessionEvents } from './dashboard.js'
+import { dateKeyOf, sessionEvents } from './dashboard.js'
+import { floorLocalBucket } from './local-clock.js'
 import { loadManifest, parseManifest, SHEET_FILE, MANIFEST_FILE } from './manifest.js'
 import { BUILTIN_PET_ID, petIdProblem } from './petid.js'
 import { listPets, sweepStaging } from './scan.js'
 import { checkPet } from './guard.js'
 import { registerRoutes, ROUTE_PREFIX } from './routes.js'
+import { loadStreamHelpers } from './dsh-stream.js'
+import { openRuleStore } from './price-rules.js'
+import { openPriceCatalog } from './price-catalog.js'
+import { hostOwnerVerifier } from './host-auth.js'
+import { registerDashboardRoutes } from './dashboard-routes.js'
 
 export const name = 'dsh-foxbell-pet'
 
@@ -300,11 +306,16 @@ export async function apply(ctx, config) {
   const agents = ctx.get('agents')
   const sessions = ctx.get('sessions')
   const sessionTitle = ctx.get('sessionTitle')
+  const webServer = ctx.get('webServer')
+  const optionalService = (name) => { try { return ctx.get(name) } catch { return undefined } }
+  const streamHelpers = await loadStreamHelpers()
   const engine = createStateEngine({
     roots: () => (agents !== undefined ? agents.roots() : []),
     getSession: (id) => (sessions !== undefined ? sessions.get(id) : undefined),
     getTitle: (session) => (sessionTitle !== undefined ? sessionTitle.get(session) : undefined),
     now: () => Date.now(),
+    lastUsage: streamHelpers.lastUsage,
+    firstTokenTime: streamHelpers.firstTokenTime,
     readConfig, // v2.1 看板 8 键 live 读（整对象透传，引擎逐键判型回退 BOARD_DEFAULTS）
   })
   engine.compute()
@@ -313,9 +324,10 @@ export async function apply(ctx, config) {
   // agents.roots() 按契约只含顶层 agent；非根会话经 sessionQuery（live-preferred 全语料）
   // 喂数：活会话内存快照零盘读、冷会话一次性 readSession 重放（进程内缓存，预算分轮）。
   // 「含子代理」文案自此为真。服务缺失（老宿主无 sessionQuery）时静默降级为旧口径。
-  const sessionQuerySvc = (() => { try { return ctx.get('sessionQuery') } catch { return undefined } })()
-  let corpusTimer = null
-  if (sessionQuerySvc !== undefined) {
+  diag.corpusAvailable = false
+  const mountCorpus = (scope, sessionQuerySvc) => {
+    if (!sessionQuerySvc || typeof sessionQuerySvc.listSessions !== 'function' || typeof sessionQuerySvc.readSession !== 'function') return
+    diag.corpusAvailable = true
     const corpus = createCorpusCollector({
       listRecords: async () => {
         const recs = await sessionQuerySvc.listSessions()
@@ -325,7 +337,7 @@ export async function apply(ctx, config) {
       },
       readEvents: async (id) => {
         const snap = await sessionQuerySvc.readSession(id)
-        if (!snap || !Array.isArray(snap.events)) return []
+        if (!snap || !Array.isArray(snap.events)) throw new Error('sessionQuery.readSession returned no event list')
         // 完整日志含 fork/续跑继承前缀（前 inheritedEventCount 条来自父会话，用量已在父会话
         // 计入）——只取自身事件，防止谱系双计（v2.4.1 评审修复 Critical#1）
         const skip = typeof snap.inheritedEventCount === 'number' && snap.inheritedEventCount > 0
@@ -348,18 +360,23 @@ export async function apply(ctx, config) {
       engine,
       now: () => Date.now(),
     })
-    void corpus.refresh() // 启动先收敛一轮（冷读预算内），其后低频增量
-    corpusTimer = setInterval(() => { void corpus.refresh() }, 10000)
-    // cordis effect(execute) 语义：立即执行 execute、其返回值才是卸载清理器——必须返回
-    // disposer（此前误写成直接 clearInterval，定时器在注册当场被清掉，采集只跑了启动一轮）
-    if (typeof ctx.effect === 'function') {
-      ctx.effect(() => () => { if (corpusTimer !== null) { clearInterval(corpusTimer); corpusTimer = null } }, 'foxbell-pet.corpusTimer')
-    }
+    scope.effect(() => {
+      void corpus.refresh()
+      const timer = setInterval(() => { void corpus.refresh() }, 10000)
+      return () => {
+        clearInterval(timer)
+        corpus.dispose()
+        diag.corpusAvailable = false
+        engine.noteCoverage('limited')
+      }
+    }, 'foxbell-pet.corpusTimer')
   }
-  // v2.4 真机验收观测点：corpusAvailable=false 表示宿主无 sessionQuery（静默降级旧口径）；
-  // diag.corpus 随每轮全量快照序列化（folds/rev 语义见 state.js corpusStats）。
-  diag.corpusAvailable = sessionQuerySvc !== undefined
   Object.defineProperty(diag, 'corpus', { enumerable: true, get: () => engine.corpusStats })
+  Object.defineProperties(diag, {
+    usageRevision: { enumerable: true, get: () => engine.usageRevision },
+    usageHour: { enumerable: true, get: () => floorLocalBucket(Date.now(), 3_600_000) },
+    usageDay: { enumerable: true, get: () => dateKeyOf(Date.now()) },
+  })
 
   // ---- 激活宠物解析与 /state 快照 ----
   // settings 在场时配置为唯一事实源（客户端写 scope → 宿主读 resolved 值）；
@@ -430,6 +447,8 @@ export async function apply(ctx, config) {
     // pets 段含 displayName（review Minor#1）：非激活宠物改名只动 manifest（listPetsCached 已按清单
     // mtime 复验刷新摘要），指纹若只看 id:spriteVersionNumber 会把改名冻在 unchanged 里。
     return id + '/' + revOf(id) + '|' + listPetsCached(PETS_ROOT).map((s) => s.id + ':' + (s.displayName || '') + ':' + s.spriteVersionNumber).join(',')
+      + '|' + [diag.additiveApiCapability, diag.sessionSpeedCapability, diag.corpusAvailable].map(Number).join('')
+      + '|' + (diag.additiveApiCapability ? `${diag.usageRevision}:${diag.usageHour}:${diag.usageDay}` : '')
   }
 
   const snapshotExtra = (hint) => {
@@ -466,8 +485,12 @@ export async function apply(ctx, config) {
     }
   }
 
-  // ---- HTTP 路由族 ----
-  registerRoutes(ctx, {
+  // Additive APIs default to disabled. Raw WebServer resources carry no identity;
+  // rc.5 connection.admit supplies signed-cookie owner verification before stores/routes open.
+  let sessionProjections
+  diag.additiveApiCapability = false
+  diag.sessionSpeedCapability = false
+  const dashboardEnv = {
     pkgDir: PKG_DIR,
     petsRoot: PETS_ROOT,
     stagingRoot: STAGING_ROOT,
@@ -475,8 +498,10 @@ export async function apply(ctx, config) {
     codexRoot: CODEX_ROOT,
     tmpDir: TMP_DIR,
     stateEngine: engine,
+    sessions,
+    get sessionProjections() { return sessionProjections },
     snapshotExtra,
-    envRev, // v2.2 终审修复：/state rev 的环境段（activePet/pets 指纹，guard/ages 不参与）
+    envRev,
     builtin: {
       manifest: builtinManifest,
       assetDir: ASSET_DIR || path.join(PKG_DIR, 'assets'),
@@ -486,9 +511,53 @@ export async function apply(ctx, config) {
     getActivePetId: activePetId,
     diag,
     get spriteBytes() { return spriteBytes },
-  })
+  }
+  registerRoutes(ctx, dashboardEnv) // legacy routes only until owner transport is actually present
 
-  const webServer = ctx.get('webServer')
+  const mountOwnedDashboard = (scope, connection) => {
+    const owner = hostOwnerVerifier(connection)
+    if (!owner || !webServer || typeof scope.effect !== 'function') return
+    let current = true
+    const ownedEnv = Object.create(dashboardEnv)
+    ownedEnv.webServer = webServer
+    ownedEnv.isActive = () => current
+    ownedEnv.verifyOwner = async (req) => current && await owner(req) === true && current
+    const pricingDir = path.join(storeRoot(), 'pricing')
+    try {
+      ownedEnv.pricing = {
+        rules: openRuleStore(path.join(pricingDir, 'rules.json')),
+        catalog: openPriceCatalog({ dir: pricingDir }),
+      }
+    } catch (err) {
+      console.warn('[foxbell-pet] pricing unavailable:', String(err && err.message || err))
+    }
+    scope.effect(() => () => {
+      current = false
+      diag.additiveApiCapability = false
+      ownedEnv.pricing?.catalog.dispose()
+    }, 'foxbell-pet.dashboard')
+    diag.additiveApiCapability = registerDashboardRoutes(scope, ownedEnv)
+  }
+  const mountProjections = (scope, service) => {
+    if (!service || typeof service.snapshot !== 'function') return
+    scope.effect(() => {
+      sessionProjections = service
+      diag.sessionSpeedCapability = true
+      return () => { sessionProjections = undefined; diag.sessionSpeedCapability = false }
+    }, 'foxbell-pet.sessionProjections')
+  }
+  const optional = (name, mount) => {
+    if (typeof ctx.inject === 'function') {
+      ctx.inject([name], (scope) => mount(scope, scope[name]))
+    } else {
+      const service = optionalService(name)
+      if (service !== undefined) mount(ctx, service)
+    }
+  }
+  optional('connection', mountOwnedDashboard)
+  optional('sessionProjections', mountProjections)
+  optional('sessionQuery', mountCorpus)
+
   if (webServer !== undefined) {
     console.log('[foxbell-pet] host mounted: sprite=' + (spriteBytes ? spriteBytes.length : 0)
       + ' builtinVoices=' + builtinVoices.length + ' assetDir=' + ASSET_DIR
