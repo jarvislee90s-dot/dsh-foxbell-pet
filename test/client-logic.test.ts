@@ -686,8 +686,9 @@ describe("i18n 字典完整性", () => {
       "dash.cfg.dashboardSidebarEntry", "dash.cfg.exportPose",
       "dash.pose.random", "dash.pose.idle", "dash.pose.run-right", "dash.pose.run-left", "dash.pose.waving",
       "dash.pose.jumping", "dash.pose.failed", "dash.pose.waiting", "dash.pose.running", "dash.pose.review",
+      "dash.g.uncachedInput", "dash.g.cacheWrite",
     ];
-    expect(expectedDash).toHaveLength(115); // 标题计数防再次失真（v2.2.1：hitCompare/hitCur +2、档位举牌 pace.* +3）
+    expect(expectedDash).toHaveLength(117); // 标题计数防再次失真（v2.2.1：hitCompare/hitCur +2、档位举牌 pace.* +3）
     const zhDash = dictKeys("zh").filter((k) => k.startsWith("dash.")).sort();
     expect(zhDash).toEqual([...expectedDash].sort());
     const en = new Set(dictKeys("en"));

@@ -288,3 +288,27 @@
   一次（历史存量并入，数字真实、按日去重只发一次）；创建于 32 天窗口外的**冷**历史不计入
   （trend 14 日 + 区间 31 日的外沿）；宿主无 `sessionQuery` 时静默降级为旧口径
   （`diag.corpusAvailable` 为 false）。
+
+## 11. 双页看板：设计逐项对照与本机验收
+
+对照《Foxbell：Token 用量、API 等效费用与 DSH 输出速度》§1–§6。下表的自动用例在 Node 中运行；宿主和浏览器项目单独记录，不能用模拟服务或测试总数替代。正式验收使用同一份本地构建，Web 与官方桌面分别记录版本、profile、输入和结果。
+
+| 设计条目 | 本分支实现与自动证据 | 待本机验证 |
+| --- | --- | --- |
+| §1 范围和原功能 | `Pet.tsx`、`index.tsx`、`dashboard-entries.ts` 沿用主列入口；`dashboard.test.mjs` 保留 80%/100% 日限额回归。未引入其他采集器、独立应用或真实账单；别名绑定、记录中心等暂缓项不在本版范围。 | 右键、迷你条详情→黑板、黑板→主列；会话切换、语音、旧设置和实际提醒。 |
+| §2.1 用量看板 | `DashboardPanel.tsx`、`UsagePanel.tsx`、`dashboard-view.ts`：默认用量页，五块依次展示，局部趋势不改变全局；`usage-view.test.ts` 对照分组、筛选及 Token-only 导出。 | 页签返回保存状态，分布/费用默认展开，活动默认折叠；同源不同模型及同模型不同供应商；Top 5/展开、旧复制及评语图的实际内容。 |
+| §2.2 速度看板 | `SpeedPanel.tsx`、`SpeedChart.tsx`、`speed-view.ts`、`session-speed.ts`：独立范围、按主列宽度排组合和指标；`speed-view.test.ts`、`session-speed.test.ts` 检查筛选、空桶断线和停轮询。 | 主列 1280/680px，中英文和深浅主题；实际键盘焦点、悬停/固定/Esc、无匹配后清除、加载和空态；用量页切换不影响速度范围。 |
+| §3.1 原生测速 | `speed.js`、`local-clock.js`、`state.js`：当前用原生投影，历史按可靠结算；`fusion-host.test.mjs`、`speed.test.mjs`、`retry-attribution.test.mjs` 对照加权、有/无可信时间、DST、24h 边界。 | 两条不同耗时的真实结算核对 TPS；切会话即清旧值，TTFT、模型和工具用时只反映可归属事件，当前会话不混入历史。 |
+| §3.2 用量归属 | `usage-facts.js`、`corpus.js`、`usage-window.js`：四桶、原生身份去重、冷读预算与覆盖提示；`usage-facts.test.mjs`、`corpus-usage.test.mjs`、`fusion-host.test.mjs` 核对重放、失败用量与窗口。 | 真实子代理/已收尾会话、retry、普通 fork 对账，未知路由不猜，冷读结束与数据缺席明确区分。 |
+| §4.1–§4.2 计价和币种 | `price-rules.js`、`cost.js`、`PriceRulesDialog.tsx`：定点累计、固定/分时、逐桶回退、双币种；`price-rules.test.mjs`、`cost.test.mjs`、`fusion-host.test.mjs` 涵盖跨夜、跨进程陈旧 revision 与失效写者、缺价及微额。 | 从行内打开编辑，核对显示的时区、规则和单价；填写 0、留空、跨午夜与保存失败，切币种看真实来源和精度。 |
+| §4.3 价格同步 | `price-catalog.js`、`CostPanel.tsx`：公开价格和汇率查询，保留最后有效快照；`price-catalog.test.mjs` 以受控响应验证成功、失败和并发。 | 真实网络/断网/无 FX，核对日期和错误；价格失败不阻塞用量或速度，自动、过期与手动刷新都检查。 |
+| §4.4 CSV 与既有导出 | `dashboard-routes.js`、`cost-csv.js`、`UsagePanel.tsx`、`usage-export.ts`：同次估价输出固定 USD CSV，旧导出无金额。`cost-csv.test.mjs`、`cost.test.mjs`、`targeted-time-cost.test.mjs`、`targeted-review.test.ts` 验证列、日期、固定 USD 来源、折叠及同范围快照。 | 真实下载（不只看按钮）：切到当前范围后晚到旧同步不换内容；折叠、币种、Top 5 和趋势选择不改变同一快照 CSV。核对 19 列、缺价行和无总计。 |
+| §5–§6 宿主与组合验收 | `host-auth.js`、`index.js`、`routes.js`：新增路由由宿主 owner 和可选能力门控，旧路由不迁移。`host-index.test.mjs`、`dashboard-routes.test.mjs` 覆盖增量状态及冷读、解绑与重挂、能力缺席、卸载期间阻止写入和拒绝。 | rc.5 Web + 官方桌面、新配置冷启动、owner 与非 owner、真实双页和卸载；0.1.2-rc.1 Web／0.2.0-rc.2 桌面保底，无 UI profile 不挂载。 |
+
+**本机执行顺序**：先用隔离 profile 开启 rc.5 Web 与官方桌面，确认从原入口进入新双页；再在同一会话数据下核对用量和速度，下载 CSV 和自定义评语图。跑旧版矩阵之前先确认新宿主的冷启动、能力晚到和卸载行为。不要用日常 DSH 配置，也不要把尚未执行的矩阵标为通过。
+
+### 11.1 证据状态与条件数据
+
+- 上表「本分支实现与自动证据」为源码及自动层；最后一列在本轮未启动 DSH 前均是**待手测**，不记真机通过。§1 的设计排除项/暂缓项记为**范围外**。
+- §4.2 的「只有可信日聚合、无法恢复时段」已覆盖估价内核的低谷回退，但生产路由目前只接入有可证时间的 DSH 用量事实。当前尚未验证目标宿主提供可接入、可去重的可信日档，因此这条标为**内核已测、生产入口未验证**；不会把事件缺时间直接当成低谷价格。
+- 授权服务、会话投影、冷读覆盖、R4 截图及本机 UI 是不同证据。只读复核已完成；安装、真实 CSV 文件对账、真实键盘命中和完整宿主矩阵均需在正式 DSH 环境中实际执行。

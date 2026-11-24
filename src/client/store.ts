@@ -74,6 +74,7 @@ interface AppState {
 const listeners = new Set<() => void>();
 const state: AppState = { snapshot: null, runtime: { ...FOXBELL_RUNTIME } };
 let pollTimer: ReturnType<typeof setTimeout> | null = null;
+let lifecycle = 0;
 let pollGen = 0; // 调度代数：schedulePoll 重入 / stop 时自增，作废在途旧链（防 .finally 续排出双链）
 let lastSeq: number | null = null;
 let lastRev: string | null = null; // P3：上轮全量快照修订号；仅全量路径更新，unchanged 响应不改写
@@ -117,8 +118,11 @@ export const appStore = {
     schedulePoll();
   },
   stop() {
+    lifecycle += 1;
     pollGen += 1; // 作废 in-flight 链：其 tick 的 .finally 不得复活轮询
     if (pollTimer !== null) { clearTimeout(pollTimer); pollTimer = null; }
+    loadedKey = "";
+    lastRev = null;
   },
   /** 设置 scope 接线（settingsScope 不在场时静默，纯 localStorage 后端） */
   attachSettings(scope: SettingsScopeLike | null) {
@@ -156,6 +160,7 @@ function entriesFromSnapshot(voices: VoiceSnapshotEntry[]): VoiceEntry[] {
 
 /** 单次轮询（导出供测试驱动；生产由 schedulePoll 的可变间隔定时器调用） */
 export async function pollOnce(): Promise<void> {
+  const life = lifecycle;
   let snap: StateSnapshot;
   try {
     // ?pet= 仅为宿主无 settings 服务时的降级提示（宿主白名单校验；settings 在场时被忽略）
@@ -166,7 +171,7 @@ export async function pollOnce(): Promise<void> {
   } catch {
     return; // 宿主不在场/网络抖动：静默，下一轮再试
   }
-  if (!snap || typeof snap.seq !== "number") return;
+  if (life !== lifecycle || !snap || typeof snap.seq !== "number") return;
   if ((snap as { unchanged?: boolean }).unchanged === true) {
     state.snapshot = mergeUnchanged(state.snapshot!, snap as never);
     appStore.emit();
@@ -182,7 +187,7 @@ export async function pollOnce(): Promise<void> {
     loadedKey = key;
     const rows = await resolveRows(ap.spriteVersionNumber, ap.spriteUrl);
     // 后到者胜：探测期间又切换则丢弃本次结果
-    if (loadedKey !== key) return;
+    if (life !== lifecycle || loadedKey !== key) return;
     // 运行时能力以快照为准（宿主已按 manifest×磁盘可信度收敛；无语音宠物 = 只播动画不出声）
     state.runtime = {
       id: ap.id,

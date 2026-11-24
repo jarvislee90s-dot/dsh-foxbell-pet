@@ -88,6 +88,10 @@ One data core, three levels of disclosure, each click going deeper: **L1 mini ba
 - **Dashboard sounds**: alerts (daily threshold / milestone) play the `general` voice group when all four groups are present, otherwise a built-in synthesized chime (served via `/sounds/`).
 - Three new settings: “Sidebar dashboard entry” (off by default; shows a dashboard icon in the sidebar when enabled), “Export quote”, “Export pose”. Note: on rc.2 the sidebar entry icon may not project (upstream child-slot lifecycle under investigation); the right-click menu and the blackboard chain are the verified entrances.
 
+### Updated dashboard (development branch)
+
+When the public DSH capabilities are available, the existing entries open the same main-column dashboard with Token Usage and Output Speed tabs. Usage can be grouped by provider and model. API-equivalent estimates use four token buckets, support fixed and weekday time-of-use prices, display USD or CNY, and export a separate USD-only CSV. These estimates are not bills or balances. Existing text and image exports remain token-only. Price and FX refresh uses public sources without sending sessions or usage. Speed comes from native DSH projections and reliably attributed settlements; missing records do not become zero. Older hosts retain the previous usage dashboard when the new capabilities are unavailable.
+
 ## Requirements (compatibility)
 
 | Component | Requirement |

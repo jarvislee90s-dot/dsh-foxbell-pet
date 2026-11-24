@@ -394,3 +394,68 @@ describe("listPetsCached/loadManifestCached 清单编辑即时失效（评审修
     }
   });
 });
+
+describe("late optional Connection injection", () => {
+  it("registers additive routes only after the real service arrives, without duplicating legacy routes", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "foxbell-connection-"));
+    process.env.DSH_HOME = home;
+    const made = makeCtx();
+    let onConnection, onQuery;
+    made.ctx.inject = (deps, cb) => {
+      if (deps.includes("connection")) onConnection = cb;
+      if (deps.includes("sessionQuery")) onQuery = cb;
+    };
+    await apply(made.ctx, {});
+    expect((await made.dispatch("GET", `${ROUTE_PREFIX}/dashboard/usage?preset=today`)).status).toBe(404);
+    expect(typeof onConnection).toBe("function");
+    const before = (await made.dispatch("GET", `${ROUTE_PREFIX}/state`)).body;
+    const cleanups = [];
+    const scope = {
+      connection: { admit: () => ({ peer: { principal: { kind: "owner" } } }) },
+      get: made.ctx.get,
+      effect: (fn) => { cleanups.push(fn()); },
+    };
+    onConnection(scope);
+    const response = await made.dispatch("GET", `${ROUTE_PREFIX}/dashboard/usage?preset=today`);
+    expect(response.status).toBe(200);
+    expect(response.body.span).toBeTypeOf("object");
+    const state = await made.dispatch("GET", `${ROUTE_PREFIX}/state?since=${encodeURIComponent(before.rev)}`);
+    expect(state.status).toBe(200);
+    expect(state.body.diag.additiveApiCapability).toBe(true);
+    for (const dispose of cleanups.splice(0).reverse()) dispose?.();
+    expect((await made.dispatch("GET", `${ROUTE_PREFIX}/dashboard/usage?preset=today`)).status).toBe(404);
+    const unmounted = await made.dispatch("GET", `${ROUTE_PREFIX}/state?since=${encodeURIComponent(state.body.rev)}`);
+    expect(unmounted.body.diag.additiveApiCapability).toBe(false);
+    onConnection(scope);
+    expect((await made.dispatch("GET", `${ROUTE_PREFIX}/dashboard/usage?preset=today`)).status).toBe(200);
+    const queryCleanup = [];
+    let finishCold;
+    const eventAt = Date.now();
+    onQuery({
+      effect(fn) { queryCleanup.push(fn()); },
+      sessionQuery: {
+        listSessions: async () => [{ header: { id: "cold-session", createdAt: eventAt } }],
+        readSession: () => new Promise((resolve) => { finishCold = resolve; }),
+      },
+    });
+    await vi.waitFor(() => expect(finishCold).toBeTypeOf("function"));
+    try {
+      const pending = (await made.dispatch("GET", `${ROUTE_PREFIX}/state`)).body;
+      const loading = (await made.dispatch("GET", `${ROUTE_PREFIX}/dashboard/usage?preset=today`)).body;
+      expect(loading.coverage).toBe("loading");
+      finishCold({ events: [{ type: "assistant/message", seq: 1, time: eventAt,
+        data: { usage: { outputTokens: 12 }, message: { source: { provider: "p", model: "m" } } } }] });
+      await vi.waitFor(async () => {
+        const { body } = await made.dispatch("GET", `${ROUTE_PREFIX}/state?since=${encodeURIComponent(pending.rev)}`);
+        expect(body.unchanged).not.toBe(true);
+        expect(body.diag.usageRevision).toBeGreaterThan(pending.diag.usageRevision);
+        const final = (await made.dispatch("GET", `${ROUTE_PREFIX}/dashboard/usage?preset=today`)).body;
+        expect(final.coverage).toBe("ready");
+        expect(final.totals.outputTokens).toBe(12);
+      });
+    } finally {
+      for (const dispose of queryCleanup.reverse()) dispose?.();
+      for (const dispose of cleanups.reverse()) dispose?.();
+    }
+  });
+});

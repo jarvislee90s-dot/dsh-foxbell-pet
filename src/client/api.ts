@@ -1,6 +1,10 @@
 // api.ts — 宿主私有路由族 fetch 封装。错误统一重建为 PetRpcErrorLike（{code,params,detail}），
 // 展示层经 petErrMsg 按内部字典翻译、内联呈现于对话框。
 import { isPetRpcError, PetError, type PetRpcErrorLike } from "./errors";
+import type {
+  CostSnapshot, PriceRule, RuleSnapshot, SessionSpeed, SpeedRange, SpeedSnapshot,
+  UsageQuery, UsageSpan, UsageWindow,
+} from "./dashboard-contract";
 
 export const ROUTE_PREFIX = "/dyn-pet-foxbell";
 
@@ -238,6 +242,45 @@ export interface RangeSummary { from: string; to: string; days: TrendDay[]; tota
 /** 区间用量汇总（R3；from/to 为 YYYY-MM-DD，宿主闭区间） */
 export async function apiGetRange(from: string, to: string): Promise<RangeSummary> {
   return apiGet<RangeSummary>(`/dashboard/range?from=${from}&to=${to}`);
+}
+
+function usageQuery(query: UsageQuery): string {
+  const p = new URLSearchParams({ preset: query.preset });
+  if (query.from !== undefined) p.set("from", query.from);
+  if (query.to !== undefined) p.set("to", query.to);
+  return p.toString();
+}
+
+export async function apiGetUsageWindow(query: UsageQuery): Promise<UsageWindow> {
+  return apiGet<UsageWindow>(`/dashboard/usage?${usageQuery(query)}`);
+}
+
+export async function apiGetCost(query: UsageQuery, span: UsageSpan, usageRevision?: number): Promise<CostSnapshot> {
+  const p = new URLSearchParams({ spanFrom: String(span.from), spanTo: String(span.to) });
+  if (usageRevision !== undefined) p.set("usageRevision", String(usageRevision));
+  return apiGet<CostSnapshot>(`/dashboard/cost?${usageQuery(query)}&${p.toString()}`);
+}
+
+export async function apiGetPriceRules(): Promise<RuleSnapshot> {
+  return apiGet<RuleSnapshot>("/dashboard/price-rules");
+}
+
+export async function apiSavePriceRules(expectedRevision: number, rules: PriceRule[]): Promise<RuleSnapshot> {
+  return apiPost<RuleSnapshot>("/dashboard/price-rules", { expectedRevision, rules });
+}
+
+export async function apiSyncPricing(force: boolean): Promise<unknown> {
+  return apiPost("/dashboard/pricing-sync", { force });
+}
+
+export async function apiGetSessionSpeed(sessionId: string): Promise<SessionSpeed> {
+  return apiGet<SessionSpeed>(`/dashboard/session-speed?sessionId=${encodeURIComponent(sessionId)}`);
+}
+
+export async function apiGetSpeed(range: SpeedRange, selectedKey?: string): Promise<SpeedSnapshot> {
+  const p = new URLSearchParams({ range });
+  if (selectedKey) p.set("selectedKey", selectedKey);
+  return apiGet<SpeedSnapshot>(`/dashboard/speed?${p.toString()}`);
 }
 
 export interface StateSnapshot {

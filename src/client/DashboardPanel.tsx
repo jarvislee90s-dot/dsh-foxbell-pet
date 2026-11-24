@@ -2,7 +2,7 @@
 // 数据：默认视图全走 /state 快照（14日+24小时桶+models+tools）；30d/自定义走 /dashboard/range（60s 内存缓存）。
 // 复刻要素：hero 大数字 / 五口径网格 / 蓝紫渐变趋势图(带 tooltip) / 模型分布进度条行 / 2×2 工具格 / 日期回看。
 // 不复刻：价格（F04 存档）、推理单列（F03 存档）——spec §2.1。
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { ReactElement } from "react";
 import { appStore, cfgStore } from "./store";
 import { apiGetRange, type RangeSummary, type RouteUsage, type TrendDay, type TrendHour } from "./api";
@@ -13,6 +13,12 @@ import { fmtInt, fmtPct, fmtTokens } from "./format";
 import { fmtDur } from "./boardrows";
 import { exportDashboardImage, loadSprite, maxAnimCols, resolvePoseRow } from "./exportimage";
 import { pickQuote, fillQuote, type QuoteVars } from "./quotes";
+import { UsagePanel } from "./UsagePanel";
+import { CostPanel } from "./CostPanel";
+import { SpeedPanel, type UseSessions } from "./SpeedPanel";
+import { reconcileDashboardFallback } from "./dashboard-view";
+import { buildUsageText, legacyRangeLabel, toolsMetrics, type ToolAgg } from "./usage-export";
+export { toolsMetrics, type ToolAgg } from "./usage-export";
 
 // ---- 纯函数（test/client-logic.test.ts 直测）----
 
@@ -56,24 +62,6 @@ export function hitCompareText(a: number, b: number | null): string {
   const d = (a - b) * 100;
   const delta = (d > 0 ? "+" : d < 0 ? "-" : "±") + Math.abs(d).toFixed(1) + "pt";
   return t("dash.hitCompare", { a: fmtPct(a), b: fmtPct(b), d: delta });
-}
-
-/** 工具聚合行（宿主 usage.tools / range.tools 同形：{name,count,durMs}） */
-export interface ToolAgg { name: string; count: number; durMs: number }
-
-/** 2×2 工具格指标：调用总数 / 平均耗时(totalDurMs/count，守零) / Top 工具次数 / Top 工具总耗时。
- *  Top 次数 = count 最大者、Top 总耗时 = durMs 最大者（并列保序取首个，不依赖宿主排序约定）。
- *  v2.2.1 增 topName/topDurName 供导出 2×2 标注。 */
-export function toolsMetrics(tools: ToolAgg[] | null | undefined): { calls: number; avgMs: number; topCount: number; topDurMs: number; topName: string; topDurName: string } {
-  const list = Array.isArray(tools) ? tools : [];
-  let calls = 0, dur = 0, top: ToolAgg | null = null, topDur: ToolAgg | null = null;
-  for (const x of list) {
-    calls += x.count || 0;
-    dur += x.durMs || 0;
-    if (!top || (x.count || 0) > (top.count || 0)) top = x;
-    if (!topDur || (x.durMs || 0) > (topDur.durMs || 0)) topDur = x;
-  }
-  return { calls, avgMs: calls > 0 ? dur / calls : 0, topCount: top ? top.count || 0 : 0, topDurMs: topDur ? topDur.durMs || 0 : 0, topName: top ? top.name : "—", topDurName: topDur ? topDur.name : "—" };
 }
 
 const dayKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -168,7 +156,7 @@ function ToolsGrid(props: { tools: ToolAgg[] }): ReactElement {
 
 // ---- L3 大看板主体 ----
 
-export function DashboardPanel(): ReactElement {
+export function LegacyUsagePanel(): ReactElement {
   const snap = useSyncExternalStore(appStore.subscribe, appStore.getSnapshot);
   const cfg = useSyncExternalStore(cfgStore.subscribe, cfgStore.getSnapshot);
   useLang(); // 独立槽入口（main），不经 OverlayEntry：语言切换需自行订阅重渲染
@@ -311,13 +299,7 @@ export function DashboardPanel(): ReactElement {
 
   // 复制文本：grid + models 多行纯文本；clipboard API 优先，失败回退 execCommand，再失败静默（toast-less，ManageDialog 同款）
   const onCopyText = async (): Promise<void> => {
-    const lines = [
-      `${t("dash.panelTitle")} · ${t(`dash.tab.${tab}`)}`,
-      ...grid.map(([k, v]) => `${k}: ${v}`),
-      `${t("dash.models")}:`,
-      ...models.map((m) => `${m.route}  ${fmtTokens(m.requestTotal)}`),
-    ];
-    const text = lines.join("\n");
+    const text = buildUsageText(`${t("dash.panelTitle")} · ${t(`dash.tab.${tab}`)}`, grid, t("dash.models"), models, fmtTokens);
     try {
       await navigator.clipboard.writeText(text);
     } catch {
@@ -339,17 +321,7 @@ export function DashboardPanel(): ReactElement {
   // customQuote 非空 → 按自定义评语模板填充（占位符 {range}/{tokens}/{hitPct}/{models}），否则走评语池。
   // 模型名导出全名（v2.2.1：不再 shortModel 截断）。
   // 导出/展示用具体时间范围（v2.2.1）：5h=某日 HH:00–HH:00；7d/30d=首末日期；custom=from ~ to
-  const rangeLabel = (() => {
-    if (tab === "custom") return `${custom.from} ~ ${custom.to}`;
-    if (points.length === 0) return t(`dash.tab.${tab}`);
-    const first = points[0].key, last = points[points.length - 1].key;
-    const md = (key: string) => `${Number(key.slice(5, 7))}/${Number(key.slice(8, 10))}`;
-    if (tab === "5h") {
-      const h1 = first.slice(11, 13), h2 = last.slice(11, 13);
-      return `${md(first)} ${h1}:00–${h2}:00`;
-    }
-    return `${md(first)} – ${md(last)}（${t(`dash.tab.${tab}`)}）`;
-  })();
+  const rangeLabel = legacyRangeLabel(tab, points, t(`dash.tab.${tab}`), custom);
   const onExportImage = async (customQuote?: string): Promise<void> => {
     const rt = appStore.getRuntime();
     const sprite = await loadSprite(rt.spriteUrl);
@@ -500,4 +472,58 @@ export function DashboardPanel(): ReactElement {
       <div className="dyn-pet-dash-foot">{t("dash.caliber")}</div>
     </div>
   );
+}
+
+type PageTab = "usage" | "speed";
+
+export function DashboardPanel({ useSessions }: { useSessions: UseSessions }): ReactElement {
+  useLang();
+  const snap = useSyncExternalStore(appStore.subscribe, appStore.getSnapshot);
+  const [page, setPage] = useState<PageTab>("usage");
+  const [speedMounted, setSpeedMounted] = useState(false);
+  const [legacy, setLegacy] = useState(false);
+  const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const hadCapability = useRef(false);
+  const legacyRef = useRef(legacy);
+  legacyRef.current = legacy;
+  const capability = snap?.diag?.additiveApiCapability === true;
+  useEffect(() => {
+    const next = reconcileDashboardFallback({ legacy: legacyRef.current, hadCapability: hadCapability.current }, capability);
+    hadCapability.current = next.hadCapability;
+    if (next.legacy !== legacyRef.current) setLegacy(next.legacy);
+  }, [capability]);
+  const onUnsupported = useCallback(() => setLegacy(true), []);
+  if (snap && (!capability || legacy)) return <LegacyUsagePanel />;
+  const selectPage = (next: PageTab): void => {
+    setPage(next);
+    if (next === "speed") setSpeedMounted(true);
+  };
+  const onTabKey = (event: React.KeyboardEvent, index: number): void => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const nextIndex = 1 - index;
+    const next: PageTab = nextIndex === 0 ? "usage" : "speed";
+    selectPage(next);
+    tabRefs.current[nextIndex]?.focus();
+  };
+  return <div className="dyn-pet-dash-shell">
+    <div className="dyn-pet-dash-page-tabs" role="tablist" aria-label={t("dash.panelTitle")}>
+      {(["usage", "speed"] as PageTab[]).map((item, index) => <button
+        key={item}
+        ref={(node) => { tabRefs.current[index] = node; }}
+        id={`foxbell-tab-${item}`}
+        role="tab"
+        aria-selected={page === item}
+        aria-controls={`foxbell-panel-${item}`}
+        tabIndex={page === item ? 0 : -1}
+        className={"dyn-pet-dash-tab" + (page === item ? " is-active" : "")}
+        onClick={() => selectPage(item)}
+        onKeyDown={(event) => onTabKey(event, index)}
+      >{t(item === "usage" ? "dash2.usageTab" : "speed.tab")}</button>)}
+    </div>
+    <div id="foxbell-panel-usage" role="tabpanel" aria-labelledby="foxbell-tab-usage" className="dyn-pet-dash-page" hidden={page !== "usage"}>
+      <UsagePanel active={capability && page === "usage"} onUnsupported={onUnsupported}>{({ query, span, usageRevision, onExportReady, onWindowConflict }) => <CostPanel active={page === "usage"} query={query} span={span} usageRevision={usageRevision} onExportReady={onExportReady} onWindowConflict={onWindowConflict} />}</UsagePanel>
+    </div>
+    {speedMounted ? <div id="foxbell-panel-speed" role="tabpanel" aria-labelledby="foxbell-tab-speed" className="dyn-pet-dash-page" hidden={page !== "speed"}><SpeedPanel active={page === "speed"} useSessions={useSessions} /></div> : null}
+  </div>;
 }
